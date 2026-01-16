@@ -39,6 +39,8 @@ class GameParameters:
 
     # Founder Bomb
     founder_bomb_interval_seconds: float = 87.0  # 1:27 min
+    founder_bomb_charges_per_drop: float = 2.0  # 100% Chance auf 2 Charges
+    founder_bomb_free_chance: float = 0.16  # 16% Chance auf free bomb (keine Charge verbraucht)
     founder_bomb_speed_chance: float = 0.10  # 10%
     founder_bomb_speed_multiplier: float = 2.0
     founder_bomb_speed_duration_seconds: float = 10.0
@@ -252,7 +254,12 @@ class FreebieEVCalculator:
         """
         Berechnet den Founder Bomb Speed Boost pro Stunde (in Gem-Äquivalent).
         
-        Founder Bomb: 1 Bomb alle 87 Sekunden, 10% Chance auf 2× Speed für 10 Sekunden.
+        Founder Bomb Mechanik:
+        - 1 Bomb-Drop alle 87 Sekunden
+        - Pro Drop: 2 Charges (100%)
+        - Pro Charge: 16% Chance auf "free bomb" (keine Charge verbraucht)
+        - Pro Bomb: 10% Chance auf 2× Speed für 10 Sekunden
+        
         Der Speed-Effekt spart Zeit, was effektiv mehr Freebies pro Stunde bedeutet.
         
         Returns:
@@ -262,9 +269,18 @@ class FreebieEVCalculator:
         seconds_per_hour = 3600.0
         founder_bomb_drops_per_hour = seconds_per_hour / self.params.founder_bomb_interval_seconds
         
+        # Effektive Bombs pro Charge (durch free bomb chance)
+        # 16% Chance, dass Charge nicht verbraucht wird = 1 / (1 - 0.16) = 1.1905 Bombs pro Charge
+        effective_bombs_per_charge = 1.0 / (1.0 - self.params.founder_bomb_free_chance)
+        
+        # Effektive Bombs pro Drop (2 Charges × effektive Bombs pro Charge)
+        effective_bombs_per_drop = self.params.founder_bomb_charges_per_drop * effective_bombs_per_charge
+        
         # Erwartete Speed-Aktivierungen pro Stunde
+        # = Drops pro Stunde × effektive Bombs pro Drop × Speed-Chance
         expected_speed_activations = (
             founder_bomb_drops_per_hour *
+            effective_bombs_per_drop *
             self.params.founder_bomb_speed_chance
         )
         
@@ -456,6 +472,8 @@ class FreebieEVCalculator:
         print(f"  Obelisk Level: {self.params.obelisk_level}")
         print(f"  Founder Speed: {self.params.founder_speed_multiplier}× für {self.params.founder_speed_duration_minutes} Minuten")
         print(f"  Founder Bomb Intervall: {self.params.founder_bomb_interval_seconds} Sekunden")
+        print(f"  Founder Bomb Charges pro Drop: {self.params.founder_bomb_charges_per_drop}")
+        print(f"  Founder Bomb Free Chance: {self.params.founder_bomb_free_chance * 100:.1f}%")
         print(f"  Founder Bomb Speed Chance: {self.params.founder_bomb_speed_chance * 100:.1f}%")
         print(f"  Founder Bomb Speed: {self.params.founder_bomb_speed_multiplier}× für {self.params.founder_bomb_speed_duration_seconds} Sekunden")
         print()
