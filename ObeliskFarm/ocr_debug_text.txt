@@ -1,0 +1,57 @@
+======================================================================
+OCR ERKENNTNISSE
+======================================================================
+
+Gesamt: 40 Text-Bereiche gefunden
+
+Alle erkannten Texte:
+1. 'Offline Gains' (Confidence: 0.90)
+2. 'J31' (Confidence: 0.19)
+3. '00h0gm2J5' (Confidence: 0.31)
+4. 'Floor' (Confidence: 0.42)
+5. '24' (Confidence: 0.99)
+6. 'Floocsm: 47.96' (Confidence: 0.92)
+7. 'XP . 1 75b' (Confidence: 0.56)
+8. 'Floor Clears: 450' (Confidence: 0.87)
+9. 'Gold: 41.2k' (Confidence: 0.89)
+10. 'Oces' (Confidence: 0.43)
+11. 'Bars :' (Confidence: 0.41)
+12. '11.4k' (Confidence: 0.99)
+13. '11 4k' (Confidence: 0.93)
+14. 'Bombs and others:' (Confidence: 0.82)
+15. '+14' (Confidence: 0.49)
+16. '+0' (Confidence: 0.98)
+17. '0' (Confidence: 0.22)
+18. '+0' (Confidence: 1.00)
+19. '8*2' (Confidence: 0.20)
+20. '+0 . 02' (Confidence: 0.51)
+21. '8' (Confidence: 0.38)
+22. '1' (Confidence: 0.67)
+23. '0' (Confidence: 0.26)
+24. '+0' (Confidence: 1.00)
+25. '8' (Confidence: 0.22)
+26. '0' (Confidence: 0.33)
+27. ';' (Confidence: 0.77)
+28. '2' (Confidence: 0.52)
+29. '8' (Confidence: 0.92)
+30. '2' (Confidence: 0.27)
+31. 'Oveiview' (Confidence: 0.97)
+32. 'Oie5' (Confidence: 0.43)
+33. 'Bomb 5' (Confidence: 0.98)
+34. '7777 ?' (Confidence: 0.03)
+35. '0717?' (Confidence: 0.02)
+36. '77di)' (Confidence: 0.01)
+37. '11511' (Confidence: 0.04)
+38. 'Other' (Confidence: 0.64)
+39. 'Close' (Confidence: 0.97)
+40. 'and' (Confidence: 1.00)
+
+======================================================================
+VOLLSTÄNDIGER KOMBINIERTER TEXT:
+======================================================================
+Offline Gains J31 00h0gm2J5 Floor 24 Floocsm: 47.96 XP . 1 75b Floor Clears: 450 Gold: 41.2k Oces Bars : 11.4k 11 4k Bombs and others: +14 +0 0 +0 8*2 +0 . 02 8 1 0 +0 8 0 ; 2 8 2 Oveiview Oie5 Bomb 5 7777 ? 0717? 77di) 11511 Other Close and
+
+======================================================================
+SUCHE NACH 'OFFLINE GAINS':
+======================================================================
+OK: 'Offline Gains' wurde erkannt!
