@@ -1,0 +1,2 @@
+# Python-Abhängigkeiten für ObeliskGemEV
+matplotlib>=3.5.0

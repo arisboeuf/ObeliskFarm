@@ -1,0 +1,44 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Android / Gradle
+.gradle/
+build/
+*.apk
+*.ap_
+*.aab
+local.properties
+*.iml
+.idea/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Project specific
+ObeliskFarm/output/
+ObeliskFarm/screenshots/screenshots_debug/
+*.log
+
+# OneDrive
+~$*
