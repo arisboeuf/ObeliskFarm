@@ -1,82 +1,82 @@
 # ObeliskGemEV Calculator 🎮
 
-Ein interaktives GUI-Tool zur Berechnung des **Erwartungswertes (EV)** für Freebies im Android-Spiel **Idle Obelisk Miner**.
+An interactive GUI tool for calculating the **Expected Value (EV)** for freebies in the Android game **Idle Obelisk Miner**.
 
-## 📋 Übersicht
+## 📋 Overview
 
-Der ObeliskGemEV Calculator hilft dir dabei, den optimalen Ertrag aus den verschiedenen Freebie-Mechanismen im Spiel zu berechnen. Das Tool berechnet automatisch den **Gem-Äquivalent-Wert pro Stunde** basierend auf allen aktiven Spielmechaniken wie Jackpots, Refresh-Chains, Skill Shards, Founder-Drops und mehr.
+The ObeliskGemEV Calculator helps you calculate the optimal return from various freebie mechanisms in the game. The tool automatically calculates the **Gem-equivalent value per hour** based on all active game mechanics such as jackpots, refresh chains, skill shards, founder drops, and more.
 
-### Was wird berechnet?
+### What is calculated?
 
-- **Gesamt-EV pro Stunde** in Gems-Äquivalent
-- **Individuelle Contributions** aller Freebie-Quellen
-- **Gift-EV** (Erwartungswert pro geöffnetem Gift)
-- **Multiplikatoren** (Rolls, Refresh, Gesamt)
-- **Visuelle Darstellung** aller Contributions als Bar Chart
+- **Total EV per hour** in Gem-equivalent
+- **Individual contributions** from all freebie sources
+- **Gift-EV** (expected value per opened gift)
+- **Multipliers** (rolls, refresh, total)
+- **Visual representation** of all contributions as a bar chart
 
-## 🎯 Hauptfunktionalitäten
+## 🎯 Main Features
 
-### 🎁 **FREEBIE-Parameter**
+### 🎁 **FREEBIE Parameters**
 
-Steuert die Basis-Freebie-Mechanik:
-- **Freebie Gems (Basis)**: Basis-Gems pro Roll (Standard: 9.0)
-- **Freebie Timer**: Zeit zwischen Freebies in Minuten (Standard: 7.0)
-- **Skill Shards**: Chance (12%) und Wert (12.5 Gems) pro Shard
-- **Stonks**: Aktivierung/Deaktivierung des Stonks-Bonus (1% Chance auf +200 Gems)
-- **Jackpot**: Chance (5%) und Anzahl zusätzlicher Rolls (Standard: 5)
-- **Instant Refresh**: Chance (5%) auf sofortiges Refresh (chainable)
+Controls the basic freebie mechanics:
+- **Freebie Gems (Base)**: Base gems per roll (default: 9.0)
+- **Freebie Timer**: Time between freebies in minutes (default: 7.0)
+- **Skill Shards**: Chance (12%) and value (12.5 Gems) per shard
+- **Stonks**: Enable/disable stonks bonus (1% chance for +200 Gems)
+- **Jackpot**: Chance (5%) and number of additional rolls (default: 5)
+- **Instant Refresh**: Chance (5%) for instant refresh (chainable)
 
 ### 📦 **FOUNDER SUPPLY DROP**
 
-Berechnet den Ertrag aus Founder-Supply-Drops:
-- **VIP Lounge Level** (1-7): Bestimmt automatisch:
-  - Drop-Intervall: `60 - 2×(Level-1)` Minuten
-  - Double Drop Chance: 12% bei Level 2, +6% pro Level
-  - Triple Drop Chance: 16% bei Level 7
-- **Obelisk Level**: Wird für Bonus-Gem-Berechnungen verwendet (Standard: 26)
-- **Founder Gems**: Fix 10 Gems pro Drop + 1/100 Chance auf Bonus-Gems
-- **Founder Speed Boost**: 2× Game Speed für 5 Minuten pro Drop (spart Zeit → mehr Freebies)
-- **Gift-Chance**: 1/1234 Chance auf 10 Gifts pro Supply Drop
+Calculates returns from founder supply drops:
+- **VIP Lounge Level** (1-7): Automatically determines:
+  - Drop interval: `60 - 2×(Level-1)` minutes
+  - Double drop chance: 12% at Level 2, +6% per level
+  - Triple drop chance: 16% at Level 7
+- **Obelisk Level**: Used for bonus gem calculations (default: 26)
+- **Founder Gems**: Fixed 10 Gems per drop + 1/100 chance for bonus gems
+- **Founder Speed Boost**: 2× game speed for 5 minutes per drop (saves time → more freebies)
+- **Gift Chance**: 1/1234 chance for 10 gifts per supply drop
 
 ### 💣 **FOUNDER BOMB**
 
-Berechnet den Speed-Boost durch Founder-Bombs:
-- **Bomb Intervall**: Zeit zwischen Bombs in Sekunden (Standard: 87.0 = 1:27 min)
-- **Bomb Speed**: 10% Chance auf 2× Game Speed für 10 Sekunden
-- Rein zeitbasiert: Spart Zeit → erhöht effektiv die Anzahl der Freebies pro Stunde
+Calculates speed boost from founder bombs:
+- **Bomb Interval**: Time between bombs in seconds (default: 87.0 = 1:27 min)
+- **Bomb Speed**: 10% chance for 2× game speed for 10 seconds
+- Purely time-based: Saves time → effectively increases the number of freebies per hour
 
-## 🖥️ GUI-Features
+## 🖥️ GUI Features
 
-### Live-Updates
-- **Automatische Berechnung**: Alle Werte werden sofort aktualisiert, sobald du einen Parameter änderst
-- **Echtzeit-Visualisierung**: Bar Chart zeigt alle Contributions in Echtzeit
+### Live Updates
+- **Automatic calculation**: All values are updated immediately when you change a parameter
+- **Real-time visualization**: Bar chart shows all contributions in real-time
 
-### Interaktive Tooltips
-- **❓ Icons**: Hover über die Fragezeichen-Icons für detaillierte Informationen zu jedem Bereich
-- **Gift-EV Tooltip**: Zeigt detaillierte Breakdown aller Gift-Contributions beim Hover
+### Interactive Tooltips
+- **❓ Icons**: Hover over the question mark icons for detailed information on each section
+- **Gift-EV Tooltip**: Shows detailed breakdown of all gift contributions on hover
 
-### Visualisierung
-- **Bar Chart**: Zeigt alle EV-Contributions visuell an (erfordert Matplotlib)
-  - Horizontale Balken für jeden EV-Posten
-  - Farbcodierung: Unterschiedliche Farben für Freebie (Blau), Founder (Grün) und Bomb (Rot)
-  - Hilft beim schnellen Vergleich der relativen Wichtigkeit jeder Ertragsquelle
+### Visualization
+- **Bar Chart**: Displays all EV contributions visually (requires Matplotlib)
+  - Horizontal bars for each EV item
+  - Color coding: Different colors for Freebie (Blue), Founder (Green), and Bomb (Red)
+  - Helps quickly compare the relative importance of each income source
 
-### Ergebnis-Übersicht
-- **Multiplikatoren**: Erwartete Rolls, Refresh-Multiplikator, Gesamt-Multiplikator
-- **EV-Contributions**: Detaillierter Breakdown aller einzelnen Ertragsquellen
-- **Total-EV**: Gesamt-Gem-Äquivalent pro Stunde (fett hervorgehoben)
-- **Gift-EV**: Separater Erwartungswert pro geöffnetem Gift
+### Results Overview
+- **Multipliers**: Expected rolls, refresh multiplier, total multiplier
+- **EV Contributions**: Detailed breakdown of all individual income sources
+- **Total-EV**: Total gem-equivalent per hour (bold highlighted)
+- **Gift-EV**: Separate expected value per opened gift
 
 ## 🚀 Installation & Start
 
-### Voraussetzungen
+### Requirements
 
 ```bash
 cd ObeliskGemEV
 pip install -r requirements.txt
 ```
 
-### Starten der GUI
+### Starting the GUI
 
 **Windows:**
 ```bash
@@ -90,61 +90,61 @@ cd ObeliskGemEV
 python gui.py
 ```
 
-Oder direkt:
+Or directly:
 ```bash
 python ObeliskGemEV/gui.py
 ```
 
-## 📊 Beispiel-Output
+## 📊 Example Output
 
-Bei Standard-Parametern erhältst du etwa:
+With default parameters, you get approximately:
 
 ```
-Erwartete Rolls pro Claim:     1.2000
-Refresh-Multiplikator:          1.0526
-Gesamt-Multiplikator:           1.2632
+Expected Rolls per Claim:      1.2000
+Refresh Multiplier:             1.0526
+Total Multiplier:               1.2632
 
-TOTAL:                          148.0 Gems-Äq/h
+TOTAL:                          148.0 Gem-Eq/h
 
-Gift-EV (pro 1 geöffneten Gift):  XX.XX Gems-Äq
+Gift-EV (per 1 opened gift):    XX.XX Gem-Eq
 ```
 
-## 🔧 Technische Details
+## 🔧 Technical Details
 
-### Berechnete EV-Contributions
+### Calculated EV Contributions
 
-1. **Gems (Basis aus Rolls)**: Basis-9-Gems × Multiplikatoren
-2. **Gems (Stonks EV)**: Erwartungswert aus Stonks (nur erste Roll)
-3. **Skill Shards (Gem-Äq)**: Shard-Chance × Shard-Wert × Multiplikatoren
-4. **Founder Speed Boost**: Zeitersparnis durch 2× Speed → mehr Freebies → Gem-Äquivalent
-5. **Founder Gems**: Direkte Gem-Drops aus Supply Drops (inkl. Double/Triple Drops)
-6. **Founder Bomb Boost**: Zeitersparnis durch Bomb-Speed-Boosts
+1. **Gems (Base from Rolls)**: Base 9 gems × multipliers
+2. **Gems (Stonks EV)**: Expected value from stonks (first roll only)
+3. **Skill Shards (Gem-Eq)**: Shard chance × shard value × multipliers
+4. **Founder Speed Boost**: Time saved through 2× speed → more freebies → gem-equivalent
+5. **Founder Gems**: Direct gem drops from supply drops (incl. double/triple drops)
+6. **Founder Bomb Boost**: Time saved through bomb speed boosts
 
-### Multiplikatoren
+### Multipliers
 
-- **Jackpot**: Durchschnittlich 1.2 Rolls pro Claim (95% × 1 + 5% × 5)
-- **Refresh**: Geometrische Reihe → 1/(1-0.05) = 1.0526 Claims pro Start-Freebie
-- **Gesamt**: Jackpot × Refresh = 1.2632
+- **Jackpot**: Average 1.2 rolls per claim (95% × 1 + 5% × 5)
+- **Refresh**: Geometric series → 1/(1-0.05) = 1.0526 claims per start-freebie
+- **Total**: Jackpot × Refresh = 1.2632
 
-### Speed-Boost-Berechnung
+### Speed Boost Calculation
 
-Speed-Boosts sparen Zeit, was effektiv mehr Freebies pro Stunde ermöglicht:
-- **Founder Speed**: 2× Speed für 5-15 Minuten (je nach Single/Double/Triple Drop)
-- **Bomb Speed**: 2× Speed für 10 Sekunden bei 10% Chance
+Speed boosts save time, which effectively enables more freebies per hour:
+- **Founder Speed**: 2× speed for 5-15 minutes (depending on single/double/triple drop)
+- **Bomb Speed**: 2× speed for 10 seconds at 10% chance
 
-Die Zeitersparnis wird in zusätzliche Freebies umgerechnet und als Gem-Äquivalent dargestellt.
+The time saved is converted into additional freebies and displayed as gem-equivalent.
 
-## 📝 Hinweise
+## 📝 Notes
 
-- Alle Werte sind **pro Stunde** und in **Gems-Äquivalent**
-- Die Berechnungen basieren auf den aktuellen Spielmechaniken (Stand: siehe Code)
-- Parameter können jederzeit angepasst werden, falls sich Spielwerte ändern
-- **Stonks** kann über Checkbox aktiviert/deaktiviert werden (für Tests/Vergleiche)
+- All values are **per hour** and in **Gem-equivalent**
+- Calculations are based on current game mechanics (see code for status)
+- Parameters can be adjusted at any time if game values change
+- **Stonks** can be enabled/disabled via checkbox (for testing/comparisons)
 
-## 📄 Lizenz
+## 📄 License
 
-Für den persönlichen Gebrauch beim Spielen von Idle Obelisk Miner.
+For personal use when playing Idle Obelisk Miner.
 
 ---
 
-**Viel Erfolg beim Optimieren deines Freebie-Ertrags! 🎉**
+**Good luck optimizing your freebie returns! 🎉**

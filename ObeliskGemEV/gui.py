@@ -1,5 +1,5 @@
 """
-GUI für ObeliskGemEV Calculator
+GUI for ObeliskGemEV Calculator
 """
 
 import tkinter as tk
@@ -25,7 +25,7 @@ from freebie_ev_calculator import FreebieEVCalculator, GameParameters
 
 
 class ObeliskGemEVGUI:
-    """GUI für den ObeliskGemEV Calculator"""
+    """GUI for the ObeliskGemEV Calculator"""
     
     def __init__(self, root):
         self.root = root
@@ -141,28 +141,28 @@ class ObeliskGemEVGUI:
         
         # Tooltip für Freebie-Info
         freebie_info = (
-            "FREEBIE Parameter:\n"
-            "• Freebie Gems (Basis): Fix 9.0\n"
-            "• Freebie Timer: 7.0 Minuten\n"
-            "• Skill Shards: 12% Chance, 12.5 Gems Wert\n"
-            "• Stonks: 1% Chance, 200 Gems Bonus (wenn aktiviert)\n"
-            "• Jackpot: 5% Chance auf 5 zusätzliche Rolls\n"
-            "• Refresh: 5% Chance auf sofortiges Refresh"
+            "FREEBIE Parameters:\n"
+            "• Freebie Gems (Base): Fixed 9.0\n"
+            "• Freebie Timer: 7.0 minutes\n"
+            "• Skill Shards: 12% chance, 12.5 Gems value\n"
+            "• Stonks: 1% chance, 200 Gems bonus (if enabled)\n"
+            "• Jackpot: 5% chance for 5 additional rolls\n"
+            "• Refresh: 5% chance for instant refresh"
         )
         self.create_tooltip(freebie_help_label, freebie_info)
         
         row = 0
         
         # Basis-Parameter
-        ttk.Label(freebie_frame, text="Basis:", font=("Arial", 9, "bold")).grid(
+        ttk.Label(freebie_frame, text="Base:", font=("Arial", 9, "bold")).grid(
             row=row, column=0, columnspan=2, sticky=tk.W, pady=(0, 3)
         )
         row += 1
         
-        self.create_entry(freebie_frame, "freebie_gems_base", "  Freebie Gems (Basis):", row, "9.0")
+        self.create_entry(freebie_frame, "freebie_gems_base", "  Freebie Gems (Base):", row, "9.0")
         row += 1
         
-        self.create_entry(freebie_frame, "freebie_timer_minutes", "  Freebie Timer (Minuten):", row, "7.0")
+        self.create_entry(freebie_frame, "freebie_timer_minutes", "  Freebie Timer (Minutes):", row, "7.0")
         row += 1
         
         # Separator
@@ -180,7 +180,7 @@ class ObeliskGemEVGUI:
         self.create_entry(freebie_frame, "skill_shard_chance", "  Skill Shard Chance (%):", row, "12.0", is_percent=True)
         row += 1
         
-        self.create_entry(freebie_frame, "skill_shard_value_gems", "  Skill Shard Wert (Gems):", row, "12.5")
+        self.create_entry(freebie_frame, "skill_shard_value_gems", "  Skill Shard Value (Gems):", row, "12.5")
         row += 1
         
         # Separator
@@ -194,7 +194,7 @@ class ObeliskGemEVGUI:
         self.stonks_enabled = stonks_var
         stonks_checkbox = ttk.Checkbutton(
             freebie_frame,
-            text="Stonks aktiviert (1% Chance, 200 Gems Bonus)",
+            text="Stonks enabled (1% chance, 200 Gems bonus)",
             variable=stonks_var,
             command=self.trigger_auto_calculate
         )
@@ -253,15 +253,15 @@ class ObeliskGemEVGUI:
         # Tooltip für Founder Supply Drop Info
         founder_info = (
             "FOUNDER SUPPLY DROP:\n"
-            "• VIP Lounge Level: Bestimmt Drop-Intervall und Double/Triple Chance\n"
-            "  - Intervall: 60 - 2×(Level-1) Minuten\n"
-            "  - Double Chance: 12% bei Level 2, +6% pro Level\n"
-            "  - Triple Chance: 16% bei Level 7\n"
-            "• Founder Gems Base: Fix 10 Gems pro Drop\n"
-            "• Founder Speed: 2× Speed für 5 Minuten pro Drop\n"
-            "  (spart Zeit → mehr Freebies → Gem-Äquivalent)\n"
-            "• 1/1234 Chance: 10 Gifts pro Supply Drop\n"
-            "• Obelisk Level: Wird für Bonus-Gems verwendet"
+            "• VIP Lounge Level: Determines drop interval and double/triple chance\n"
+            "  - Interval: 60 - 2×(Level-1) minutes\n"
+            "  - Double Chance: 12% at Level 2, +6% per level\n"
+            "  - Triple Chance: 16% at Level 7\n"
+            "• Founder Gems Base: Fixed 10 Gems per drop\n"
+            "• Founder Speed: 2× speed for 5 minutes per drop\n"
+            "  (saves time → more freebies → gem-equivalent)\n"
+            "• 1/1234 Chance: 10 gifts per supply drop\n"
+            "• Obelisk Level: Used for bonus gems"
         )
         self.create_tooltip(founder_help_label, founder_info)
         
@@ -281,7 +281,7 @@ class ObeliskGemEVGUI:
         
         row = 0
         
-        self.create_entry(bomb_frame, "founder_bomb_interval_seconds", "Founder Bomb Intervall (Sekunden):", row, "87.0")
+        self.create_entry(bomb_frame, "founder_bomb_interval_seconds", "Founder Bomb Interval (Seconds):", row, "87.0")
         row += 1
         
         # Separator
@@ -298,13 +298,13 @@ class ObeliskGemEVGUI:
         self.create_entry(bomb_frame, "founder_bomb_speed_chance", "  Speed Chance (%):", row, "10.0", is_percent=True)
         row += 1
         
-        self.create_entry(bomb_frame, "founder_bomb_speed_multiplier", "  Speed Multiplikator:", row, "2.0")
+        self.create_entry(bomb_frame, "founder_bomb_speed_multiplier", "  Speed Multiplier:", row, "2.0")
         row += 1
         
-        self.create_entry(bomb_frame, "founder_bomb_speed_duration_seconds", "  Speed Dauer (Sekunden):", row, "10.0")
+        self.create_entry(bomb_frame, "founder_bomb_speed_duration_seconds", "  Speed Duration (Seconds):", row, "10.0")
     
     def create_tooltip(self, widget, text):
-        """Erstellt einen Tooltip, der erscheint, wenn man über ein Widget hovert"""
+        """Creates a tooltip that appears when hovering over a widget"""
         def on_enter(event):
             tooltip = tk.Toplevel()
             tooltip.wm_overrideredirect(True)
@@ -332,18 +332,18 @@ class ObeliskGemEVGUI:
         widget.bind("<Leave>", on_leave)
     
     def create_dynamic_gift_tooltip(self, widget):
-        """Erstellt einen dynamischen Tooltip für Gift-EV mit Contributions"""
+        """Creates a dynamic tooltip for Gift-EV with contributions"""
         def on_enter(event):
             # Basis-Info
             base_info = (
-                "GIFT-EV Berechnung:\n"
-                "• Basis-Roll: Gems (20-40, 30-65), Skill Shards, Blue Cow, 2× Speed\n"
-                "• Rare Roll: 1/45 Chance auf 80-130 Gems\n"
-                "• Rekursive Gifts: 1/40 Chance auf 3 zusätzliche Gifts\n"
-                "• Multiplikatoren: Obelisk × Lucky Multiplier\n"
-                "• Alle Werte werden in Gem-Äquivalent umgerechnet\n"
+                "GIFT-EV Calculation:\n"
+                "• Base Roll: Gems (20-40, 30-65), Skill Shards, Blue Cow, 2× Speed\n"
+                "• Rare Roll: 1/45 chance for 80-130 Gems\n"
+                "• Recursive Gifts: 1/40 chance for 3 additional gifts\n"
+                "• Multipliers: Obelisk × Lucky Multiplier\n"
+                "• All values are converted to gem-equivalent\n"
                 "\n"
-                "Contributions (aktuelle Werte):\n"
+                "Contributions (current values):\n"
             )
             
             # Contributions aus den Labels holen (falls bereits berechnet)
@@ -356,7 +356,7 @@ class ObeliskGemEVGUI:
                         contrib_text += f"• {self._get_contrib_label(key)}: {value}\n"
             
             if not contrib_text:
-                contrib_text = "(Werte werden nach Berechnung angezeigt)\n"
+                contrib_text = "(Values will be displayed after calculation)\n"
             
             full_text = base_info + contrib_text
             
@@ -386,7 +386,7 @@ class ObeliskGemEVGUI:
         widget.bind("<Leave>", on_leave)
     
     def _get_contrib_label(self, key):
-        """Gibt das Label für einen Contribution-Key zurück"""
+        """Returns the label for a contribution key"""
         labels = {
             'gems_20_40': 'Gems (20-40)',
             'gems_30_65': 'Gems (30-65)',
@@ -394,12 +394,12 @@ class ObeliskGemEVGUI:
             'blue_cow': 'Blue Cow',
             'speed_boost': '2× Speed Boost',
             'rare_gems': 'Rare Roll Gems',
-            'recursive_gifts': 'Rekursive Gifts'
+            'recursive_gifts': 'Recursive Gifts'
         }
         return labels.get(key, key)
     
     def create_entry(self, parent, var_name, label_text, row, default_value, is_percent=False, is_int=False):
-        """Erstellt ein Eingabefeld mit Label"""
+        """Creates an input field with label"""
         
         ttk.Label(parent, text=label_text).grid(row=row, column=0, sticky=tk.W, padx=(0, 10), pady=2)
         
@@ -413,10 +413,10 @@ class ObeliskGemEVGUI:
         var.trace_add('write', lambda *args: self.trigger_auto_calculate())
     
     def create_result_section(self, parent):
-        """Erstellt die Ergebnis-Anzeige (rechts)"""
+        """Creates the results display (right side)"""
         
         # Frame für Ergebnisse
-        result_frame = ttk.LabelFrame(parent, text="Ergebnisse", padding="10")
+        result_frame = ttk.LabelFrame(parent, text="Results", padding="10")
         result_frame.grid(row=1, column=1, sticky=(tk.W, tk.E, tk.N, tk.S), padx=(10, 0))
         result_frame.columnconfigure(0, weight=1)
         result_frame.rowconfigure(1, weight=1)
@@ -429,9 +429,9 @@ class ObeliskGemEVGUI:
         
         self.mult_labels = {}
         mult_labels_text = [
-            ("Erwartete Rolls pro Claim:", "expected_rolls"),
-            ("Refresh-Multiplikator:", "refresh_mult"),
-            ("Gesamt-Multiplikator:", "total_mult")
+            ("Expected Rolls per Claim:", "expected_rolls"),
+            ("Refresh Multiplier:", "refresh_mult"),
+            ("Total Multiplier:", "total_mult")
         ]
         
         for i, (label_text, key) in enumerate(mult_labels_text):
@@ -483,7 +483,7 @@ class ObeliskGemEVGUI:
         gift_header_frame = ttk.Frame(ev_frame)
         gift_header_frame.grid(row=2, column=0, columnspan=2, sticky=tk.W, pady=(0, 5))
         
-        gift_label = ttk.Label(gift_header_frame, text="Gift-EV (pro 1 geöffneten Gift):", font=("Arial", 10, "bold"))
+        gift_label = ttk.Label(gift_header_frame, text="Gift-EV (per 1 opened gift):", font=("Arial", 10, "bold"))
         gift_label.pack(side=tk.LEFT)
         
         # Fragezeichen-Icon für Hover-Tooltip
@@ -494,7 +494,7 @@ class ObeliskGemEVGUI:
         self.gift_help_label = gift_help_label
         self.create_dynamic_gift_tooltip(gift_help_label)
         
-        ttk.Label(ev_frame, text="Gem-EV pro Gift:").grid(
+        ttk.Label(ev_frame, text="Gem-EV per Gift:").grid(
             row=3, column=0, sticky=tk.W, padx=(0, 10), pady=2
         )
         self.gift_ev_label = ttk.Label(ev_frame, text="—", font=("Arial", 11, "bold"))
@@ -509,7 +509,7 @@ class ObeliskGemEVGUI:
             ("Blue Cow:", "blue_cow"),
             ("2× Speed Boost:", "speed_boost"),
             ("Rare Roll Gems:", "rare_gems"),
-            ("Rekursive Gifts:", "recursive_gifts")
+            ("Recursive Gifts:", "recursive_gifts")
         ]
         
         # Gift-EV Contributions Labels (nur für Tooltip, nicht im GUI sichtbar)
@@ -534,12 +534,12 @@ class ObeliskGemEVGUI:
         else:
             ttk.Label(
                 result_frame,
-                text="Matplotlib nicht verfügbar.\nBar Chart wird nicht angezeigt.",
+                text="Matplotlib not available.\nBar Chart will not be displayed.",
                 foreground="gray"
             ).grid(row=3, column=0, pady=10)
     
     def load_defaults(self):
-        """Lädt die Standard-Werte"""
+        """Loads the default values"""
         defaults = GameParameters()
         
         self.vars['freebie_gems_base']['var'].set(str(defaults.freebie_gems_base))
@@ -560,7 +560,7 @@ class ObeliskGemEVGUI:
         self.vars['founder_bomb_speed_duration_seconds']['var'].set(str(defaults.founder_bomb_speed_duration_seconds))
     
     def get_parameters(self):
-        """Liest die Parameter aus den Eingabefeldern"""
+        """Reads parameters from input fields"""
         try:
             params = {}
             
@@ -568,7 +568,7 @@ class ObeliskGemEVGUI:
                 value = info['var'].get().strip()
                 
                 if not value:
-                    raise ValueError(f"Bitte geben Sie einen Wert für {key} ein.")
+                    raise ValueError(f"Please enter a value for {key}.")
                 
                 if info['is_percent']:
                     # Prozent in Dezimal umwandeln
@@ -589,11 +589,11 @@ class ObeliskGemEVGUI:
             return GameParameters(**params)
         
         except ValueError as e:
-            messagebox.showerror("Eingabefehler", str(e))
+            messagebox.showerror("Input Error", str(e))
             return None
     
     def update_chart(self, ev, calculator):
-        """Aktualisiert den Bar Chart mit den EV-Contributions"""
+        """Updates the bar chart with EV contributions"""
         if not MATPLOTLIB_AVAILABLE or self.fig is None:
             return
         
@@ -682,7 +682,7 @@ class ObeliskGemEVGUI:
         refresh_jackpot_values_normal = refresh_jackpot_values[:3]
         
         # Basis (unten) - normale Bars
-        bars_base = self.ax.bar(x_normal, base_values_normal, width, label='Basis', 
+        bars_base = self.ax.bar(x_normal, base_values_normal, width, label='Base', 
                                 color='#2E86AB', edgecolor='black', linewidth=1.0)
         
         # Jackpot (auf Basis) - normale Bars
@@ -822,7 +822,7 @@ class ObeliskGemEVGUI:
         # Legende
         self.ax.legend(loc='upper right', fontsize=8, framealpha=0.9)
         
-        self.ax.set_ylabel('Gems-Äquivalent pro Stunde', fontsize=10, fontweight='bold')
+        self.ax.set_ylabel('Gem-Equivalent per Hour', fontsize=10, fontweight='bold')
         self.ax.set_title('EV Contributions', fontsize=12, fontweight='bold', pad=10)
         self.ax.grid(axis='y', alpha=0.3, linestyle='--')
         
@@ -834,7 +834,7 @@ class ObeliskGemEVGUI:
         self.canvas.draw()
     
     def calculate(self):
-        """Führt die Berechnung durch"""
+        """Performs the calculation"""
         params = self.get_parameters()
         if params is None:
             return
@@ -864,11 +864,11 @@ class ObeliskGemEVGUI:
             self.ev_labels['founder_bomb_boost'].config(text=f"{ev['founder_bomb_boost']:.1f} Gems/h")
             
             # Total anzeigen
-            self.total_label.config(text=f"{ev['total']:.1f} Gems-Äquivalent/h")
+            self.total_label.config(text=f"{ev['total']:.1f} Gem-Equivalent/h")
             
             # Gift-EV berechnen und anzeigen
             gift_ev = calculator.calculate_gift_ev_per_gift()
-            self.gift_ev_label.config(text=f"{gift_ev:.1f} Gems pro Gift")
+            self.gift_ev_label.config(text=f"{gift_ev:.1f} Gems per Gift")
             
             # Gift-EV Contributions anzeigen
             gift_contrib = calculator.calculate_gift_ev_breakdown()
@@ -886,10 +886,10 @@ class ObeliskGemEVGUI:
         except Exception as e:
             # Bei Auto-Calculate keine Fehlermeldung anzeigen, nur bei manueller Berechnung
             if not hasattr(self, '_auto_calculating') or not self._auto_calculating:
-                messagebox.showerror("Berechnungsfehler", f"Ein Fehler ist aufgetreten:\n{str(e)}")
+                messagebox.showerror("Calculation Error", f"An error occurred:\n{str(e)}")
     
     def trigger_auto_calculate(self):
-        """Löst eine automatische Berechnung mit Delay aus"""
+        """Triggers an automatic calculation with delay"""
         if not self.auto_calculate_enabled:
             return
         
@@ -903,7 +903,7 @@ class ObeliskGemEVGUI:
         self.root.after(500, self._perform_auto_calculate)
     
     def _perform_auto_calculate(self):
-        """Führt die automatische Berechnung durch"""
+        """Performs the automatic calculation"""
         self.calculation_pending = False
         self._auto_calculating = True
         try:
@@ -913,7 +913,7 @@ class ObeliskGemEVGUI:
 
 
 def main():
-    """Hauptfunktion"""
+    """Main function"""
     root = tk.Tk()
     app = ObeliskGemEVGUI(root)
     root.mainloop()
