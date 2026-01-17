@@ -13,16 +13,6 @@ dist/
 build/
 *.egg
 
-# Android / Gradle
-.gradle/
-build/
-*.apk
-*.ap_
-*.aab
-local.properties
-*.iml
-.idea/
-
 # IDE
 .vscode/
 .idea/
@@ -36,8 +26,6 @@ Thumbs.db
 desktop.ini
 
 # Project specific
-ObeliskFarm/output/
-ObeliskFarm/screenshots/screenshots_debug/
 *.log
 
 # OneDrive
