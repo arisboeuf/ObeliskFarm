@@ -616,8 +616,8 @@ class ObeliskGemEVGUI:
         refresh_base_values = []
         refresh_jackpot_values = []
         
-        # Normale Keys (ohne Founder Speed und Gems)
-        normal_keys = ['gems_base', 'stonks_ev', 'skill_shards_ev', 'founder_bomb_boost']
+        # Normale Keys (ohne Founder Speed, Gems und Bomb)
+        normal_keys = ['gems_base', 'stonks_ev', 'skill_shards_ev']
         
         for key in normal_keys:
             bd = breakdown[key]
@@ -637,6 +637,13 @@ class ObeliskGemEVGUI:
         refresh_base_values.append(founder_speed_bd['refresh_base'])
         refresh_jackpot_values.append(founder_speed_bd['refresh_jackpot'])
         
+        # Founder Bomb (nach Founder Supply Drop)
+        founder_bomb_bd = breakdown['founder_bomb_boost']
+        base_values.append(founder_bomb_bd['base'])
+        jackpot_values.append(founder_bomb_bd['jackpot'])
+        refresh_base_values.append(founder_bomb_bd['refresh_base'])
+        refresh_jackpot_values.append(founder_bomb_bd['refresh_jackpot'])
+        
         # Gems (oben) - wird auf Speed gestapelt
         founder_gems_base = [founder_gems_bd['base']]
         founder_gems_jackpot = [founder_gems_bd['jackpot']]
@@ -648,14 +655,17 @@ class ObeliskGemEVGUI:
         percentages = [(v / total * 100) if total > 0 else 0 for v in [
             ev['gems_base'],
             ev['stonks_ev'],
-            ev['skill_shards_ev'],
-            ev['founder_bomb_boost']
+            ev['skill_shards_ev']
         ]]
         
         # Founder Supply Drop Prozentanteile (gesamt: Speed + Gems)
         founder_supply_total = ev['founder_speed_boost'] + ev['founder_gems']
         founder_supply_percentage = (founder_supply_total / total * 100) if total > 0 else 0
         percentages.append(founder_supply_percentage)
+        
+        # Founder Bomb Prozentanteile
+        founder_bomb_percentage = (ev['founder_bomb_boost'] / total * 100) if total > 0 else 0
+        percentages.append(founder_bomb_percentage)
         
         # Chart aktualisieren
         self.ax.clear()
@@ -664,12 +674,12 @@ class ObeliskGemEVGUI:
         x = range(len(categories))
         width = 0.6
         
-        # Normale Bars (erste 4 Kategorien)
-        x_normal = x[:-1]
-        base_values_normal = base_values[:-1]
-        jackpot_values_normal = jackpot_values[:-1]
-        refresh_base_values_normal = refresh_base_values[:-1]
-        refresh_jackpot_values_normal = refresh_jackpot_values[:-1]
+        # Normale Bars (erste 3 Kategorien: Gems, Stonks, Skill Shards)
+        x_normal = x[:3]
+        base_values_normal = base_values[:3]
+        jackpot_values_normal = jackpot_values[:3]
+        refresh_base_values_normal = refresh_base_values[:3]
+        refresh_jackpot_values_normal = refresh_jackpot_values[:3]
         
         # Basis (unten) - normale Bars
         bars_base = self.ax.bar(x_normal, base_values_normal, width, label='Basis', 
@@ -689,17 +699,20 @@ class ObeliskGemEVGUI:
         # Refresh Jackpot (ganz oben) - normale Bars
         bottom_refresh_jackpot_normal = [b + j + r for b, j, r in zip(base_values_normal, jackpot_values_normal, refresh_base_values_normal)]
         bars_refresh_jackpot_normal = self.ax.bar(x_normal, refresh_jackpot_values_normal, width, bottom=bottom_refresh_jackpot_normal,
-                                                  label='Refresh (Jackpot)', color='#C73E1D', edgecolor='black',
-                                                  linewidth=1.0, hatch='xxx', alpha=0.8)
+                                          label='Refresh (Jackpot)', color='#C73E1D', edgecolor='black',
+                                          linewidth=1.0, hatch='xxx', alpha=0.8)
         
         # Founder Supply Drop: Speed (unten) und Gems (oben) gestapelt
-        x_founder = x[-1]
+        x_founder = x[3]  # Index 3: Founder Supply Drop
+        
+        # Founder Bomb (separate Bar)
+        x_bomb = x[4]  # Index 4: Founder Bomb
         
         # Founder Speed - untere gestapelte Bar (wie normale Bars)
-        founder_speed_base = base_values[-1]
-        founder_speed_jackpot = jackpot_values[-1]
-        founder_speed_refresh_base = refresh_base_values[-1]
-        founder_speed_refresh_jackpot = refresh_jackpot_values[-1]
+        founder_speed_base = base_values[3]
+        founder_speed_jackpot = jackpot_values[3]
+        founder_speed_refresh_base = refresh_base_values[3]
+        founder_speed_refresh_jackpot = refresh_jackpot_values[3]
         
         # Speed-Bars (unten)
         self.ax.bar([x_founder], [founder_speed_base], width, color='#2E86AB', edgecolor='black', linewidth=1.0)
@@ -728,11 +741,26 @@ class ObeliskGemEVGUI:
                     bottom=[founder_gems_bottom_refresh_base + founder_gems_refresh_base[0]],
                     color='#C73E1D', edgecolor='black', linewidth=1.0, hatch='xxx', alpha=0.8)
         
-        # Werte und Prozentanteile auf Bars anzeigen (ganz oben)
-        # Normale Bars
-        normal_total_values = [ev['gems_base'], ev['stonks_ev'], ev['skill_shards_ev'], ev['founder_bomb_boost']]
+        # Founder Bomb Bar (normale gestapelte Bar)
+        founder_bomb_base = base_values[4]
+        founder_bomb_jackpot = jackpot_values[4]
+        founder_bomb_refresh_base = refresh_base_values[4]
+        founder_bomb_refresh_jackpot = refresh_jackpot_values[4]
         
-        for i, (total_val, percentage) in enumerate(zip(normal_total_values, percentages[:-1])):
+        self.ax.bar([x_bomb], [founder_bomb_base], width, color='#2E86AB', edgecolor='black', linewidth=1.0)
+        self.ax.bar([x_bomb], [founder_bomb_jackpot], width, bottom=[founder_bomb_base],
+                    color='#A23B72', edgecolor='black', linewidth=1.0, hatch='///', alpha=0.8)
+        self.ax.bar([x_bomb], [founder_bomb_refresh_base], width, bottom=[founder_bomb_base + founder_bomb_jackpot],
+                    color='#F18F01', edgecolor='black', linewidth=1.0, hatch='...', alpha=0.8)
+        self.ax.bar([x_bomb], [founder_bomb_refresh_jackpot], width,
+                    bottom=[founder_bomb_base + founder_bomb_jackpot + founder_bomb_refresh_base],
+                    color='#C73E1D', edgecolor='black', linewidth=1.0, hatch='xxx', alpha=0.8)
+        
+        # Werte und Prozentanteile auf Bars anzeigen (ganz oben)
+        # Normale Bars (erste 3)
+        normal_total_values = [ev['gems_base'], ev['stonks_ev'], ev['skill_shards_ev']]
+        
+        for i, (total_val, percentage) in enumerate(zip(normal_total_values, percentages[:3])):
             height = base_values[i] + jackpot_values[i] + refresh_base_values[i] + refresh_jackpot_values[i]
             self.ax.text(
                 i, height,
@@ -742,24 +770,34 @@ class ObeliskGemEVGUI:
                          edgecolor='gray', linewidth=0.5)
             )
         
+        # Founder Bomb Bar
+        founder_bomb_height = base_values[4] + jackpot_values[4] + refresh_base_values[4] + refresh_jackpot_values[4]
+        self.ax.text(
+            x_bomb, founder_bomb_height,
+            f'{ev["founder_bomb_boost"]:.1f}\n({percentages[4]:.1f}%)',
+            ha='center', va='bottom', fontsize=8, fontweight='bold',
+            bbox=dict(boxstyle='round,pad=0.3', facecolor='white', alpha=0.9, 
+                     edgecolor='gray', linewidth=0.5)
+        )
+        
         # Founder Supply Drop: Gesamtwert oben, aber auch Speed und Gems separat anzeigen
-        founder_supply_total_height = (base_values[-1] + jackpot_values[-1] + refresh_base_values[-1] + refresh_jackpot_values[-1] +
+        founder_supply_total_height = (base_values[3] + jackpot_values[3] + refresh_base_values[3] + refresh_jackpot_values[3] +
                                       founder_gems_base[0] + founder_gems_jackpot[0] + founder_gems_refresh_base[0] + founder_gems_refresh_jackpot[0])
         
-        # Gesamtwert oben
+        # Gesamtwert oben (Index 3: Founder Supply Drop)
         self.ax.text(
-            len(x) - 1, founder_supply_total_height,
-            f'{ev["founder_speed_boost"] + ev["founder_gems"]:.1f}\n({percentages[-1]:.1f}%)',
+            x_founder, founder_supply_total_height,
+            f'{ev["founder_speed_boost"] + ev["founder_gems"]:.1f}\n({percentages[3]:.1f}%)',
             ha='center', va='bottom', fontsize=8, fontweight='bold',
             bbox=dict(boxstyle='round,pad=0.3', facecolor='white', alpha=0.9, 
                      edgecolor='gray', linewidth=0.5)
         )
         
         # Speed-Wert auf dem Speed-Segment (Mitte)
-        founder_speed_segment_height = base_values[-1] + jackpot_values[-1] + refresh_base_values[-1] + refresh_jackpot_values[-1]
+        founder_speed_segment_height = base_values[3] + jackpot_values[3] + refresh_base_values[3] + refresh_jackpot_values[3]
         founder_speed_midpoint = founder_speed_segment_height / 2
         self.ax.text(
-            len(x) - 1, founder_speed_midpoint,
+            x_founder, founder_speed_midpoint,
             f'Speed:\n{ev["founder_speed_boost"]:.1f}',
             ha='center', va='center', fontsize=7, fontweight='bold',
             bbox=dict(boxstyle='round,pad=0.2', facecolor='lightblue', alpha=0.7, 
@@ -770,7 +808,7 @@ class ObeliskGemEVGUI:
         founder_gems_segment_height = founder_gems_base[0] + founder_gems_jackpot[0] + founder_gems_refresh_base[0] + founder_gems_refresh_jackpot[0]
         founder_gems_midpoint = founder_speed_segment_height + founder_gems_segment_height / 2
         self.ax.text(
-            len(x) - 1, founder_gems_midpoint,
+            x_founder, founder_gems_midpoint,
             f'Gems:\n{ev["founder_gems"]:.1f}',
             ha='center', va='center', fontsize=7, fontweight='bold',
             bbox=dict(boxstyle='round,pad=0.2', facecolor='lightgreen', alpha=0.7, 
