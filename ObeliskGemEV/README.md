@@ -20,11 +20,14 @@ Ziel: Diese README dient als **saubere Ausgangsbasis** für Weiterarbeit in eine
 | Jackpot | 5 % Chance auf **5 Rolls total** |
 | Jackpot‑Sonderregel | **Zusatz‑Rolls können KEINE Stonks triggern** |
 | Instant Refresh | 5 %, chainable |
-| Founder Drop Intervall | 58 Minuten |
-| Founder Gems Base | 10 (immer) |
+| Founder Drop Intervall | 60 - 2×(VIP_Lounge_Level-1) Minuten (z.B. Level 2 = 58 Minuten) |
+| Founder Gems Base | 10 (immer, pro Drop) |
 | Founder Gems Bonus | 1/100 Chance auf 50 + 10 × Obelisk Level |
 | Obelisk Level | 26 (konfigurierbar) |
-| Founder Speed | 2× für 5 Minuten |
+| Founder Speed | 2× für 5 Minuten (pro Drop) |
+| VIP Lounge Double Drop Chance | 12% bei Level 2, +6% pro Level (Level 3 = 18%, Level 4 = 24%, etc.) |
+| VIP Lounge Triple Drop Chance | 16% bei Level 7 |
+| Founder Supply Drop Gift Chance | 1/1234 Chance auf 10 Gifts pro Supply Drop |
 | Founder Bomb Intervall | 87 Sekunden (1:27 min) |
 | Founder Bomb Speed Chance | 10 % |
 | Founder Bomb Speed | 2× für 10 Sekunden |
@@ -57,14 +60,22 @@ Ziel: Diese README dient als **saubere Ausgangsbasis** für Weiterarbeit in eine
 
 ## 3. Founder Speed‑Effekt
 
-- Alle 58 Minuten:
-  - +10 Gems
-  - 2× Game Speed für 5 Minuten
-- 5 Minuten mit 2× Speed entsprechen **2,5 Minuten Zeitersparnis**
-- Effektive Freebie‑Stunde:
-  - 60 → **57,5 Minuten**
-- Effektiver Output‑Boost:
-  - ca. **+4,3 %** Freebie‑Output
+- Alle 58 Minuten (oder abhängig von VIP Lounge Level):
+  - +10 Gems (pro Drop)
+  - 2× Game Speed für 5 Minuten (pro Drop)
+  
+**WICHTIG: Game Speed ist immer 2× (fix)**
+
+Bei Double/Triple Supply Drops verlängert sich nur die **Dauer** des Speed Boosts, NICHT der Speed-Multiplikator:
+- Single Drop: 2× Speed für 5 Minuten
+- Double Drop: 2× Speed für 10 Minuten (2 × 5 Minuten)
+- Triple Drop: 2× Speed für 15 Minuten (3 × 5 Minuten)
+
+Zeitersparnis-Berechnung:
+- Bei 2× Speed: Zeitersparnis = Dauer / 2
+- Single: 5 / 2 = 2,5 Minuten Zeitersparnis
+- Double: 10 / 2 = 5 Minuten Zeitersparnis
+- Triple: 15 / 2 = 7,5 Minuten Zeitersparnis
 
 Der Speed‑Effekt wird **separat** als eigener EV‑Posten gerechnet.
 
@@ -112,12 +123,22 @@ Alle Werte beinhalten:
 - Erhöht effektiv die Anzahl Freebies pro Stunde
 - Kein direkter Gem‑Drop
 
-### Founder Gems
-- Direkter Gem‑Drop alle 58 Minuten
+### Founder Gems (Supply Drop)
+- Direkter Gem‑Drop alle X Minuten (abhängig von VIP Lounge Level)
+- Intervall: 60 - 2×(VIP_Lounge_Level-1) Minuten
 - Immer: 10 Gems pro Drop
 - 1/100 Chance auf zusätzliche Gems: 50 + 10 × Obelisk Level
+- Berücksichtigt Double/Triple Drops (mehr Drops = mehr Gems)
+- 1/1234 Chance: 10 Gifts pro Supply Drop (mit eigenem GemEV)
 - Linear auf Stundenbasis umgerechnet
 - Abhängig vom Obelisk Level (konfigurierbar im GUI)
+
+### Founder Speed Boost (vom Supply Drop)
+- Kommt vom Founder Supply Drop
+- 2× Game Speed für 5 Minuten **pro Drop**
+- Bei Double Drop: 2× Speed für 10 Minuten (Dauer verlängert sich, Speed bleibt 2×)
+- Bei Triple Drop: 2× Speed für 15 Minuten (Dauer verlängert sich, Speed bleibt 2×)
+- Zeitersparnis = (Dauer mit Speed) / 2
 
 ### Founder Bomb Speed Boost
 - 1 Bomb alle 87 Sekunden (1:27 min)
