@@ -6,6 +6,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 import sys
 from pathlib import Path
+from PIL import Image, ImageTk
 
 # Matplotlib für Bar Chart
 try:
@@ -24,14 +25,279 @@ sys.path.insert(0, str(Path(__file__).parent))
 from freebie_ev_calculator import FreebieEVCalculator, GameParameters
 
 
+class OptionAnalyzerWindow:
+    """Fenster zur Analyse verschiedener Kauf-Optionen"""
+    
+    def __init__(self, parent, calculator: FreebieEVCalculator):
+        self.parent = parent
+        self.calculator = calculator
+        
+        # Neues Fenster erstellen
+        self.window = tk.Toplevel(parent)
+        self.window.title("Option Analyzer")
+        self.window.geometry("600x400")
+        self.window.resizable(False, False)
+        
+        # Icon setzen (falls verfügbar)
+        try:
+            icon_path = Path(__file__).parent / "sprites" / "lootbug.png"
+            if icon_path.exists():
+                icon_image = Image.open(icon_path)
+                icon_photo = ImageTk.PhotoImage(icon_image)
+                self.window.iconphoto(False, icon_photo)
+        except:
+            pass  # Ignore if icon can't be loaded
+        
+        self.create_widgets()
+    
+    def create_widgets(self):
+        """Erstellt die Widgets im Fenster"""
+        
+        # Header - kompakter
+        header_frame = ttk.Frame(self.window, padding="5")
+        header_frame.pack(fill=tk.X)
+        
+        title_label = ttk.Label(
+            header_frame,
+            text="🔍 Option Analyzer",
+            font=("Arial", 16, "bold")
+        )
+        title_label.pack()
+        
+        subtitle_label = ttk.Label(
+            header_frame,
+            text="Finde heraus, ob sich bestimmte Optionen lohnen!",
+            font=("Arial", 9),
+            foreground="gray"
+        )
+        subtitle_label.pack(pady=(3, 0))
+        
+        # Separator - kompakter
+        ttk.Separator(self.window, orient='horizontal').pack(fill=tk.X, pady=5)
+        
+        # Content Frame - kompakter
+        content_frame = ttk.Frame(self.window, padding="10")
+        content_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Option 1: 2x Game Speed
+        self.create_speed_option(content_frame)
+    
+    def create_speed_option(self, parent):
+        """Erstellt die Option für 2x Game Speed"""
+        
+        # Frame für diese Option - kompakter
+        option_frame = ttk.LabelFrame(
+            parent,
+            text="⚡ 2× Game Speed",
+            padding="8"
+        )
+        option_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 5))
+        
+        # Beschreibung - kompakter
+        desc_label = ttk.Label(
+            option_frame,
+            text="Kosten: 15 Gems\nDauer: 10 Minuten 2× Game Speed",
+            font=("Arial", 10)
+        )
+        desc_label.pack(anchor=tk.W, pady=(0, 5))
+        
+        # Berechne, ob es sich lohnt
+        is_worth, profit, affected_ev, total_ev = self.calculate_speed_option_worth()
+        
+        # Ergebnis Frame - kompakter
+        result_frame = ttk.Frame(option_frame)
+        result_frame.pack(fill=tk.X, pady=5)
+        
+        # Status (Lohnt sich / Lohnt sich nicht)
+        if is_worth:
+            status_text = "✅ LOHNT SICH!"
+            status_color = "green"
+        else:
+            status_text = "❌ LOHNT SICH NICHT"
+            status_color = "red"
+        
+        status_label = tk.Label(
+            result_frame,
+            text=status_text,
+            font=("Arial", 14, "bold"),
+            foreground=status_color
+        )
+        status_label.pack(pady=(0, 5))
+        
+        # Details Frame
+        details_frame = ttk.Frame(option_frame)
+        details_frame.pack(fill=tk.X)
+        details_frame.columnconfigure(1, weight=1)
+        
+        row = 0
+        
+        # Betroffene EV/h
+        ttk.Label(details_frame, text="Betroffene EV/h:").grid(
+            row=row, column=0, sticky=tk.W, padx=(0, 10), pady=2
+        )
+        ttk.Label(
+            details_frame,
+            text=f"{affected_ev:.1f} Gems/h",
+            font=("Arial", 9, "bold")
+        ).grid(row=row, column=1, sticky=tk.W, pady=2)
+        row += 1
+        
+        # Gewinn in 10 Minuten
+        ttk.Label(details_frame, text="Gewinn in 10 Min:").grid(
+            row=row, column=0, sticky=tk.W, padx=(0, 10), pady=2
+        )
+        
+        # Berechne Gewinn in 10 Minuten mit 2× Speed
+        # In 10 Minuten mit 2× Speed sammelt man so viel wie in 20 Minuten normal
+        gain_10min = affected_ev * (20.0 / 60.0)
+        
+        ttk.Label(
+            details_frame,
+            text=f"{gain_10min:.1f} Gems",
+            font=("Arial", 9, "bold")
+        ).grid(row=row, column=1, sticky=tk.W, pady=2)
+        row += 1
+        
+        # Gewinn ohne Speed
+        ttk.Label(details_frame, text="Gewinn ohne Speed (10 Min):").grid(
+            row=row, column=0, sticky=tk.W, padx=(0, 10), pady=2
+        )
+        
+        gain_10min_normal = affected_ev * (10.0 / 60.0)
+        
+        ttk.Label(
+            details_frame,
+            text=f"{gain_10min_normal:.1f} Gems",
+            font=("Arial", 9)
+        ).grid(row=row, column=1, sticky=tk.W, pady=2)
+        row += 1
+        
+        # Zusätzlicher Gewinn
+        ttk.Label(details_frame, text="Zusätzlicher Gewinn:").grid(
+            row=row, column=0, sticky=tk.W, padx=(0, 10), pady=2
+        )
+        
+        additional_gain = gain_10min - gain_10min_normal
+        
+        ttk.Label(
+            details_frame,
+            text=f"{additional_gain:.1f} Gems",
+            font=("Arial", 9, "bold"),
+            foreground="blue"
+        ).grid(row=row, column=1, sticky=tk.W, pady=2)
+        row += 1
+        
+        # Kosten
+        ttk.Label(details_frame, text="Kosten:").grid(
+            row=row, column=0, sticky=tk.W, padx=(0, 10), pady=2
+        )
+        ttk.Label(
+            details_frame,
+            text="15.0 Gems",
+            font=("Arial", 9),
+            foreground="red"
+        ).grid(row=row, column=1, sticky=tk.W, pady=2)
+        row += 1
+        
+        # Separator - kompakter
+        ttk.Separator(details_frame, orient='horizontal').grid(
+            row=row, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=5
+        )
+        row += 1
+        
+        # Netto-Gewinn
+        ttk.Label(
+            details_frame,
+            text="Netto-Gewinn:",
+            font=("Arial", 10, "bold")
+        ).grid(row=row, column=0, sticky=tk.W, padx=(0, 10), pady=2)
+        
+        profit_color = "green" if profit > 0 else "red"
+        profit_text = f"+{profit:.1f} Gems" if profit > 0 else f"{profit:.1f} Gems"
+        
+        ttk.Label(
+            details_frame,
+            text=profit_text,
+            font=("Arial", 10, "bold"),
+            foreground=profit_color
+        ).grid(row=row, column=1, sticky=tk.W, pady=2)
+        row += 1
+        
+        # Info-Box - kompakter
+        info_frame = ttk.Frame(option_frame)
+        info_frame.pack(fill=tk.X, pady=(8, 0))
+        
+        info_text = (
+            "ℹ️ Hinweis: 2× Game Speed wirkt nur auf freebie-basierte Incomes:\n"
+            "   • Gems (Basis)\n"
+            "   • Stonks\n"
+            "   • Skill Shards\n"
+            "\n"
+            "   NICHT betroffen:\n"
+            "   • Founder Supply Drop (zeitbasiert)\n"
+            "   • Founder Bomb (zeitbasiert)"
+        )
+        
+        info_label = tk.Label(
+            info_frame,
+            text=info_text,
+            font=("Arial", 8),
+            foreground="gray",
+            justify=tk.LEFT,
+            background="#f0f0f0",
+            padx=10,
+            pady=8
+        )
+        info_label.pack(fill=tk.X)
+    
+    def calculate_speed_option_worth(self):
+        """
+        Berechnet, ob sich die 2x Speed Option lohnt.
+        
+        Returns:
+            (is_worth, profit, affected_ev, total_ev)
+        """
+        # Hole aktuelle EV-Werte
+        ev = self.calculator.calculate_total_ev_per_hour()
+        
+        # Nur freebie-basierte Incomes sind betroffen
+        affected_ev = (
+            ev['gems_base'] +
+            ev['stonks_ev'] +
+            ev['skill_shards_ev']
+            # NICHT: founder_speed_boost, founder_gems, founder_bomb_boost
+        )
+        
+        # In 10 Minuten mit 2× Speed sammelt man so viel wie in 20 Minuten normal
+        # Zusätzlicher Gewinn = affected_ev * (20/60 - 10/60)
+        gain_with_speed = affected_ev * (20.0 / 60.0)  # 20 Minuten Wert
+        gain_without_speed = affected_ev * (10.0 / 60.0)  # 10 Minuten Wert
+        additional_gain = gain_with_speed - gain_without_speed
+        
+        # Kosten
+        cost = 15.0
+        
+        # Netto-Gewinn
+        profit = additional_gain - cost
+        
+        # Lohnt sich, wenn Profit > 0
+        is_worth = profit > 0
+        
+        return is_worth, profit, affected_ev, ev['total']
+
+
 class ObeliskGemEVGUI:
     """GUI for the ObeliskGemEV Calculator"""
     
     def __init__(self, root):
         self.root = root
         self.root.title("ObeliskGemEV Calculator")
-        self.root.geometry("1600x900")
+        # Kompaktere Startgröße, passt sich aber an Bildschirmgröße an
+        self.root.geometry("1400x800")
         self.root.resizable(True, True)
+        
+        # Optional: Mindestgröße setzen, damit das Layout nicht zu klein wird
+        self.root.minsize(1000, 600)
         
         # Flag für Live-Updates
         self.auto_calculate_enabled = True
@@ -68,24 +334,32 @@ class ObeliskGemEVGUI:
     def create_widgets(self):
         """Erstellt alle GUI-Widgets"""
         
-        # Hauptcontainer - zwei Spalten
-        main_frame = ttk.Frame(self.root, padding="10")
+        # Hauptcontainer - kompakteres Padding
+        main_frame = ttk.Frame(self.root, padding="5")
         main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(0, weight=1)
-        # Linke Spalte (Parameter) schmaler, rechte Spalte (Ergebnisse) breiter
-        main_frame.columnconfigure(0, weight=1, minsize=350)
-        main_frame.columnconfigure(1, weight=3, minsize=700)
-        main_frame.rowconfigure(0, weight=1)
         
-        # Titel über beide Spalten
+        # Flexible Spalten ohne minsize für besseres responsive Verhalten
+        # Linke Spalte (Parameter) schmaler, rechte Spalte (Ergebnisse) breiter
+        main_frame.columnconfigure(0, weight=1)
+        main_frame.columnconfigure(1, weight=3)
+        main_frame.rowconfigure(1, weight=1)
+        
+        # Titel-Zeile: Kompakt mit Lootbug-Button direkt daneben
+        title_frame = ttk.Frame(main_frame)
+        title_frame.grid(row=0, column=0, columnspan=2, pady=(0, 5), sticky=(tk.W, tk.E))
+        
         title_label = ttk.Label(
-            main_frame,
+            title_frame,
             text="ObeliskGemEV Calculator",
             font=("Arial", 16, "bold")
         )
-        title_label.grid(row=0, column=0, columnspan=2, pady=(0, 10))
+        title_label.pack(side=tk.LEFT, padx=(0, 10))
+        
+        # Lootbug-Button direkt daneben (nicht weit entfernt)
+        self.create_lootbug_button(title_frame)
         
         # Linke Spalte: Parameter
         self.create_parameter_section(main_frame)
@@ -96,9 +370,9 @@ class ObeliskGemEVGUI:
     def create_parameter_section(self, parent):
         """Erstellt die Parameter-Eingabefelder (links)"""
         
-        # Frame für Parameter mit Scrollbar
+        # Frame für Parameter mit Scrollbar - kompakterer Abstand
         param_container = ttk.Frame(parent)
-        param_container.grid(row=1, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), padx=(0, 10))
+        param_container.grid(row=1, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), padx=(0, 5))
         param_container.columnconfigure(0, weight=1)
         param_container.rowconfigure(0, weight=1)
         
@@ -118,15 +392,16 @@ class ObeliskGemEVGUI:
         canvas.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         scrollbar.grid(row=0, column=1, sticky=(tk.N, tk.S))
         
-        # Container für alle Parameter-Bereiche
-        param_container = ttk.Frame(scrollable_frame)
-        param_container.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+        # Mausrad-Scrolling aktivieren
+        def on_mousewheel(event):
+            canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+        canvas.bind_all("<MouseWheel>", on_mousewheel)
         
         # ============================================
         # FREEBIE BEREICH
         # ============================================
         freebie_header_frame = ttk.Frame(scrollable_frame)
-        freebie_header_frame.pack(fill=tk.X, padx=5, pady=(5, 0))
+        freebie_header_frame.pack(fill=tk.X, padx=3, pady=(3, 0))
         
         freebie_label = ttk.Label(freebie_header_frame, text="🎁 FREEBIE", font=("Arial", 10, "bold"))
         freebie_label.pack(side=tk.LEFT)
@@ -135,8 +410,8 @@ class ObeliskGemEVGUI:
         freebie_help_label = tk.Label(freebie_header_frame, text="❓", font=("Arial", 9), cursor="hand2", foreground="gray")
         freebie_help_label.pack(side=tk.LEFT, padx=(5, 0))
         
-        freebie_frame = ttk.LabelFrame(scrollable_frame, padding="10", style='Freebie.TLabelframe')
-        freebie_frame.pack(fill=tk.X, padx=5, pady=(0, 5))
+        freebie_frame = ttk.LabelFrame(scrollable_frame, padding="5", style='Freebie.TLabelframe')
+        freebie_frame.pack(fill=tk.X, padx=3, pady=(0, 3))
         freebie_frame.columnconfigure(1, weight=1)
         
         # Tooltip für Freebie-Info
@@ -165,9 +440,9 @@ class ObeliskGemEVGUI:
         self.create_entry(freebie_frame, "freebie_timer_minutes", "  Freebie Timer (Minutes):", row, "7.0")
         row += 1
         
-        # Separator
+        # Separator - kompakter
         ttk.Separator(freebie_frame, orient='horizontal').grid(
-            row=row, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=8
+            row=row, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=4
         )
         row += 1
         
@@ -183,9 +458,9 @@ class ObeliskGemEVGUI:
         self.create_entry(freebie_frame, "skill_shard_value_gems", "  Skill Shard Value (Gems):", row, "12.5")
         row += 1
         
-        # Separator
+        # Separator - kompakter
         ttk.Separator(freebie_frame, orient='horizontal').grid(
-            row=row, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=8
+            row=row, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=4
         )
         row += 1
         
@@ -201,9 +476,9 @@ class ObeliskGemEVGUI:
         stonks_checkbox.grid(row=row, column=0, columnspan=2, sticky=tk.W, pady=3)
         row += 1
         
-        # Separator
+        # Separator - kompakter
         ttk.Separator(freebie_frame, orient='horizontal').grid(
-            row=row, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=8
+            row=row, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=4
         )
         row += 1
         
@@ -219,9 +494,9 @@ class ObeliskGemEVGUI:
         self.create_entry(freebie_frame, "jackpot_rolls", "  Jackpot Rolls:", row, "5", is_int=True)
         row += 1
         
-        # Separator
+        # Separator - kompakter
         ttk.Separator(freebie_frame, orient='horizontal').grid(
-            row=row, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=8
+            row=row, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=4
         )
         row += 1
         
@@ -237,7 +512,7 @@ class ObeliskGemEVGUI:
         # FOUNDER SUPPLY DROP BEREICH
         # ============================================
         founder_header_frame = ttk.Frame(scrollable_frame)
-        founder_header_frame.pack(fill=tk.X, padx=5, pady=(5, 0))
+        founder_header_frame.pack(fill=tk.X, padx=3, pady=(3, 0))
         
         founder_label = ttk.Label(founder_header_frame, text="📦 FOUNDER SUPPLY DROP", font=("Arial", 10, "bold"))
         founder_label.pack(side=tk.LEFT)
@@ -246,8 +521,8 @@ class ObeliskGemEVGUI:
         founder_help_label = tk.Label(founder_header_frame, text="❓", font=("Arial", 9), cursor="hand2", foreground="gray")
         founder_help_label.pack(side=tk.LEFT, padx=(5, 0))
         
-        founder_frame = ttk.LabelFrame(scrollable_frame, padding="10", style='Founder.TLabelframe')
-        founder_frame.pack(fill=tk.X, padx=5, pady=(0, 5))
+        founder_frame = ttk.LabelFrame(scrollable_frame, padding="5", style='Founder.TLabelframe')
+        founder_frame.pack(fill=tk.X, padx=3, pady=(0, 3))
         founder_frame.columnconfigure(1, weight=1)
         
         # Tooltip für Founder Supply Drop Info
@@ -275,8 +550,8 @@ class ObeliskGemEVGUI:
         # ============================================
         # FOUNDER BOMB BEREICH
         # ============================================
-        bomb_frame = ttk.LabelFrame(scrollable_frame, text="💣 FOUNDER BOMB", padding="10", style='Bomb.TLabelframe')
-        bomb_frame.pack(fill=tk.X, padx=5, pady=5)
+        bomb_frame = ttk.LabelFrame(scrollable_frame, text="💣 FOUNDER BOMB", padding="5", style='Bomb.TLabelframe')
+        bomb_frame.pack(fill=tk.X, padx=3, pady=3)
         bomb_frame.columnconfigure(1, weight=1)
         
         row = 0
@@ -302,6 +577,72 @@ class ObeliskGemEVGUI:
         row += 1
         
         self.create_entry(bomb_frame, "founder_bomb_speed_duration_seconds", "  Speed Duration (Seconds):", row, "10.0")
+    
+    def create_lootbug_button(self, parent):
+        """Erstellt den Lootbug-Button für den Option Analyzer"""
+        
+        # Versuche, das Lootbug-Logo zu laden
+        try:
+            lootbug_path = Path(__file__).parent / "sprites" / "lootbug.png"
+            if lootbug_path.exists():
+                # Lade und skaliere das Bild
+                lootbug_image = Image.open(lootbug_path)
+                lootbug_image = lootbug_image.resize((32, 32), Image.Resampling.LANCZOS)
+                self.lootbug_photo = ImageTk.PhotoImage(lootbug_image)
+                
+                # Button mit Bild
+                lootbug_button = tk.Button(
+                    parent,
+                    image=self.lootbug_photo,
+                    command=self.open_option_analyzer,
+                    cursor="hand2",
+                    relief=tk.RAISED,
+                    borderwidth=2
+                )
+                lootbug_button.pack(side=tk.LEFT)
+                
+                # Tooltip für den Button
+                self.create_tooltip(
+                    lootbug_button,
+                    "Option Analyzer\nFinde heraus, ob sich bestimmte\nKauf-Optionen lohnen!"
+                )
+            else:
+                # Fallback: Button mit Text
+                lootbug_button = ttk.Button(
+                    parent,
+                    text="🐛 Option Analyzer",
+                    command=self.open_option_analyzer
+                )
+                lootbug_button.pack(side=tk.LEFT)
+        except Exception as e:
+            # Fallback: Button mit Text
+            lootbug_button = ttk.Button(
+                parent,
+                text="🐛 Option Analyzer",
+                command=self.open_option_analyzer
+            )
+            lootbug_button.pack(side=tk.LEFT)
+    
+    def open_option_analyzer(self):
+        """Öffnet das Option Analyzer Fenster"""
+        # Hole aktuelle Parameter und erstelle Calculator
+        params = self.get_parameters()
+        if params is None:
+            messagebox.showwarning(
+                "Parameter Error",
+                "Bitte stelle sicher, dass alle Parameter korrekt eingegeben sind."
+            )
+            return
+        
+        try:
+            calculator = FreebieEVCalculator(params)
+            # Öffne das Analyzer-Fenster
+            OptionAnalyzerWindow(self.root, calculator)
+        except Exception as e:
+            messagebox.showerror(
+                "Error",
+                f"Fehler beim Öffnen des Option Analyzers:\n{str(e)}"
+            )
     
     def create_tooltip(self, widget, text):
         """Creates a tooltip that appears when hovering over a widget"""
@@ -415,16 +756,17 @@ class ObeliskGemEVGUI:
     def create_result_section(self, parent):
         """Creates the results display (right side)"""
         
-        # Frame für Ergebnisse
-        result_frame = ttk.LabelFrame(parent, text="Results", padding="10")
-        result_frame.grid(row=1, column=1, sticky=(tk.W, tk.E, tk.N, tk.S), padx=(10, 0))
+        # Frame für Ergebnisse - kompakteres Padding
+        result_frame = ttk.LabelFrame(parent, text="Results", padding="5")
+        result_frame.grid(row=1, column=1, sticky=(tk.W, tk.E, tk.N, tk.S), padx=(5, 0))
         result_frame.columnconfigure(0, weight=1)
-        result_frame.rowconfigure(1, weight=1)
-        result_frame.rowconfigure(3, weight=3)  # Chart bekommt mehr Platz
+        result_frame.rowconfigure(1, weight=0)  # Separator
+        result_frame.rowconfigure(2, weight=0)  # EV Frame (kompakt)
+        result_frame.rowconfigure(3, weight=1)  # Chart bekommt den meisten Platz
         
-        # Multiplikatoren oben
+        # Multiplikatoren oben - kompakter
         mult_frame = ttk.Frame(result_frame)
-        mult_frame.grid(row=0, column=0, sticky=(tk.W, tk.E), pady=(0, 10))
+        mult_frame.grid(row=0, column=0, sticky=(tk.W, tk.E), pady=(0, 5))
         mult_frame.columnconfigure(1, weight=1)
         
         self.mult_labels = {}
@@ -440,14 +782,14 @@ class ObeliskGemEVGUI:
             value_label.grid(row=i, column=1, sticky=tk.W)
             self.mult_labels[key] = value_label
         
-        # Separator
+        # Separator - kompakter
         ttk.Separator(result_frame, orient='horizontal').grid(
-            row=1, column=0, sticky=(tk.W, tk.E), pady=10
+            row=1, column=0, sticky=(tk.W, tk.E), pady=5
         )
         
-        # EV-Ergebnisse Frame (ohne Tabelle, nur Total und Gift-EV)
+        # EV-Ergebnisse Frame (ohne Tabelle, nur Total und Gift-EV) - kompakter
         ev_frame = ttk.Frame(result_frame)
-        ev_frame.grid(row=2, column=0, sticky=(tk.W, tk.E))
+        ev_frame.grid(row=2, column=0, sticky=(tk.W, tk.E), pady=(0, 5))
         ev_frame.columnconfigure(1, weight=1)
         
         # EV-Labels für Bar Chart (werden nicht angezeigt, aber für Chart benötigt)
@@ -467,21 +809,21 @@ class ObeliskGemEVGUI:
             # Nicht im GUI anzeigen, nur für Daten
             self.ev_labels[key] = value_label
         
-        # Total
+        # Total - kompakter
         ttk.Label(ev_frame, text="TOTAL:", font=("Arial", 11, "bold")).grid(
-            row=0, column=0, sticky=tk.W, padx=(0, 10), pady=5
+            row=0, column=0, sticky=tk.W, padx=(0, 10), pady=3
         )
         self.total_label = ttk.Label(ev_frame, text="—", font=("Arial", 11, "bold"))
-        self.total_label.grid(row=0, column=1, sticky=tk.W, pady=5)
+        self.total_label.grid(row=0, column=1, sticky=tk.W, pady=3)
         
-        # Separator für Gift-EV
+        # Separator für Gift-EV - kompakter
         ttk.Separator(ev_frame, orient='horizontal').grid(
-            row=1, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(15, 5)
+            row=1, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(8, 3)
         )
         
-        # Gift-EV Sektion mit Hover-Tooltip
+        # Gift-EV Sektion mit Hover-Tooltip - kompakter
         gift_header_frame = ttk.Frame(ev_frame)
-        gift_header_frame.grid(row=2, column=0, columnspan=2, sticky=tk.W, pady=(0, 5))
+        gift_header_frame.grid(row=2, column=0, columnspan=2, sticky=tk.W, pady=(0, 3))
         
         gift_label = ttk.Label(gift_header_frame, text="Gift-EV (per 1 opened gift):", font=("Arial", 10, "bold"))
         gift_label.pack(side=tk.LEFT)
@@ -495,10 +837,10 @@ class ObeliskGemEVGUI:
         self.create_dynamic_gift_tooltip(gift_help_label)
         
         ttk.Label(ev_frame, text="Gem-EV per Gift:").grid(
-            row=3, column=0, sticky=tk.W, padx=(0, 10), pady=2
+            row=3, column=0, sticky=tk.W, padx=(0, 10), pady=1
         )
         self.gift_ev_label = ttk.Label(ev_frame, text="—", font=("Arial", 11, "bold"))
-        self.gift_ev_label.grid(row=3, column=1, sticky=tk.W)
+        self.gift_ev_label.grid(row=3, column=1, sticky=tk.W, pady=1)
         
         # Gift-EV Contributions (für Tooltip, nicht im GUI angezeigt)
         self.gift_contrib_labels = {}
@@ -518,16 +860,15 @@ class ObeliskGemEVGUI:
             value_label = tk.Label(ev_frame, text="—", font=("Arial", 8))
             self.gift_contrib_labels[key] = value_label
         
-        # Bar Chart
+        # Bar Chart - kompakter, nimmt verfügbaren Platz
         if MATPLOTLIB_AVAILABLE:
-            chart_frame = ttk.LabelFrame(result_frame, text="Contributions (Bar Chart)", padding="5")
-            chart_frame.grid(row=3, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), pady=(10, 0))
+            chart_frame = ttk.LabelFrame(result_frame, text="Contributions (Bar Chart)", padding="3")
+            chart_frame.grid(row=3, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), pady=(5, 0))
             chart_frame.columnconfigure(0, weight=1)
             chart_frame.rowconfigure(0, weight=1)
-            result_frame.rowconfigure(3, weight=2)
             
-            # Matplotlib Figure - größer und höher
-            self.fig = Figure(figsize=(8, 6), dpi=100)
+            # Matplotlib Figure - responsive, passt sich Fenstergröße an
+            self.fig = Figure(figsize=(8, 5), dpi=100)
             self.ax = self.fig.add_subplot(111)
             self.canvas = FigureCanvasTkAgg(self.fig, chart_frame)
             self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
@@ -536,7 +877,7 @@ class ObeliskGemEVGUI:
                 result_frame,
                 text="Matplotlib not available.\nBar Chart will not be displayed.",
                 foreground="gray"
-            ).grid(row=3, column=0, pady=10)
+            ).grid(row=3, column=0, pady=5)
     
     def load_defaults(self):
         """Loads the default values"""
