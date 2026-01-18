@@ -32,11 +32,12 @@ class OptionAnalyzerWindow:
         self.parent = parent
         self.calculator = calculator
         
-        # Neues Fenster erstellen
+        # Neues Fenster erstellen - größer und resizable
         self.window = tk.Toplevel(parent)
         self.window.title("Option Analyzer")
-        self.window.geometry("600x400")
-        self.window.resizable(False, False)
+        self.window.geometry("650x520")
+        self.window.resizable(True, True)
+        self.window.minsize(600, 500)
         
         # Icon setzen (falls verfügbar)
         try:
@@ -126,7 +127,8 @@ class OptionAnalyzerWindow:
         
         # Details Frame
         details_frame = ttk.Frame(option_frame)
-        details_frame.pack(fill=tk.X)
+        details_frame.pack(fill=tk.BOTH, expand=True)
+        details_frame.columnconfigure(0, weight=0)
         details_frame.columnconfigure(1, weight=1)
         
         row = 0
@@ -142,8 +144,8 @@ class OptionAnalyzerWindow:
         ).grid(row=row, column=1, sticky=tk.W, pady=2)
         row += 1
         
-        # Gewinn in 10 Minuten
-        ttk.Label(details_frame, text="Gewinn in 10 Min:").grid(
+        # Gewinn in 10 Minuten mit 2x Speed
+        ttk.Label(details_frame, text="Mit 2× Speed (10 Min):").grid(
             row=row, column=0, sticky=tk.W, padx=(0, 10), pady=2
         )
         
@@ -159,7 +161,7 @@ class OptionAnalyzerWindow:
         row += 1
         
         # Gewinn ohne Speed
-        ttk.Label(details_frame, text="Gewinn ohne Speed (10 Min):").grid(
+        ttk.Label(details_frame, text="Normal (10 Min):").grid(
             row=row, column=0, sticky=tk.W, padx=(0, 10), pady=2
         )
         
@@ -245,10 +247,11 @@ class OptionAnalyzerWindow:
             foreground="gray",
             justify=tk.LEFT,
             background="#f0f0f0",
-            padx=10,
-            pady=8
+            padx=8,
+            pady=6,
+            wraplength=550  # Text umbruch für bessere Darstellung
         )
-        info_label.pack(fill=tk.X)
+        info_label.pack(fill=tk.BOTH, expand=True)
     
     def calculate_speed_option_worth(self):
         """
