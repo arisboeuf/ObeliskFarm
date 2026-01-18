@@ -103,9 +103,9 @@ class OptionAnalyzerWindow:
             speed_icon_path = Path(__file__).parent / "sprites" / "gamespeed2x.png"
             if speed_icon_path.exists():
                 speed_image = Image.open(speed_icon_path)
-                speed_image = speed_image.resize((24, 24), Image.Resampling.LANCZOS)
+                speed_image = speed_image.resize((32, 32), Image.Resampling.LANCZOS)
                 self.speed_icon_photo = ImageTk.PhotoImage(speed_image)
-                speed_icon_label = tk.Label(header_frame, image=self.speed_icon_photo)
+                speed_icon_label = tk.Label(header_frame, image=self.speed_icon_photo, background="white", relief=tk.RIDGE, borderwidth=1)
                 speed_icon_label.pack(side=tk.LEFT, padx=(0, 8))
         except:
             pass
@@ -250,33 +250,34 @@ class OptionAnalyzerWindow:
         ).grid(row=row, column=1, sticky=tk.W, pady=2)
         row += 1
         
-        # Info-Box - kompakter
+        # Info-Icon mit Hover-Tooltip statt permanenter Info-Box
         info_frame = ttk.Frame(option_frame)
         info_frame.pack(fill=tk.X, pady=(8, 0))
         
+        info_icon = tk.Label(
+            info_frame,
+            text="ℹ️ Hinweis (Hover für Details)",
+            font=("Arial", 9),
+            foreground="#1976D2",
+            cursor="hand2"
+        )
+        info_icon.pack(anchor=tk.W)
+        
+        # Tooltip-Text
         info_text = (
-            "ℹ️ Hinweis: 2× Game Speed wirkt nur auf freebie-basierte Incomes:\n"
-            "   • Gems (Basis)\n"
-            "   • Stonks\n"
-            "   • Skill Shards\n"
+            "2× Game Speed Effects:\n"
             "\n"
-            "   NICHT betroffen:\n"
-            "   • Founder Supply Drop (zeitbasiert)\n"
-            "   • Founder Bomb (zeitbasiert)"
+            "Betroffen (Freebie-basiert):\n"
+            "• Gems (Basis)\n"
+            "• Stonks\n"
+            "• Skill Shards\n"
+            "\n"
+            "NICHT betroffen (Zeitbasiert):\n"
+            "• Founder Supply Drop\n"
+            "• Founder Bomb"
         )
         
-        info_label = tk.Label(
-            info_frame,
-            text=info_text,
-            font=("Arial", 8),
-            foreground="gray",
-            justify=tk.LEFT,
-            background="#f0f0f0",
-            padx=8,
-            pady=6,
-            wraplength=550  # Text umbruch für bessere Darstellung
-        )
-        info_label.pack(fill=tk.BOTH, expand=True)
+        self.create_tooltip(info_icon, info_text)
     
     def calculate_speed_option_worth(self):
         """
@@ -459,10 +460,16 @@ class ObeliskGemEVGUI:
         # Tooltip für Freebie-Info
         freebie_info = (
             "FREEBIE Parameters:\n"
-            "• Freebie Gems (Base): Fixed 9.0\n"
+            "\n"
+            "Base Values:\n"
+            "• Freebie Gems: Fixed 9.0\n"
             "• Freebie Timer: 7.0 minutes\n"
+            "\n"
+            "Special Drops:\n"
             "• Skill Shards: 12% chance, 12.5 Gems value\n"
-            "• Stonks: 1% chance, 200 Gems bonus (if enabled)\n"
+            "• Stonks: 1% chance, 200 Gems bonus\n"
+            "\n"
+            "Multipliers:\n"
             "• Jackpot: 5% chance for 5 additional rolls\n"
             "• Refresh: 5% chance for instant refresh"
         )
@@ -604,15 +611,20 @@ class ObeliskGemEVGUI:
         # Tooltip für Founder Supply Drop Info
         founder_info = (
             "FOUNDER SUPPLY DROP:\n"
-            "• VIP Lounge Level: Determines drop interval and double/triple chance\n"
-            "  - Interval: 60 - 2×(Level-1) minutes\n"
-            "  - Double Chance: 12% at Level 2, +6% per level\n"
-            "  - Triple Chance: 16% at Level 7\n"
-            "• Founder Gems Base: Fixed 10 Gems per drop\n"
-            "• Founder Speed: 2× speed for 5 minutes per drop\n"
+            "\n"
+            "VIP Lounge Level:\n"
+            "• Interval: 60 - 2×(Level-1) minutes\n"
+            "• Double Chance: 12% at Lvl 2, +6% per level\n"
+            "• Triple Chance: 16% at Level 7\n"
+            "\n"
+            "Rewards:\n"
+            "• Founder Gems: Fixed 10 Gems per drop\n"
+            "• Founder Speed: 2× speed for 5 minutes\n"
             "  (saves time → more freebies → gem-equivalent)\n"
             "• 1/1234 Chance: 10 gifts per supply drop\n"
-            "• Obelisk Level: Used for bonus gems"
+            "\n"
+            "Bonus:\n"
+            "• Obelisk Level affects bonus gem amounts"
         )
         self.create_tooltip(founder_help_label, founder_info)
         
@@ -743,23 +755,62 @@ class ObeliskGemEVGUI:
             )
     
     def create_tooltip(self, widget, text):
-        """Creates a tooltip that appears when hovering over a widget"""
+        """Creates a modern styled tooltip with rich formatting"""
         def on_enter(event):
             tooltip = tk.Toplevel()
             tooltip.wm_overrideredirect(True)
             tooltip.wm_geometry(f"+{event.x_root+10}+{event.y_root+10}")
-            label = tk.Label(
+            
+            # Äußerer Rahmen für Schatten-Effekt
+            outer_frame = tk.Frame(
                 tooltip,
-                text=text,
-                background="#ffffe0",
-                relief="solid",
-                borderwidth=1,
-                font=("Arial", 8),
-                justify=tk.LEFT,
-                padx=5,
-                pady=3
+                background="#2C3E50",
+                relief=tk.FLAT,
+                borderwidth=0
             )
-            label.pack()
+            outer_frame.pack(padx=2, pady=2)
+            
+            # Innerer Rahmen mit Inhalt
+            inner_frame = tk.Frame(
+                outer_frame,
+                background="#FFFFFF",
+                relief=tk.FLAT,
+                borderwidth=0
+            )
+            inner_frame.pack(padx=1, pady=1)
+            
+            # Text-Widget für Rich-Text-Formatierung
+            text_widget = tk.Text(
+                inner_frame,
+                background="#FFFFFF",
+                foreground="#2C3E50",
+                font=("Arial", 9),
+                wrap=tk.WORD,
+                padx=12,
+                pady=8,
+                relief=tk.FLAT,
+                borderwidth=0,
+                highlightthickness=0
+            )
+            
+            # Tags für Formatierung
+            text_widget.tag_config("bold", font=("Arial", 9, "bold"))
+            text_widget.tag_config("header", font=("Arial", 10, "bold"), foreground="#1976D2")
+            
+            # Text verarbeiten und formatieren
+            lines = text.split('\n')
+            for line in lines:
+                # Erste Zeile oder Zeilen mit ":" am Ende als Header
+                if lines.index(line) == 0 or (line.endswith(':') and not line.startswith('   ')):
+                    text_widget.insert(tk.END, line + '\n', "header")
+                else:
+                    text_widget.insert(tk.END, line + '\n')
+            
+            # Höhe anpassen
+            text_widget.config(height=len(lines), width=max(len(line) for line in lines))
+            text_widget.config(state=tk.DISABLED)  # Read-only
+            text_widget.pack()
+            
             widget.tooltip = tooltip
         
         def on_leave(event):
@@ -771,49 +822,92 @@ class ObeliskGemEVGUI:
         widget.bind("<Leave>", on_leave)
     
     def create_dynamic_gift_tooltip(self, widget):
-        """Creates a dynamic tooltip for Gift-EV with contributions"""
+        """Creates a modern styled dynamic tooltip for Gift-EV with contributions and percentages"""
         def on_enter(event):
-            # Basis-Info
-            base_info = (
-                "GIFT-EV Calculation:\n"
-                "• Base Roll: Gems (20-40, 30-65), Skill Shards, Blue Cow, 2× Speed\n"
-                "• Rare Roll: 1/45 chance for 80-130 Gems\n"
-                "• Recursive Gifts: 1/40 chance for 3 additional gifts\n"
-                "• Multipliers: Obelisk × Lucky Multiplier\n"
-                "• All values are converted to gem-equivalent\n"
-                "\n"
-                "Contributions (current values):\n"
-            )
-            
-            # Contributions aus den Labels holen (falls bereits berechnet)
-            contrib_text = ""
-            if hasattr(self, 'gift_contrib_labels'):
-                for key, label in self.gift_contrib_labels.items():
-                    value = label.cget('text')
-                    if value and value != "" and value != "—":
-                        # Extrahiere nur den Wert (ohne "Gems" etc.)
-                        contrib_text += f"• {self._get_contrib_label(key)}: {value}\n"
-            
-            if not contrib_text:
-                contrib_text = "(Values will be displayed after calculation)\n"
-            
-            full_text = base_info + contrib_text
-            
             tooltip = tk.Toplevel()
             tooltip.wm_overrideredirect(True)
             tooltip.wm_geometry(f"+{event.x_root+10}+{event.y_root+10}")
-            label = tk.Label(
+            
+            # Äußerer Rahmen für Schatten-Effekt
+            outer_frame = tk.Frame(
                 tooltip,
-                text=full_text,
-                background="#ffffe0",
-                relief="solid",
-                borderwidth=1,
-                font=("Arial", 8),
-                justify=tk.LEFT,
-                padx=5,
-                pady=3
+                background="#2C3E50",
+                relief=tk.FLAT,
+                borderwidth=0
             )
-            label.pack()
+            outer_frame.pack(padx=2, pady=2)
+            
+            # Innerer Rahmen mit Inhalt
+            inner_frame = tk.Frame(
+                outer_frame,
+                background="#FFFFFF",
+                relief=tk.FLAT,
+                borderwidth=0
+            )
+            inner_frame.pack(padx=1, pady=1)
+            
+            # Text-Widget für Rich-Text-Formatierung
+            text_widget = tk.Text(
+                inner_frame,
+                background="#FFFFFF",
+                foreground="#2C3E50",
+                font=("Arial", 9),
+                wrap=tk.WORD,
+                padx=12,
+                pady=8,
+                relief=tk.FLAT,
+                borderwidth=0,
+                highlightthickness=0,
+                width=60
+            )
+            
+            # Tags für Formatierung
+            text_widget.tag_config("header", font=("Arial", 10, "bold"), foreground="#1976D2")
+            text_widget.tag_config("subheader", font=("Arial", 9, "bold"))
+            text_widget.tag_config("normal", font=("Arial", 9))
+            text_widget.tag_config("percentage", font=("Arial", 9), foreground="#2E7D32")
+            
+            # Header
+            text_widget.insert(tk.END, "GIFT-EV Calculation:\n", "header")
+            text_widget.insert(tk.END, "• Base Roll: Gems (20-40, 30-65), Skill Shards, Blue Cow, 2× Speed\n", "normal")
+            text_widget.insert(tk.END, "• Rare Roll: 1/45 chance for 80-130 Gems\n", "normal")
+            text_widget.insert(tk.END, "• Recursive Gifts: 1/40 chance for 3 additional gifts\n", "normal")
+            text_widget.insert(tk.END, "• Multipliers: Obelisk × Lucky Multiplier\n", "normal")
+            text_widget.insert(tk.END, "• All values are converted to gem-equivalent\n\n", "normal")
+            
+            # Contributions
+            text_widget.insert(tk.END, "Contributions (current values):\n", "subheader")
+            
+            # Contributions aus den Labels holen (falls bereits berechnet)
+            if hasattr(self, 'gift_contrib_labels'):
+                total = 0.0
+                contrib_values = {}
+                
+                for key, label in self.gift_contrib_labels.items():
+                    value_text = label.cget('text')
+                    if value_text and value_text != "" and value_text != "—":
+                        try:
+                            value = float(value_text.split()[0])
+                            contrib_values[key] = value
+                            total += value
+                        except:
+                            pass
+                
+                if contrib_values:
+                    for key, value in contrib_values.items():
+                        percentage = (value / total * 100) if total > 0 else 0
+                        text_widget.insert(tk.END, f"• {self._get_contrib_label(key)}: ", "normal")
+                        text_widget.insert(tk.END, f"{value:.1f} Gems ({percentage:.1f}%)\n", "percentage")
+                else:
+                    text_widget.insert(tk.END, "(Values will be displayed after calculation)\n", "normal")
+            else:
+                text_widget.insert(tk.END, "(Values will be displayed after calculation)\n", "normal")
+            
+            # Höhe anpassen
+            text_widget.config(height=text_widget.get("1.0", tk.END).count('\n'))
+            text_widget.config(state=tk.DISABLED)  # Read-only
+            text_widget.pack()
+            
             widget.tooltip = tooltip
         
         def on_leave(event):
