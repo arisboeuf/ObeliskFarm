@@ -267,14 +267,15 @@ class OptionAnalyzerWindow:
         info_text = (
             "2× Game Speed Effects:\n"
             "\n"
-            "Betroffen (Freebie-basiert):\n"
-            "• Gems (Basis)\n"
-            "• Stonks\n"
-            "• Skill Shards\n"
+            "Betroffen:\n"
+            "• Gems (Basis) - freebie-basiert\n"
+            "• Stonks - freebie-basiert\n"
+            "• Skill Shards - freebie-basiert\n"
+            "• Gem Bomb - halves recharge time\n"
+            "• Founder Bomb - halves recharge time\n"
             "\n"
-            "NICHT betroffen (Zeitbasiert):\n"
-            "• Founder Supply Drop\n"
-            "• Founder Bomb"
+            "NICHT betroffen:\n"
+            "• Founder Supply Drop - zeitbasiert, independent"
         )
         
         self.create_tooltip(info_icon, info_text)
@@ -350,18 +351,28 @@ class OptionAnalyzerWindow:
         """
         Berechnet, ob sich die 2x Speed Option lohnt.
         
+        2x Game Speed affects:
+        - Freebie-based incomes (gems, stonks, skill shards)
+        - Founder Bomb (halves recharge time)
+        
+        NOT affected:
+        - Founder Supply Drop (independent of game speed)
+        
         Returns:
             (is_worth, profit, affected_ev, total_ev)
         """
         # Hole aktuelle EV-Werte
         ev = self.calculator.calculate_total_ev_per_hour()
         
-        # Nur freebie-basierte Incomes sind betroffen
+        # Freebie-basierte Incomes + Bombs sind betroffen
+        # (2x Speed halbiert Bomb Recharge-Zeit)
         affected_ev = (
             ev['gems_base'] +
             ev['stonks_ev'] +
-            ev['skill_shards_ev']
-            # NICHT: founder_speed_boost, founder_gems, founder_bomb_boost
+            ev['skill_shards_ev'] +
+            ev['gem_bomb_gems'] +  # Gem Bomb recharge is affected by game speed
+            ev['founder_bomb_boost']  # Founder Bomb recharge is affected by game speed
+            # NICHT: founder_speed_boost, founder_gems (independent of game speed)
         )
         
         # In 10 Minuten mit 2× Speed sammelt man so viel wie in 20 Minuten normal
@@ -703,7 +714,7 @@ class ObeliskGemEVGUI:
         self.create_entry(founder_frame, "obelisk_level", "Obelisk Level:", row, "26", is_int=True, bg_color="#E8F5E9")
         
         # ============================================
-        # FOUNDER BOMB BEREICH
+        # BOMBS BEREICH
         # ============================================
         # Container mit Hintergrundfarbe
         bomb_container = tk.Frame(scrollable_frame, background="#FFF3E0", relief=tk.RIDGE, borderwidth=2)
@@ -712,28 +723,42 @@ class ObeliskGemEVGUI:
         bomb_header_frame = tk.Frame(bomb_container, background="#FFF3E0")
         bomb_header_frame.pack(fill=tk.X, padx=5, pady=(5, 0))
         
-        bomb_label = tk.Label(bomb_header_frame, text="💣 FOUNDER BOMB", font=("Arial", 10, "bold"), background="#FFF3E0")
+        bomb_label = tk.Label(bomb_header_frame, text="💣 BOMBS", font=("Arial", 10, "bold"), background="#FFF3E0")
         bomb_label.pack(side=tk.LEFT)
         
-        # Versuche, das Bomb Icon zu laden
-        try:
-            bomb_icon_path = Path(__file__).parent / "sprites" / "founderbomb.png"
-            if bomb_icon_path.exists():
-                bomb_image = Image.open(bomb_icon_path)
-                bomb_image = bomb_image.resize((20, 20), Image.Resampling.LANCZOS)
-                self.bomb_icon_photo = ImageTk.PhotoImage(bomb_image)
-                bomb_icon_label = tk.Label(bomb_header_frame, image=self.bomb_icon_photo, background="#FFF3E0")
-                bomb_icon_label.pack(side=tk.LEFT, padx=(5, 0))
-        except:
-            pass
+        # Fragezeichen-Icon für Hover-Tooltip
+        bomb_help_label = tk.Label(bomb_header_frame, text="❓", font=("Arial", 9), cursor="hand2", foreground="gray", background="#FFF3E0")
+        bomb_help_label.pack(side=tk.LEFT, padx=(5, 0))
         
         bomb_frame = tk.Frame(bomb_container, background="#FFF3E0")
         bomb_frame.pack(fill=tk.X, padx=5, pady=5)
         bomb_frame.columnconfigure(1, weight=1)
         
+        # Tooltip für Bombs-Info
+        bombs_info = (
+            "BOMB MECHANICS:\n"
+            "\n"
+            "Free Bomb Chance:\n"
+            "• 16% chance that a bomb click consumes 0 charges\n"
+            "• Applies to the ENTIRE dump (all charges at once)\n"
+            "• Stacks multiplicatively with Cherry Bomb\n"
+            "\n"
+            "Bomb Types:\n"
+            "• Gem Bomb: 3% chance per charge for 1 Gem\n"
+            "• Cherry Bomb: Next bomb click consumes 0 charges\n"
+            "• Battery Bomb: +2 charges to random bomb\n"
+            "• D20 Bomb: 5% chance to distribute 42 charges\n"
+            "\n"
+            "Strategy:\n"
+            "• Cherry → Gem Bomb is highest value\n"
+            "• Maximize free Gem Bomb dumps"
+        )
+        self.create_tooltip(bomb_help_label, bombs_info)
+        
         row = 0
         
-        self.create_entry(bomb_frame, "founder_bomb_interval_seconds", "Founder Bomb Interval (Seconds):", row, "87.0", bg_color="#FFF3E0")
+        # Free Bomb Chance (allgemein)
+        self.create_entry(bomb_frame, "free_bomb_chance", "Free Bomb Chance (%):", row, "16.0", is_percent=True, bg_color="#FFF3E0")
         row += 1
         
         # Separator
@@ -742,18 +767,80 @@ class ObeliskGemEVGUI:
         )
         row += 1
         
-        tk.Label(bomb_frame, text="Bomb Speed:", font=("Arial", 9, "bold"), background="#FFF3E0").grid(
+        # Gem Bomb
+        tk.Label(bomb_frame, text="Gem Bomb:", font=("Arial", 9, "bold"), background="#FFF3E0").grid(
             row=row, column=0, columnspan=2, sticky=tk.W, pady=(0, 3)
         )
         row += 1
         
-        self.create_entry(bomb_frame, "founder_bomb_speed_chance", "  Speed Chance (%):", row, "10.0", is_percent=True, bg_color="#FFF3E0")
+        self.create_entry(bomb_frame, "gem_bomb_recharge_seconds", "  Gem Bomb Recharge (Seconds):", row, "46.0", bg_color="#FFF3E0")
         row += 1
         
-        self.create_entry(bomb_frame, "founder_bomb_speed_multiplier", "  Speed Multiplier:", row, "2.0", bg_color="#FFF3E0")
+        self.create_entry(bomb_frame, "gem_bomb_gem_chance", "  Gem Chance per Charge (%):", row, "3.0", is_percent=True, bg_color="#FFF3E0")
         row += 1
         
-        self.create_entry(bomb_frame, "founder_bomb_speed_duration_seconds", "  Speed Duration (Seconds):", row, "10.0", bg_color="#FFF3E0")
+        # Separator
+        ttk.Separator(bomb_frame, orient='horizontal').grid(
+            row=row, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=8
+        )
+        row += 1
+        
+        # Cherry Bomb
+        tk.Label(bomb_frame, text="Cherry Bomb:", font=("Arial", 9, "bold"), background="#FFF3E0").grid(
+            row=row, column=0, columnspan=2, sticky=tk.W, pady=(0, 3)
+        )
+        row += 1
+        
+        self.create_entry(bomb_frame, "cherry_bomb_recharge_seconds", "  Cherry Bomb Recharge (Seconds):", row, "48.0", bg_color="#FFF3E0")
+        row += 1
+        
+        # Separator
+        ttk.Separator(bomb_frame, orient='horizontal').grid(
+            row=row, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=8
+        )
+        row += 1
+        
+        # Founder Bomb Sub-Section mit Icon
+        founder_bomb_header_frame = tk.Frame(bomb_frame, background="#FFF3E0")
+        founder_bomb_header_frame.grid(row=row, column=0, columnspan=2, sticky=tk.W, pady=(0, 3))
+        
+        tk.Label(founder_bomb_header_frame, text="Founder Bomb:", font=("Arial", 9, "bold"), background="#FFF3E0").pack(side=tk.LEFT)
+        
+        # Versuche, das Bomb Icon zu laden
+        try:
+            bomb_icon_path = Path(__file__).parent / "sprites" / "founderbomb.png"
+            if bomb_icon_path.exists():
+                bomb_image = Image.open(bomb_icon_path)
+                bomb_image = bomb_image.resize((16, 16), Image.Resampling.LANCZOS)
+                self.founder_bomb_icon_photo = ImageTk.PhotoImage(bomb_image)
+                bomb_icon_label = tk.Label(founder_bomb_header_frame, image=self.founder_bomb_icon_photo, background="#FFF3E0")
+                bomb_icon_label.pack(side=tk.LEFT, padx=(5, 0))
+        except:
+            pass
+        
+        row += 1
+        
+        self.create_entry(bomb_frame, "founder_bomb_interval_seconds", "  Founder Bomb Interval (Seconds):", row, "87.0", bg_color="#FFF3E0")
+        row += 1
+        
+        # Separator
+        ttk.Separator(bomb_frame, orient='horizontal').grid(
+            row=row, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=8
+        )
+        row += 1
+        
+        tk.Label(bomb_frame, text="  Bomb Speed:", font=("Arial", 9, "bold"), background="#FFF3E0").grid(
+            row=row, column=0, columnspan=2, sticky=tk.W, pady=(0, 3)
+        )
+        row += 1
+        
+        self.create_entry(bomb_frame, "founder_bomb_speed_chance", "    Speed Chance (%):", row, "10.0", is_percent=True, bg_color="#FFF3E0")
+        row += 1
+        
+        self.create_entry(bomb_frame, "founder_bomb_speed_multiplier", "    Speed Multiplier:", row, "2.0", bg_color="#FFF3E0")
+        row += 1
+        
+        self.create_entry(bomb_frame, "founder_bomb_speed_duration_seconds", "    Speed Duration (Seconds):", row, "10.0", bg_color="#FFF3E0")
     
     def create_lootbug_button(self, parent):
         """Erstellt den Lootbug-Button für den Option Analyzer"""
@@ -1062,6 +1149,7 @@ class ObeliskGemEVGUI:
             ("Skill Shards (Gem-Äq):", "skill_shards_ev"),
             ("Founder Speed Boost:", "founder_speed_boost"),
             ("Founder Gems:", "founder_gems"),
+            ("Gem Bomb Gems:", "gem_bomb_gems"),
             ("Founder Bomb Boost:", "founder_bomb_boost")
         ]
         
@@ -1157,6 +1245,12 @@ class ObeliskGemEVGUI:
         # founder_gems_base ist fix (10.0), wird nicht im GUI angezeigt
         self.vars['obelisk_level']['var'].set(str(defaults.obelisk_level))
         # Founder Speed Parameter sind fix (2.0x für 5 Minuten), werden nicht im GUI angezeigt
+        # Bombs
+        self.vars['free_bomb_chance']['var'].set(str(defaults.free_bomb_chance * 100))
+        self.vars['gem_bomb_recharge_seconds']['var'].set(str(defaults.gem_bomb_recharge_seconds))
+        self.vars['gem_bomb_gem_chance']['var'].set(str(defaults.gem_bomb_gem_chance * 100))
+        self.vars['cherry_bomb_recharge_seconds']['var'].set(str(defaults.cherry_bomb_recharge_seconds))
+        # Founder Bomb
         self.vars['founder_bomb_interval_seconds']['var'].set(str(defaults.founder_bomb_interval_seconds))
         self.vars['founder_bomb_speed_chance']['var'].set(str(defaults.founder_bomb_speed_chance * 100))
         self.vars['founder_bomb_speed_multiplier']['var'].set(str(defaults.founder_bomb_speed_multiplier))
@@ -1210,6 +1304,7 @@ class ObeliskGemEVGUI:
             "Stonks\nEV",
             "Skill\nShards",
             "Founder\nSupply\nDrop",
+            "Gem\nBomb",
             "Founder\nBomb"
         ]
         
@@ -1219,7 +1314,7 @@ class ObeliskGemEVGUI:
         refresh_base_values = []
         refresh_jackpot_values = []
         
-        # Normale Keys (ohne Founder Speed, Gems und Bomb)
+        # Normale Keys (ohne Founder Speed, Gems, Gem Bomb und Founder Bomb)
         normal_keys = ['gems_base', 'stonks_ev', 'skill_shards_ev']
         
         for key in normal_keys:
@@ -1240,7 +1335,14 @@ class ObeliskGemEVGUI:
         refresh_base_values.append(founder_speed_bd['refresh_base'])
         refresh_jackpot_values.append(founder_speed_bd['refresh_jackpot'])
         
-        # Founder Bomb (nach Founder Supply Drop)
+        # Gem Bomb (nach Founder Supply Drop, vor Founder Bomb)
+        gem_bomb_bd = breakdown['gem_bomb_gems']
+        base_values.append(gem_bomb_bd['base'])
+        jackpot_values.append(gem_bomb_bd['jackpot'])
+        refresh_base_values.append(gem_bomb_bd['refresh_base'])
+        refresh_jackpot_values.append(gem_bomb_bd['refresh_jackpot'])
+        
+        # Founder Bomb (nach Gem Bomb)
         founder_bomb_bd = breakdown['founder_bomb_boost']
         base_values.append(founder_bomb_bd['base'])
         jackpot_values.append(founder_bomb_bd['jackpot'])
@@ -1265,6 +1367,10 @@ class ObeliskGemEVGUI:
         founder_supply_total = ev['founder_speed_boost'] + ev['founder_gems']
         founder_supply_percentage = (founder_supply_total / total * 100) if total > 0 else 0
         percentages.append(founder_supply_percentage)
+        
+        # Gem Bomb Prozentanteile
+        gem_bomb_percentage = (ev['gem_bomb_gems'] / total * 100) if total > 0 else 0
+        percentages.append(gem_bomb_percentage)
         
         # Founder Bomb Prozentanteile
         founder_bomb_percentage = (ev['founder_bomb_boost'] / total * 100) if total > 0 else 0
@@ -1308,8 +1414,11 @@ class ObeliskGemEVGUI:
         # Founder Supply Drop: Speed (unten) und Gems (oben) gestapelt
         x_founder = x[3]  # Index 3: Founder Supply Drop
         
+        # Gem Bomb (separate Bar)
+        x_gem_bomb = x[4]  # Index 4: Gem Bomb
+        
         # Founder Bomb (separate Bar)
-        x_bomb = x[4]  # Index 4: Founder Bomb
+        x_bomb = x[5]  # Index 5: Founder Bomb
         
         # Founder Speed - untere gestapelte Bar (wie normale Bars)
         founder_speed_base = base_values[3]
@@ -1344,11 +1453,26 @@ class ObeliskGemEVGUI:
                     bottom=[founder_gems_bottom_refresh_base + founder_gems_refresh_base[0]],
                     color='#C73E1D', edgecolor='black', linewidth=1.0, hatch='xxx', alpha=0.8)
         
+        # Gem Bomb Bar (normale gestapelte Bar)
+        gem_bomb_base = base_values[4]
+        gem_bomb_jackpot = jackpot_values[4]
+        gem_bomb_refresh_base = refresh_base_values[4]
+        gem_bomb_refresh_jackpot = refresh_jackpot_values[4]
+        
+        self.ax.bar([x_gem_bomb], [gem_bomb_base], width, color='#2E86AB', edgecolor='black', linewidth=1.0)
+        self.ax.bar([x_gem_bomb], [gem_bomb_jackpot], width, bottom=[gem_bomb_base],
+                    color='#A23B72', edgecolor='black', linewidth=1.0, hatch='///', alpha=0.8)
+        self.ax.bar([x_gem_bomb], [gem_bomb_refresh_base], width, bottom=[gem_bomb_base + gem_bomb_jackpot],
+                    color='#F18F01', edgecolor='black', linewidth=1.0, hatch='...', alpha=0.8)
+        self.ax.bar([x_gem_bomb], [gem_bomb_refresh_jackpot], width,
+                    bottom=[gem_bomb_base + gem_bomb_jackpot + gem_bomb_refresh_base],
+                    color='#C73E1D', edgecolor='black', linewidth=1.0, hatch='xxx', alpha=0.8)
+        
         # Founder Bomb Bar (normale gestapelte Bar)
-        founder_bomb_base = base_values[4]
-        founder_bomb_jackpot = jackpot_values[4]
-        founder_bomb_refresh_base = refresh_base_values[4]
-        founder_bomb_refresh_jackpot = refresh_jackpot_values[4]
+        founder_bomb_base = base_values[5]
+        founder_bomb_jackpot = jackpot_values[5]
+        founder_bomb_refresh_base = refresh_base_values[5]
+        founder_bomb_refresh_jackpot = refresh_jackpot_values[5]
         
         self.ax.bar([x_bomb], [founder_bomb_base], width, color='#2E86AB', edgecolor='black', linewidth=1.0)
         self.ax.bar([x_bomb], [founder_bomb_jackpot], width, bottom=[founder_bomb_base],
@@ -1373,11 +1497,21 @@ class ObeliskGemEVGUI:
                          edgecolor='gray', linewidth=0.5)
             )
         
+        # Gem Bomb Bar
+        gem_bomb_height = base_values[4] + jackpot_values[4] + refresh_base_values[4] + refresh_jackpot_values[4]
+        self.ax.text(
+            x_gem_bomb, gem_bomb_height,
+            f'{ev["gem_bomb_gems"]:.1f}\n({percentages[4]:.1f}%)',
+            ha='center', va='bottom', fontsize=8, fontweight='bold',
+            bbox=dict(boxstyle='round,pad=0.3', facecolor='white', alpha=0.9, 
+                     edgecolor='gray', linewidth=0.5)
+        )
+        
         # Founder Bomb Bar
-        founder_bomb_height = base_values[4] + jackpot_values[4] + refresh_base_values[4] + refresh_jackpot_values[4]
+        founder_bomb_height = base_values[5] + jackpot_values[5] + refresh_base_values[5] + refresh_jackpot_values[5]
         self.ax.text(
             x_bomb, founder_bomb_height,
-            f'{ev["founder_bomb_boost"]:.1f}\n({percentages[4]:.1f}%)',
+            f'{ev["founder_bomb_boost"]:.1f}\n({percentages[5]:.1f}%)',
             ha='center', va='bottom', fontsize=8, fontweight='bold',
             bbox=dict(boxstyle='round,pad=0.3', facecolor='white', alpha=0.9, 
                      edgecolor='gray', linewidth=0.5)
@@ -1464,6 +1598,7 @@ class ObeliskGemEVGUI:
             self.ev_labels['skill_shards_ev'].config(text=f"{ev['skill_shards_ev']:.1f} Gems/h")
             self.ev_labels['founder_speed_boost'].config(text=f"{ev['founder_speed_boost']:.1f} Gems/h")
             self.ev_labels['founder_gems'].config(text=f"{ev['founder_gems']:.1f} Gems/h")
+            self.ev_labels['gem_bomb_gems'].config(text=f"{ev['gem_bomb_gems']:.1f} Gems/h")
             self.ev_labels['founder_bomb_boost'].config(text=f"{ev['founder_bomb_boost']:.1f} Gems/h")
             
             # Total anzeigen

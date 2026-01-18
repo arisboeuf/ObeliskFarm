@@ -33,7 +33,7 @@ class GameParameters:
     vip_lounge_level: int = 2  # VIP Lounge Level (1-7)
     founder_gems_base: float = 10.0  # Feste Gems pro Drop
     founder_gems_chance: float = 0.01  # 1/100 Chance auf zusätzliche Gems
-    obelisk_level: int = 26  # Obelisk Level für Founder Gem-Berechnung
+    obelisk_level: int = 27  # Obelisk Level für Founder Gem-Berechnung
     founder_speed_multiplier: float = 2.0
     founder_speed_duration_minutes: float = 5.0
     
@@ -42,10 +42,19 @@ class GameParameters:
     # - double_drop_chance = 0.12 + 0.06*(vip_lounge_level-2) (ab Tier 2)
     # - triple_drop_chance = 0.16 wenn vip_lounge_level >= 7
 
+    # Bombs - General
+    free_bomb_chance: float = 0.16  # 16% Chance dass bomb click 0 charges verbraucht
+    
+    # Gem Bomb
+    gem_bomb_recharge_seconds: float = 46.0  # Recharge Zeit
+    gem_bomb_gem_chance: float = 0.03  # 3% Chance per charge auf 1 Gem
+    
+    # Cherry Bomb
+    cherry_bomb_recharge_seconds: float = 48.0  # Recharge Zeit
+    
     # Founder Bomb
     founder_bomb_interval_seconds: float = 80.0  # 1:20 min
     founder_bomb_charges_per_drop: float = 2.0  # 100% Chance auf 2 Charges
-    founder_bomb_free_chance: float = 0.16  # 16% Chance auf free bomb (keine Charge verbraucht)
     founder_bomb_speed_chance: float = 0.10  # 10%
     founder_bomb_speed_multiplier: float = 2.0
     founder_bomb_speed_duration_seconds: float = 10.0
@@ -329,6 +338,84 @@ class FreebieEVCalculator:
         
         return base_gems + bonus_gems + gift_gems
     
+    def calculate_gem_bomb_gems_per_hour(self) -> float:
+        """
+        Berechnet Gem Bomb Gems pro Stunde.
+        
+        Mechanik:
+        - Gem Bomb rechargt kontinuierlich (jeder Recharge = 1 Charge)
+        - Bei optimalem Spielen: Click sofort nach Recharge (1 Charge pro Click)
+        - Cherry Bomb: Jeder Cherry Click gibt einen free Gem Bomb Click
+        - Free Bomb Chance: 16% dass ein Click keine Charges verbraucht (rekursiv)
+        - 2× Game Speed: Halbiert alle Bomb Recharge-Zeiten
+        
+        Returns:
+            Gem Bomb Gems pro Stunde
+        """
+        seconds_per_hour = 3600.0
+        
+        # Berücksichtige 2× Game Speed von Founder Speed Boost
+        # Founder Speed Boost läuft durchschnittlich X Minuten pro Stunde
+        # Das halbiert die Recharge-Zeiten während dieser Zeit
+        # Vereinfacht: Durchschnittliche Recharge-Zeit mit Speed-Berücksichtigung
+        
+        # Founder Speed: Wie viel Prozent der Zeit läuft 2× Speed?
+        founder_drop_interval = self.get_founder_drop_interval_minutes()
+        founder_drops_per_hour = 60.0 / founder_drop_interval
+        
+        double_chance = self.get_double_drop_chance()
+        triple_chance = self.get_triple_drop_chance()
+        single_chance = 1.0 - double_chance - triple_chance
+        
+        expected_drops_per_event = (
+            1.0 * single_chance +
+            2.0 * double_chance +
+            3.0 * triple_chance
+        )
+        
+        # Minuten mit 2× Speed pro Stunde
+        speed_minutes_per_hour = (
+            founder_drops_per_hour *
+            expected_drops_per_event *
+            self.params.founder_speed_duration_minutes
+        )
+        
+        # Prozent der Zeit mit 2× Speed
+        speed_percentage = speed_minutes_per_hour / 60.0
+        
+        # Effektive Recharge-Zeit (gewichtet)
+        # Zeit mit 2× Speed: Recharge halbiert
+        # Zeit ohne Speed: Normale Recharge
+        effective_gem_bomb_recharge = (
+            self.params.gem_bomb_recharge_seconds * (1.0 - speed_percentage) +
+            (self.params.gem_bomb_recharge_seconds / 2.0) * speed_percentage
+        )
+        
+        effective_cherry_bomb_recharge = (
+            self.params.cherry_bomb_recharge_seconds * (1.0 - speed_percentage) +
+            (self.params.cherry_bomb_recharge_seconds / 2.0) * speed_percentage
+        )
+        
+        # Clicks pro Stunde (ohne Free Bomb Chance)
+        gem_bomb_clicks_base = seconds_per_hour / effective_gem_bomb_recharge
+        cherry_bomb_clicks_base = seconds_per_hour / effective_cherry_bomb_recharge
+        
+        # Free Bomb Chance: Multipliziert die effektiven Clicks
+        # 16% Chance dass Click free ist → 1 / (1 - 0.16) = 1.19 effektive Clicks
+        free_bomb_multiplier = 1.0 / (1.0 - self.params.free_bomb_chance)
+        
+        # Effektive Clicks pro Stunde (mit Free Bomb Chance)
+        gem_bomb_clicks = gem_bomb_clicks_base * free_bomb_multiplier
+        cherry_bomb_clicks = cherry_bomb_clicks_base * free_bomb_multiplier
+        
+        # Cherry Bomb: Jeder Click gibt einen free Gem Bomb Click
+        total_gem_bomb_clicks = gem_bomb_clicks + cherry_bomb_clicks
+        
+        # Gems: Jeder Click = 1 Charge mit 3% Chance auf 1 Gem
+        gems_per_hour = total_gem_bomb_clicks * self.params.gem_bomb_gem_chance
+        
+        return gems_per_hour
+    
     def calculate_founder_bomb_boost_per_hour(self) -> float:
         """
         Berechnet den Founder Bomb Speed Boost pro Stunde (in Gem-Äquivalent).
@@ -350,7 +437,7 @@ class FreebieEVCalculator:
         
         # Effektive Bombs pro Charge (durch free bomb chance)
         # 16% Chance, dass Charge nicht verbraucht wird = 1 / (1 - 0.16) = 1.1905 Bombs pro Charge
-        effective_bombs_per_charge = 1.0 / (1.0 - self.params.founder_bomb_free_chance)
+        effective_bombs_per_charge = 1.0 / (1.0 - self.params.free_bomb_chance)
         
         # Effektive Bombs pro Drop (2 Charges × effektive Bombs pro Charge)
         effective_bombs_per_drop = self.params.founder_bomb_charges_per_drop * effective_bombs_per_charge
@@ -748,6 +835,15 @@ class FreebieEVCalculator:
             'refresh_jackpot': 0.0
         }
         
+        # Gem Bomb Gems (keine Multiplikatoren - unabhängig von Freebie-System)
+        gem_bomb_gems = self.calculate_gem_bomb_gems_per_hour()
+        breakdown['gem_bomb_gems'] = {
+            'base': gem_bomb_gems,
+            'jackpot': 0.0,
+            'refresh_base': 0.0,
+            'refresh_jackpot': 0.0
+        }
+        
         # Founder Bomb Boost (nur Refresh, kein Jackpot)
         founder_bomb_base = self.calculate_founder_bomb_boost_per_hour() / refresh_mult
         founder_bomb_refresh = self.calculate_founder_bomb_boost_per_hour() - founder_bomb_base
@@ -773,6 +869,7 @@ class FreebieEVCalculator:
         skill_shards_ev = self.calculate_skill_shards_ev_per_hour()
         founder_speed_boost = self.calculate_founder_speed_boost_per_hour()
         founder_gems = self.calculate_founder_gems_per_hour()
+        gem_bomb_gems = self.calculate_gem_bomb_gems_per_hour()
         founder_bomb_boost = self.calculate_founder_bomb_boost_per_hour()
         
         total = (
@@ -781,6 +878,7 @@ class FreebieEVCalculator:
             skill_shards_ev +
             founder_speed_boost +
             founder_gems +
+            gem_bomb_gems +
             founder_bomb_boost
         )
         
@@ -790,6 +888,7 @@ class FreebieEVCalculator:
             'skill_shards_ev': skill_shards_ev,
             'founder_speed_boost': founder_speed_boost,
             'founder_gems': founder_gems,
+            'gem_bomb_gems': gem_bomb_gems,
             'founder_bomb_boost': founder_bomb_boost,
             'total': total
         }
@@ -842,6 +941,7 @@ class FreebieEVCalculator:
         print(f"  Skill Shards (Gem-Äq): {ev['skill_shards_ev']:.1f}")
         print(f"  Founder Speed Boost: {ev['founder_speed_boost']:.1f}")
         print(f"  Founder Gems: {ev['founder_gems']:.1f}")
+        print(f"  Gem Bomb Gems: {ev['gem_bomb_gems']:.1f}")
         print(f"  Founder Bomb Boost: {ev['founder_bomb_boost']:.1f}")
         print(f"  {'─' * 50}")
         print(f"  TOTAL: {ev['total']:.1f} Gems-Äquivalent/h")
