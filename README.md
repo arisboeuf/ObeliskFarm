@@ -33,17 +33,34 @@ Calculates returns from founder supply drops:
   - Drop interval: `60 - 2×(Level-1)` minutes
   - Double drop chance: 12% at Level 2, +6% per level
   - Triple drop chance: 16% at Level 7
-- **Obelisk Level**: Used for bonus gem calculations (default: 26)
+- **Obelisk Level**: Used for bonus gem calculations (individual, based on your progress)
 - **Founder Gems**: Fixed 10 Gems per drop + 1/100 chance for bonus gems
 - **Founder Speed Boost**: 2× game speed for 5 minutes per drop (saves time → more freebies)
 - **Gift Chance**: 1/1234 chance for 10 gifts per supply drop
 
-### 💣 **FOUNDER BOMB**
+### 💣 **BOMBS**
 
-Calculates speed boost from founder bombs:
+Controls all bomb-related mechanics and their gem generation:
+
+#### General
+- **Free Bomb Chance**: 16% chance that a bomb click consumes 0 charges (applies to ALL bombs, recursive multiplier → 1.19×)
+
+#### Gem Bomb
+- **Recharge Time**: Time between charges in seconds (default: 46.0)
+- **Gem Chance**: 3% chance per charge to receive 1 Gem
+- Primary gem source from bombs
+
+#### Cherry Bomb
+- **Recharge Time**: Time between charges in seconds (default: 48.0)
+- **Effect**: Each Cherry Bomb click triggers a FREE Gem Bomb click
+- Cherry → Gem Bomb is the highest value bomb interaction
+
+#### Founder Bomb
 - **Bomb Interval**: Time between bombs in seconds (default: 87.0 = 1:27 min)
 - **Bomb Speed**: 10% chance for 2× game speed for 10 seconds
-- Purely time-based: Saves time → effectively increases the number of freebies per hour
+- Speed boost saves time → effectively increases freebies and bomb clicks per hour
+
+**Note:** 2× Game Speed (from Founder Supply Drop or Founder Bomb) halves ALL bomb recharge times!
 
 ## 🖥️ GUI Features
 
@@ -118,7 +135,8 @@ Gift-EV (per 1 opened gift):    XX.XX Gem-Eq
 3. **Skill Shards (Gem-Eq)**: Shard chance × shard value × multipliers
 4. **Founder Speed Boost**: Time saved through 2× speed → more freebies → gem-equivalent
 5. **Founder Gems**: Direct gem drops from supply drops (incl. double/triple drops)
-6. **Founder Bomb Boost**: Time saved through bomb speed boosts
+6. **Gem Bomb Gems**: Gems from Gem Bomb clicks (own clicks + Cherry Bomb free clicks) × Free Bomb Chance multiplier
+7. **Founder Bomb Boost**: Time saved through bomb speed boosts
 
 ### Multipliers
 
