@@ -86,13 +86,38 @@ class OptionAnalyzerWindow:
     def create_speed_option(self, parent):
         """Erstellt die Option für 2x Game Speed"""
         
-        # Frame für diese Option - kompakter
+        # Frame für diese Option - kompakter mit Icon-Header
         option_frame = ttk.LabelFrame(
             parent,
-            text="⚡ 2× Game Speed",
+            text="",  # Kein Text, wir erstellen einen eigenen Header
             padding="8"
         )
         option_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 5))
+        
+        # Header mit Icon und Text
+        header_frame = ttk.Frame(option_frame)
+        header_frame.pack(fill=tk.X, pady=(0, 5))
+        
+        # Versuche, das 2x Speed Icon zu laden
+        try:
+            speed_icon_path = Path(__file__).parent / "sprites" / "gamespeed2x.png"
+            if speed_icon_path.exists():
+                speed_image = Image.open(speed_icon_path)
+                speed_image = speed_image.resize((24, 24), Image.Resampling.LANCZOS)
+                self.speed_icon_photo = ImageTk.PhotoImage(speed_image)
+                speed_icon_label = tk.Label(header_frame, image=self.speed_icon_photo)
+                speed_icon_label.pack(side=tk.LEFT, padx=(0, 8))
+        except:
+            pass
+        
+        ttk.Label(
+            header_frame,
+            text="⚡ 2× Game Speed",
+            font=("Arial", 12, "bold")
+        ).pack(side=tk.LEFT)
+        
+        # Separator nach Header
+        ttk.Separator(option_frame, orient='horizontal').pack(fill=tk.X, pady=5)
         
         # Beschreibung - kompakter
         desc_label = ttk.Label(
@@ -299,6 +324,16 @@ class ObeliskGemEVGUI:
         self.root.geometry("1400x800")
         self.root.resizable(True, True)
         
+        # Icon setzen (gem.png)
+        try:
+            icon_path = Path(__file__).parent / "sprites" / "gem.png"
+            if icon_path.exists():
+                icon_image = Image.open(icon_path)
+                icon_photo = ImageTk.PhotoImage(icon_image)
+                self.root.iconphoto(False, icon_photo)
+        except:
+            pass  # Ignore if icon can't be loaded
+        
         # Optional: Mindestgröße setzen, damit das Layout nicht zu klein wird
         self.root.minsize(1000, 600)
         
@@ -403,18 +438,22 @@ class ObeliskGemEVGUI:
         # ============================================
         # FREEBIE BEREICH
         # ============================================
-        freebie_header_frame = ttk.Frame(scrollable_frame)
-        freebie_header_frame.pack(fill=tk.X, padx=3, pady=(3, 0))
+        # Container mit Hintergrundfarbe
+        freebie_container = tk.Frame(scrollable_frame, background="#E3F2FD", relief=tk.RIDGE, borderwidth=2)
+        freebie_container.pack(fill=tk.X, padx=3, pady=(3, 8))
         
-        freebie_label = ttk.Label(freebie_header_frame, text="🎁 FREEBIE", font=("Arial", 10, "bold"))
+        freebie_header_frame = tk.Frame(freebie_container, background="#E3F2FD")
+        freebie_header_frame.pack(fill=tk.X, padx=5, pady=(5, 0))
+        
+        freebie_label = tk.Label(freebie_header_frame, text="🎁 FREEBIE", font=("Arial", 10, "bold"), background="#E3F2FD")
         freebie_label.pack(side=tk.LEFT)
         
         # Fragezeichen-Icon für Hover-Tooltip
-        freebie_help_label = tk.Label(freebie_header_frame, text="❓", font=("Arial", 9), cursor="hand2", foreground="gray")
+        freebie_help_label = tk.Label(freebie_header_frame, text="❓", font=("Arial", 9), cursor="hand2", foreground="gray", background="#E3F2FD")
         freebie_help_label.pack(side=tk.LEFT, padx=(5, 0))
         
-        freebie_frame = ttk.LabelFrame(scrollable_frame, padding="5", style='Freebie.TLabelframe')
-        freebie_frame.pack(fill=tk.X, padx=3, pady=(0, 3))
+        freebie_frame = tk.Frame(freebie_container, background="#E3F2FD")
+        freebie_frame.pack(fill=tk.X, padx=5, pady=5)
         freebie_frame.columnconfigure(1, weight=1)
         
         # Tooltip für Freebie-Info
@@ -432,15 +471,15 @@ class ObeliskGemEVGUI:
         row = 0
         
         # Basis-Parameter
-        ttk.Label(freebie_frame, text="Base:", font=("Arial", 9, "bold")).grid(
+        tk.Label(freebie_frame, text="Base:", font=("Arial", 9, "bold"), background="#E3F2FD").grid(
             row=row, column=0, columnspan=2, sticky=tk.W, pady=(0, 3)
         )
         row += 1
         
-        self.create_entry(freebie_frame, "freebie_gems_base", "  Freebie Gems (Base):", row, "9.0")
+        self.create_entry(freebie_frame, "freebie_gems_base", "  Freebie Gems (Base):", row, "9.0", bg_color="#E3F2FD")
         row += 1
         
-        self.create_entry(freebie_frame, "freebie_timer_minutes", "  Freebie Timer (Minutes):", row, "7.0")
+        self.create_entry(freebie_frame, "freebie_timer_minutes", "  Freebie Timer (Minutes):", row, "7.0", bg_color="#E3F2FD")
         row += 1
         
         # Separator - kompakter
@@ -449,16 +488,30 @@ class ObeliskGemEVGUI:
         )
         row += 1
         
-        # Skill Shards (Freebie)
-        ttk.Label(freebie_frame, text="Skill Shards (Freebie):", font=("Arial", 9, "bold")).grid(
-            row=row, column=0, columnspan=2, sticky=tk.W, pady=(0, 3)
-        )
+        # Skill Shards (Freebie) - mit Icon
+        skill_shard_header_frame = tk.Frame(freebie_frame, background="#E3F2FD")
+        skill_shard_header_frame.grid(row=row, column=0, columnspan=2, sticky=tk.W, pady=(0, 3))
+        
+        tk.Label(skill_shard_header_frame, text="Skill Shards (Freebie):", font=("Arial", 9, "bold"), background="#E3F2FD").pack(side=tk.LEFT)
+        
+        # Versuche, das Skill Shard Icon zu laden
+        try:
+            skill_shard_icon_path = Path(__file__).parent / "sprites" / "skill_shard.png"
+            if skill_shard_icon_path.exists():
+                skill_shard_image = Image.open(skill_shard_icon_path)
+                skill_shard_image = skill_shard_image.resize((16, 16), Image.Resampling.LANCZOS)
+                self.skill_shard_icon_photo = ImageTk.PhotoImage(skill_shard_image)
+                skill_shard_icon_label = tk.Label(skill_shard_header_frame, image=self.skill_shard_icon_photo, background="#E3F2FD")
+                skill_shard_icon_label.pack(side=tk.LEFT, padx=(5, 0))
+        except:
+            pass
+        
         row += 1
         
-        self.create_entry(freebie_frame, "skill_shard_chance", "  Skill Shard Chance (%):", row, "12.0", is_percent=True)
+        self.create_entry(freebie_frame, "skill_shard_chance", "  Skill Shard Chance (%):", row, "12.0", is_percent=True, bg_color="#E3F2FD")
         row += 1
         
-        self.create_entry(freebie_frame, "skill_shard_value_gems", "  Skill Shard Value (Gems):", row, "12.5")
+        self.create_entry(freebie_frame, "skill_shard_value_gems", "  Skill Shard Value (Gems):", row, "12.5", bg_color="#E3F2FD")
         row += 1
         
         # Separator - kompakter
@@ -467,16 +520,32 @@ class ObeliskGemEVGUI:
         )
         row += 1
         
-        # Stonks (Freebie) - Checkbox statt Entry-Felder
+        # Stonks (Freebie) - mit Icon
+        stonks_header_frame = tk.Frame(freebie_frame, background="#E3F2FD")
+        stonks_header_frame.grid(row=row, column=0, columnspan=2, sticky=tk.W, pady=3)
+        
+        # Versuche, das Stonks Icon zu laden
+        try:
+            stonks_icon_path = Path(__file__).parent / "sprites" / "stonks_tree.png"
+            if stonks_icon_path.exists():
+                stonks_image = Image.open(stonks_icon_path)
+                stonks_image = stonks_image.resize((20, 20), Image.Resampling.LANCZOS)
+                self.stonks_icon_photo = ImageTk.PhotoImage(stonks_image)
+                stonks_icon_label = tk.Label(stonks_header_frame, image=self.stonks_icon_photo, background="#E3F2FD")
+                stonks_icon_label.pack(side=tk.LEFT, padx=(0, 5))
+        except:
+            pass
+        
         stonks_var = tk.BooleanVar(value=True)  # Default: aktiviert
         self.stonks_enabled = stonks_var
         stonks_checkbox = ttk.Checkbutton(
-            freebie_frame,
+            stonks_header_frame,
             text="Stonks enabled (1% chance, 200 Gems bonus)",
             variable=stonks_var,
             command=self.trigger_auto_calculate
         )
-        stonks_checkbox.grid(row=row, column=0, columnspan=2, sticky=tk.W, pady=3)
+        stonks_checkbox.pack(side=tk.LEFT)
+        
         row += 1
         
         # Separator - kompakter
@@ -486,15 +555,15 @@ class ObeliskGemEVGUI:
         row += 1
         
         # Jackpot (Freebie)
-        ttk.Label(freebie_frame, text="Jackpot (Freebie):", font=("Arial", 9, "bold")).grid(
+        tk.Label(freebie_frame, text="Jackpot (Freebie):", font=("Arial", 9, "bold"), background="#E3F2FD").grid(
             row=row, column=0, columnspan=2, sticky=tk.W, pady=(0, 3)
         )
         row += 1
         
-        self.create_entry(freebie_frame, "jackpot_chance", "  Jackpot Chance (%):", row, "5.0", is_percent=True)
+        self.create_entry(freebie_frame, "jackpot_chance", "  Jackpot Chance (%):", row, "5.0", is_percent=True, bg_color="#E3F2FD")
         row += 1
         
-        self.create_entry(freebie_frame, "jackpot_rolls", "  Jackpot Rolls:", row, "5", is_int=True)
+        self.create_entry(freebie_frame, "jackpot_rolls", "  Jackpot Rolls:", row, "5", is_int=True, bg_color="#E3F2FD")
         row += 1
         
         # Separator - kompakter
@@ -504,28 +573,32 @@ class ObeliskGemEVGUI:
         row += 1
         
         # Refresh (Freebie)
-        ttk.Label(freebie_frame, text="Refresh (Freebie):", font=("Arial", 9, "bold")).grid(
+        tk.Label(freebie_frame, text="Refresh (Freebie):", font=("Arial", 9, "bold"), background="#E3F2FD").grid(
             row=row, column=0, columnspan=2, sticky=tk.W, pady=(0, 3)
         )
         row += 1
         
-        self.create_entry(freebie_frame, "instant_refresh_chance", "  Instant Refresh Chance (%):", row, "5.0", is_percent=True)
+        self.create_entry(freebie_frame, "instant_refresh_chance", "  Instant Refresh Chance (%):", row, "5.0", is_percent=True, bg_color="#E3F2FD")
         
         # ============================================
         # FOUNDER SUPPLY DROP BEREICH
         # ============================================
-        founder_header_frame = ttk.Frame(scrollable_frame)
-        founder_header_frame.pack(fill=tk.X, padx=3, pady=(3, 0))
+        # Container mit Hintergrundfarbe
+        founder_container = tk.Frame(scrollable_frame, background="#E8F5E9", relief=tk.RIDGE, borderwidth=2)
+        founder_container.pack(fill=tk.X, padx=3, pady=(3, 8))
         
-        founder_label = ttk.Label(founder_header_frame, text="📦 FOUNDER SUPPLY DROP", font=("Arial", 10, "bold"))
+        founder_header_frame = tk.Frame(founder_container, background="#E8F5E9")
+        founder_header_frame.pack(fill=tk.X, padx=5, pady=(5, 0))
+        
+        founder_label = tk.Label(founder_header_frame, text="📦 FOUNDER SUPPLY DROP", font=("Arial", 10, "bold"), background="#E8F5E9")
         founder_label.pack(side=tk.LEFT)
         
         # Fragezeichen-Icon für Hover-Tooltip
-        founder_help_label = tk.Label(founder_header_frame, text="❓", font=("Arial", 9), cursor="hand2", foreground="gray")
+        founder_help_label = tk.Label(founder_header_frame, text="❓", font=("Arial", 9), cursor="hand2", foreground="gray", background="#E8F5E9")
         founder_help_label.pack(side=tk.LEFT, padx=(5, 0))
         
-        founder_frame = ttk.LabelFrame(scrollable_frame, padding="5", style='Founder.TLabelframe')
-        founder_frame.pack(fill=tk.X, padx=3, pady=(0, 3))
+        founder_frame = tk.Frame(founder_container, background="#E8F5E9")
+        founder_frame.pack(fill=tk.X, padx=5, pady=5)
         founder_frame.columnconfigure(1, weight=1)
         
         # Tooltip für Founder Supply Drop Info
@@ -545,21 +618,43 @@ class ObeliskGemEVGUI:
         
         row = 0
         
-        self.create_entry(founder_frame, "vip_lounge_level", "VIP Lounge Level (1-7):", row, "2", is_int=True)
+        self.create_entry(founder_frame, "vip_lounge_level", "VIP Lounge Level (1-7):", row, "2", is_int=True, bg_color="#E8F5E9")
         row += 1
         
-        self.create_entry(founder_frame, "obelisk_level", "Obelisk Level:", row, "26", is_int=True)
+        self.create_entry(founder_frame, "obelisk_level", "Obelisk Level:", row, "26", is_int=True, bg_color="#E8F5E9")
         
         # ============================================
         # FOUNDER BOMB BEREICH
         # ============================================
-        bomb_frame = ttk.LabelFrame(scrollable_frame, text="💣 FOUNDER BOMB", padding="5", style='Bomb.TLabelframe')
-        bomb_frame.pack(fill=tk.X, padx=3, pady=3)
+        # Container mit Hintergrundfarbe
+        bomb_container = tk.Frame(scrollable_frame, background="#FFF3E0", relief=tk.RIDGE, borderwidth=2)
+        bomb_container.pack(fill=tk.X, padx=3, pady=(3, 8))
+        
+        bomb_header_frame = tk.Frame(bomb_container, background="#FFF3E0")
+        bomb_header_frame.pack(fill=tk.X, padx=5, pady=(5, 0))
+        
+        bomb_label = tk.Label(bomb_header_frame, text="💣 FOUNDER BOMB", font=("Arial", 10, "bold"), background="#FFF3E0")
+        bomb_label.pack(side=tk.LEFT)
+        
+        # Versuche, das Bomb Icon zu laden
+        try:
+            bomb_icon_path = Path(__file__).parent / "sprites" / "founderbomb.png"
+            if bomb_icon_path.exists():
+                bomb_image = Image.open(bomb_icon_path)
+                bomb_image = bomb_image.resize((20, 20), Image.Resampling.LANCZOS)
+                self.bomb_icon_photo = ImageTk.PhotoImage(bomb_image)
+                bomb_icon_label = tk.Label(bomb_header_frame, image=self.bomb_icon_photo, background="#FFF3E0")
+                bomb_icon_label.pack(side=tk.LEFT, padx=(5, 0))
+        except:
+            pass
+        
+        bomb_frame = tk.Frame(bomb_container, background="#FFF3E0")
+        bomb_frame.pack(fill=tk.X, padx=5, pady=5)
         bomb_frame.columnconfigure(1, weight=1)
         
         row = 0
         
-        self.create_entry(bomb_frame, "founder_bomb_interval_seconds", "Founder Bomb Interval (Seconds):", row, "87.0")
+        self.create_entry(bomb_frame, "founder_bomb_interval_seconds", "Founder Bomb Interval (Seconds):", row, "87.0", bg_color="#FFF3E0")
         row += 1
         
         # Separator
@@ -568,18 +663,18 @@ class ObeliskGemEVGUI:
         )
         row += 1
         
-        ttk.Label(bomb_frame, text="Bomb Speed:", font=("Arial", 9, "bold")).grid(
+        tk.Label(bomb_frame, text="Bomb Speed:", font=("Arial", 9, "bold"), background="#FFF3E0").grid(
             row=row, column=0, columnspan=2, sticky=tk.W, pady=(0, 3)
         )
         row += 1
         
-        self.create_entry(bomb_frame, "founder_bomb_speed_chance", "  Speed Chance (%):", row, "10.0", is_percent=True)
+        self.create_entry(bomb_frame, "founder_bomb_speed_chance", "  Speed Chance (%):", row, "10.0", is_percent=True, bg_color="#FFF3E0")
         row += 1
         
-        self.create_entry(bomb_frame, "founder_bomb_speed_multiplier", "  Speed Multiplier:", row, "2.0")
+        self.create_entry(bomb_frame, "founder_bomb_speed_multiplier", "  Speed Multiplier:", row, "2.0", bg_color="#FFF3E0")
         row += 1
         
-        self.create_entry(bomb_frame, "founder_bomb_speed_duration_seconds", "  Speed Duration (Seconds):", row, "10.0")
+        self.create_entry(bomb_frame, "founder_bomb_speed_duration_seconds", "  Speed Duration (Seconds):", row, "10.0", bg_color="#FFF3E0")
     
     def create_lootbug_button(self, parent):
         """Erstellt den Lootbug-Button für den Option Analyzer"""
@@ -742,10 +837,13 @@ class ObeliskGemEVGUI:
         }
         return labels.get(key, key)
     
-    def create_entry(self, parent, var_name, label_text, row, default_value, is_percent=False, is_int=False):
+    def create_entry(self, parent, var_name, label_text, row, default_value, is_percent=False, is_int=False, bg_color=None):
         """Creates an input field with label"""
         
-        ttk.Label(parent, text=label_text).grid(row=row, column=0, sticky=tk.W, padx=(0, 10), pady=2)
+        if bg_color:
+            tk.Label(parent, text=label_text, background=bg_color).grid(row=row, column=0, sticky=tk.W, padx=(0, 10), pady=2)
+        else:
+            ttk.Label(parent, text=label_text).grid(row=row, column=0, sticky=tk.W, padx=(0, 10), pady=2)
         
         var = tk.StringVar(value=default_value)
         self.vars[var_name] = {'var': var, 'is_percent': is_percent, 'is_int': is_int}

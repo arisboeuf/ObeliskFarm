@@ -23,7 +23,7 @@ class GameParameters:
     stonks_bonus_gems: float = 200.0
     
     # Jackpot
-    jackpot_chance: float = 0.05  # 5%
+    jackpot_chance: float = 0.08  # 5% + 3%
     jackpot_rolls: int = 5
     
     # Refresh
@@ -43,7 +43,7 @@ class GameParameters:
     # - triple_drop_chance = 0.16 wenn vip_lounge_level >= 7
 
     # Founder Bomb
-    founder_bomb_interval_seconds: float = 87.0  # 1:27 min
+    founder_bomb_interval_seconds: float = 80.0  # 1:20 min
     founder_bomb_charges_per_drop: float = 2.0  # 100% Chance auf 2 Charges
     founder_bomb_free_chance: float = 0.16  # 16% Chance auf free bomb (keine Charge verbraucht)
     founder_bomb_speed_chance: float = 0.10  # 10%
