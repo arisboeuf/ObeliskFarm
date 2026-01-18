@@ -1,0 +1,219 @@
+# Cursor IDE Rules for ObeliskGemEV Project
+
+## CRITICAL: MANDATORY READING BEFORE ANY CHANGES
+
+⚠️ **STOP AND READ FIRST:**
+
+Before making ANY changes to this project, you MUST:
+
+1. **Read `PROJECT_GUIDELINES.md`** - Central guidelines document
+2. **Read `DESIGN_GUIDELINES.md`** - Design standards and principles
+3. **Read `COMMIT_GUIDELINES.md`** - Commit message format requirements
+
+## Quick Guidelines Summary
+
+### Design Standards (from DESIGN_GUIDELINES.md)
+
+**Language:**
+- ✅ English for all user-facing text
+- ✅ Clear, concise, technical but accessible
+- ❌ No unnecessary emojis
+
+**Section Colors:**
+- Freebie: `#E3F2FD` (Light Blue)
+- Founder Supply Drop: `#E8F5E9` (Light Green)
+- Founder Bomb: `#FFF3E0` (Light Orange)
+- All sections with `RIDGE` border, borderwidth=2
+
+**Tooltips:**
+- White background `#FFFFFF`
+- Dark gray shadow `#2C3E50`
+- Headers: Bold, blue `#1976D2`, 10pt
+- Percentages: Green `#2E7D32`, 9pt
+- Structure with clear sections
+- Always show value + percentage for contributions
+- Format: `{value:.1f} Gems ({percentage:.1f}%)`
+
+**Sprites:**
+- Load from `sprites/` folder
+- Always include fallback for missing sprites
+- Resize with `Image.Resampling.LANCZOS`
+- Use white background + border for better visibility
+
+### Commit Standards (from COMMIT_GUIDELINES.md)
+
+**Format (MANDATORY):**
+```
+[TAG] component: short description (max 50 chars)
+
+Long description explaining WHY this change was made.
+Focus on the reason, not what was changed.
+The what is visible in the diff.
+
+Technical details and implementation choices only if needed.
+
+References: #123, task-456
+```
+
+**Valid Tags:**
+- `[FIX]` - Bug fixes
+- `[IMP]` - Improvements/enhancements
+- `[ADD]` - New features/modules
+- `[REF]` - Refactoring
+- `[CLN]` - Code cleanup
+- `[PERF]` - Performance
+- `[REM]` - Removing code
+
+**Common Mistakes to AVOID:**
+- ❌ Missing [TAG] brackets
+- ❌ Header longer than 50 chars
+- ❌ No component name after tag
+- ❌ Listing WHAT instead of WHY
+- ❌ No detailed body description
+
+## Workflow Checklist
+
+### Before Making Code Changes:
+
+```
+[ ] Read PROJECT_GUIDELINES.md
+[ ] Read DESIGN_GUIDELINES.md (for GUI changes)
+[ ] Understand WHY this change is needed
+[ ] Verify compliance with design standards
+```
+
+### Before Committing:
+
+```
+[ ] Run linter (no errors)
+[ ] Format commit message: [TAG] component: description
+[ ] Write WHY in commit body
+[ ] Commit message header < 50 chars
+[ ] Include detailed rationale
+```
+
+### For GUI Changes:
+
+```
+[ ] Section colors match guidelines
+[ ] Tooltips use modern styling (white bg, rich text)
+[ ] Sprites have fallback handling
+[ ] All text in English
+[ ] Percentages shown for contributions
+[ ] Tested responsive behavior
+```
+
+## Example: Good vs Bad Commits
+
+### ❌ BAD (Don't do this):
+```
+Add tooltips and colors
+
+- Added tooltips to sections
+- Changed background colors
+- Added sprite icons
+```
+
+**Problems:**
+- No [TAG]
+- No component
+- Lists WHAT, not WHY
+- No rationale
+
+### ✅ GOOD (Do this):
+```
+[IMP] gui: enhance tooltips with rich text formatting
+
+WHY: User requested modern tooltip design matching GUI aesthetic.
+Current yellow tooltips were visually inconsistent and lacked
+formatting capabilities needed for contribution breakdowns.
+
+WHAT: Implemented Text widget for tooltips with bold headers,
+color-coded percentages, and white background. All tooltips now
+support structured content with clear visual hierarchy.
+
+Impact: Tooltips now follow DESIGN_GUIDELINES.md standards.
+```
+
+## AI Assistant Behavior Rules
+
+1. **Always Start Sessions With:**
+   - Read PROJECT_GUIDELINES.md
+   - Read relevant specific guidelines (DESIGN or COMMIT)
+   - Acknowledge guidelines have been read
+
+2. **For Every Code Change:**
+   - Verify design compliance first
+   - Check color scheme correctness
+   - Ensure tooltip standards are met
+   - Test sprite fallback behavior
+
+3. **For Every Commit:**
+   - Use [TAG] format
+   - Write WHY in body
+   - Keep header < 50 chars
+   - Include component name
+   - Explain rationale thoroughly
+
+4. **Never:**
+   - Commit without [TAG]
+   - Write generic "improvements" messages
+   - Skip WHY explanation
+   - Ignore design guidelines
+   - Use German in user-facing text
+
+## Project-Specific Patterns
+
+### Colored Section Pattern:
+```python
+container = tk.Frame(parent, background="#COLOR", relief=tk.RIDGE, borderwidth=2)
+container.pack(fill=tk.X, padx=3, pady=(3, 8))
+```
+
+### Tooltip Creation:
+```python
+# Use create_tooltip() for static tooltips
+self.create_tooltip(widget, text)
+
+# Use create_dynamic_gift_tooltip() for dynamic content
+self.create_dynamic_gift_tooltip(widget)
+```
+
+### Sprite Loading:
+```python
+try:
+    icon_path = Path(__file__).parent / "sprites" / "icon.png"
+    if icon_path.exists():
+        icon_image = Image.open(icon_path)
+        icon_image = icon_image.resize((SIZE, SIZE), Image.Resampling.LANCZOS)
+        self.icon_photo = ImageTk.PhotoImage(icon_image)
+        # Use icon...
+except:
+    pass  # Graceful fallback
+```
+
+## Enforcement
+
+- Git hook validates commit format (can be bypassed with --no-verify on Windows)
+- Manual compliance required even if hook is bypassed
+- All changes must pass linter
+- Human review checks guidelines compliance
+
+## Questions?
+
+If unsure about any guideline:
+1. Read the full guideline document
+2. Ask the human developer
+3. Check examples in existing code
+4. Refer to PROJECT_GUIDELINES.md
+
+## Remember
+
+**These guidelines exist for a reason:**
+- Maintain code quality
+- Ensure consistent user experience
+- Make project history readable
+- Enable efficient collaboration
+- Reduce bugs and rework
+
+**Take time to do it right the first time.**

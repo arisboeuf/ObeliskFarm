@@ -2,6 +2,21 @@
 
 These guidelines help maintain clear and consistent commit messages for better project history and collaboration.
 
+**Note:** This file is designed to be universal and can be copied to any project. It contains no project-specific information.
+
+## Cursor AI Integration
+
+**For projects using Cursor IDE:**
+
+When this file is present in a project, the AI assistant should create a `.cursorrules` file that:
+1. References these commit guidelines
+2. Provides quick reference for tags and format
+3. Includes commit message checklist
+4. Shows good/bad commit examples
+5. Reminds to read this file before committing
+
+The `.cursorrules` file serves as an automatic reminder system that loads with every Cursor session.
+
 ## Commit Message Structure
 
 Each commit message should follow this structure:
