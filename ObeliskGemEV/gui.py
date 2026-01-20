@@ -23,6 +23,7 @@ except ImportError:
 sys.path.insert(0, str(Path(__file__).parent))
 
 from freebie_ev_calculator import FreebieEVCalculator, GameParameters
+from archaeology import ArchaeologySimulatorWindow
 
 
 class OptionAnalyzerWindow:
@@ -35,7 +36,7 @@ class OptionAnalyzerWindow:
         # Neues Fenster erstellen - größer und resizable
         self.window = tk.Toplevel(parent)
         self.window.title("Option Analyzer")
-        self.window.geometry("650x520")
+        self.window.state('zoomed')  # Maximize window on Windows
         self.window.resizable(True, True)
         self.window.minsize(600, 500)
         
@@ -399,8 +400,8 @@ class ObeliskGemEVGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("ObeliskGemEV Calculator")
-        # Kompaktere Startgröße, passt sich aber an Bildschirmgröße an
-        self.root.geometry("1400x800")
+        # Maximized window on startup
+        self.root.state('zoomed')  # Maximize window on Windows
         self.root.resizable(True, True)
         
         # Icon setzen (gem.png)
@@ -477,6 +478,9 @@ class ObeliskGemEVGUI:
         
         # Lootbug-Button direkt daneben (nicht weit entfernt)
         self.create_lootbug_button(title_frame)
+        
+        # Archaeology-Button daneben
+        self.create_archaeology_button(title_frame)
         
         # Linke Spalte: Parameter
         self.create_parameter_section(main_frame)
@@ -886,6 +890,65 @@ class ObeliskGemEVGUI:
                 command=self.open_option_analyzer
             )
             lootbug_button.pack(side=tk.LEFT)
+    
+    def create_archaeology_button(self, parent):
+        """Creates the Archaeology button for the Archaeology Simulator"""
+        
+        # Try to load a custom icon or use fallback
+        try:
+            # Try gem.png as icon (could be replaced with a dedicated archaeology icon)
+            icon_path = Path(__file__).parent / "sprites" / "gem.png"
+            if icon_path.exists():
+                # Load and scale the image - larger for better clickability
+                icon_image = Image.open(icon_path)
+                icon_image = icon_image.resize((40, 40), Image.Resampling.LANCZOS)
+                self.archaeology_photo = ImageTk.PhotoImage(icon_image)
+                
+                # Button with image - add padding for larger click area
+                archaeology_button = tk.Button(
+                    parent,
+                    image=self.archaeology_photo,
+                    command=self.open_archaeology_simulator,
+                    cursor="hand2",
+                    relief=tk.RAISED,
+                    borderwidth=2,
+                    padx=8,
+                    pady=4
+                )
+                archaeology_button.pack(side=tk.LEFT, padx=(10, 0))
+                
+                # Tooltip for the button
+                self.create_tooltip(
+                    archaeology_button,
+                    "Archaeology Simulator\nSimulate archaeology digs and\ncalculate expected values!"
+                )
+            else:
+                # Fallback: Button with text
+                archaeology_button = ttk.Button(
+                    parent,
+                    text="Archaeology",
+                    command=self.open_archaeology_simulator
+                )
+                archaeology_button.pack(side=tk.LEFT, padx=(10, 0))
+        except Exception as e:
+            # Fallback: Button with text
+            archaeology_button = ttk.Button(
+                parent,
+                text="Archaeology",
+                command=self.open_archaeology_simulator
+            )
+            archaeology_button.pack(side=tk.LEFT, padx=(10, 0))
+    
+    def open_archaeology_simulator(self):
+        """Opens the Archaeology Simulator window"""
+        try:
+            # Open the Archaeology Simulator window (standalone, no calculator needed)
+            ArchaeologySimulatorWindow(self.root)
+        except Exception as e:
+            messagebox.showerror(
+                "Error",
+                f"Error opening Archaeology Simulator:\n{str(e)}"
+            )
     
     def open_option_analyzer(self):
         """Öffnet das Option Analyzer Fenster"""

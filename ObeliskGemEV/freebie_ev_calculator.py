@@ -30,10 +30,10 @@ class GameParameters:
     instant_refresh_chance: float = 0.05  # 5%
     
     # Founder
-    vip_lounge_level: int = 2  # VIP Lounge Level (1-7)
+    vip_lounge_level: int = 3  # VIP Lounge Level (1-7)
     founder_gems_base: float = 10.0  # Feste Gems pro Drop
     founder_gems_chance: float = 0.01  # 1/100 Chance auf zusätzliche Gems
-    obelisk_level: int = 27  # Obelisk Level für Founder Gem-Berechnung
+    obelisk_level: int = 29  # Obelisk Level für Founder Gem-Berechnung
     founder_speed_multiplier: float = 2.0
     founder_speed_duration_minutes: float = 5.0
     
@@ -46,14 +46,14 @@ class GameParameters:
     free_bomb_chance: float = 0.16  # 16% Chance dass bomb click 0 charges verbraucht
     
     # Gem Bomb
-    gem_bomb_recharge_seconds: float = 46.0  # Recharge Zeit
+    gem_bomb_recharge_seconds: float = 35.0  # Recharge Zeit
     gem_bomb_gem_chance: float = 0.03  # 3% Chance per charge auf 1 Gem
     
     # Cherry Bomb
-    cherry_bomb_recharge_seconds: float = 48.0  # Recharge Zeit
+    cherry_bomb_recharge_seconds: float = 37.0  # Recharge Zeit
     
     # Founder Bomb
-    founder_bomb_interval_seconds: float = 80.0  # 1:20 min
+    founder_bomb_interval_seconds: float = 60.0 # recharge zeit
     founder_bomb_charges_per_drop: float = 2.0  # 100% Chance auf 2 Charges
     founder_bomb_speed_chance: float = 0.10  # 10%
     founder_bomb_speed_multiplier: float = 2.0
