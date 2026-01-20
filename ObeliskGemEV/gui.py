@@ -5,8 +5,13 @@ GUI for ObeliskGemEV Calculator
 import tkinter as tk
 from tkinter import ttk, messagebox
 import sys
+import json
 from pathlib import Path
 from PIL import Image, ImageTk
+
+# Save file path (in central save folder)
+SAVE_DIR = Path(__file__).parent / "save"
+SAVE_FILE = SAVE_DIR / "gemev_save.json"
 
 # Matplotlib für Bar Chart
 try:
@@ -446,8 +451,56 @@ class ObeliskGemEVGUI:
         # Lade Standard-Werte
         self.load_defaults()
         
+        # Lade gespeicherten Zustand (überschreibt Defaults)
+        self.load_state()
+        
+        # Auto-save on window close
+        self.root.protocol("WM_DELETE_WINDOW", self._on_close)
+        
         # Initiale Berechnung
         self.root.after(100, self.calculate)
+    
+    def _on_close(self):
+        """Handle window close - save state and destroy"""
+        self.save_state()
+        self.root.destroy()
+    
+    def save_state(self):
+        """Save current parameter values to file"""
+        state = {
+            'stonks_enabled': self.stonks_enabled.get() if hasattr(self, 'stonks_enabled') else True,
+        }
+        
+        # Save all parameter values
+        for key, info in self.vars.items():
+            state[key] = info['var'].get()
+        
+        try:
+            SAVE_DIR.mkdir(parents=True, exist_ok=True)
+            with open(SAVE_FILE, 'w') as f:
+                json.dump(state, f, indent=2)
+        except Exception as e:
+            print(f"Warning: Could not save state: {e}")
+    
+    def load_state(self):
+        """Load saved parameter values from file"""
+        if not SAVE_FILE.exists():
+            return
+        
+        try:
+            with open(SAVE_FILE, 'r') as f:
+                state = json.load(f)
+            
+            # Load stonks checkbox state
+            if hasattr(self, 'stonks_enabled'):
+                self.stonks_enabled.set(state.get('stonks_enabled', True))
+            
+            # Load all parameter values
+            for key, info in self.vars.items():
+                if key in state:
+                    info['var'].set(state[key])
+        except Exception as e:
+            print(f"Warning: Could not load state: {e}")
     
     def create_widgets(self):
         """Erstellt alle GUI-Widgets"""
