@@ -27,6 +27,7 @@ desktop.ini
 
 # Project specific
 *.log
+ObeliskGemEV/save/
 
 # OneDrive
 ~$*
