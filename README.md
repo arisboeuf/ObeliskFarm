@@ -14,6 +14,20 @@ The ObeliskGemEV Calculator helps you calculate the optimal return from various 
 - **Multipliers** (rolls, refresh, total)
 - **Visual representation** of all contributions as a bar chart
 
+## 🛠️ Additional Tools
+
+### 🔍 Option Analyzer (Lootbug)
+Analyze whether specific gem purchases are worth it based on your current EV/h. Currently supports:
+- **2× Game Speed** (15 Gems for 10 minutes) - calculates if the additional gem income exceeds the cost
+
+### ⛏️ Archaeology Simulator
+Optimize your archaeology skill point allocation and upgrades:
+- **Skill Point Optimizer**: Find the best skill to level for maximum floors per run
+- **Damage Breakpoints**: See exactly how much damage you need to one-shot blocks
+- **Upgrade Efficiency**: Compare Flat Damage vs Armor Pen upgrades (Common fragment costs included)
+- **Gem Upgrades**: Track Stamina, XP Boost, and Fragment upgrades
+- **Block Statistics**: View spawn rates and stats for all block types at each stage
+
 ## 🎯 Main Features
 
 ### 🎁 **FREEBIE Parameters**
