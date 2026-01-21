@@ -156,7 +156,8 @@ class ArchaeologySimulatorWindow:
         # Create new window
         self.window = tk.Toplevel(parent)
         self.window.title("Archaeology Simulator")
-        self.window.geometry("1200x700")
+        # Maximized window on startup (like main window)
+        self.window.state('zoomed')
         self.window.resizable(True, True)
         self.window.minsize(1000, 600)
         
@@ -193,6 +194,8 @@ class ArchaeologySimulatorWindow:
             'upgrade_armor_pen': self.upgrade_armor_pen,
             'gem_upgrades': self.gem_upgrades,
             'enrage_enabled': self.enrage_enabled.get() if hasattr(self, 'enrage_enabled') else True,
+            'forecast_levels_1': self.forecast_levels_1.get() if hasattr(self, 'forecast_levels_1') else 5,
+            'forecast_levels_2': self.forecast_levels_2.get() if hasattr(self, 'forecast_levels_2') else 10,
         }
         try:
             SAVE_DIR.mkdir(parents=True, exist_ok=True)
@@ -235,6 +238,14 @@ class ArchaeologySimulatorWindow:
             }
             if hasattr(self, 'stage_var'):
                 self.stage_var.set(stage_map_reverse.get(self.current_stage, "1-2"))
+            
+            # Update forecast levels
+            if hasattr(self, 'forecast_levels_1'):
+                self.forecast_levels_1.set(state.get('forecast_levels_1', 5))
+                self.forecast_1_level_label.config(text=f"+{self.forecast_levels_1.get()}")
+            if hasattr(self, 'forecast_levels_2'):
+                self.forecast_levels_2.set(state.get('forecast_levels_2', 10))
+                self.forecast_2_level_label.config(text=f"+{self.forecast_levels_2.get()}")
         except Exception as e:
             print(f"Warning: Could not load state: {e}")
     
@@ -643,6 +654,114 @@ class ArchaeologySimulatorWindow:
         
         return new_floors, percent_improvement
     
+    def calculate_forecast(self, levels_ahead: int):
+        """
+        Calculate the optimal skill point distribution for the next N levels.
+        
+        Uses brute-force search for small N (5-10 levels).
+        Returns the best distribution and the resulting floors/run improvement.
+        
+        Args:
+            levels_ahead: Number of skill points to allocate (e.g., 5 or 10)
+        
+        Returns:
+            dict with:
+                - 'distribution': dict of skill -> points to add
+                - 'floors_per_run': resulting floors/run
+                - 'improvement_pct': percentage improvement
+                - 'path': list of skills in order of allocation
+        """
+        skills = ['strength', 'agility', 'intellect', 'perception', 'luck']
+        current_floors = self.calculate_floors_per_run(self.get_total_stats(), self.current_stage)
+        
+        best_result = {
+            'distribution': {s: 0 for s in skills},
+            'floors_per_run': current_floors,
+            'improvement_pct': 0.0,
+            'path': [],
+        }
+        
+        # Generate all possible distributions of N points among 5 skills
+        # This is a "stars and bars" problem: C(n+k-1, k-1) combinations
+        # For 10 points, 5 skills: C(14,4) = 1001 combinations - very manageable
+        
+        def generate_distributions(n_points, n_skills):
+            """Generate all ways to distribute n_points among n_skills"""
+            if n_skills == 1:
+                yield (n_points,)
+                return
+            for i in range(n_points + 1):
+                for rest in generate_distributions(n_points - i, n_skills - 1):
+                    yield (i,) + rest
+        
+        best_floors = current_floors
+        best_dist_tuple = tuple(0 for _ in skills)
+        
+        for dist_tuple in generate_distributions(levels_ahead, len(skills)):
+            # Apply distribution temporarily
+            for skill, points in zip(skills, dist_tuple):
+                self.skill_points[skill] += points
+            
+            # Calculate floors with this distribution
+            new_floors = self.calculate_floors_per_run(self.get_total_stats(), self.current_stage)
+            
+            if new_floors > best_floors:
+                best_floors = new_floors
+                best_dist_tuple = dist_tuple
+                best_result['distribution'] = {s: p for s, p in zip(skills, dist_tuple)}
+                best_result['floors_per_run'] = new_floors
+            
+            # Revert changes
+            for skill, points in zip(skills, dist_tuple):
+                self.skill_points[skill] -= points
+        
+        # Calculate improvement percentage
+        if current_floors > 0:
+            best_result['improvement_pct'] = ((best_floors - current_floors) / current_floors) * 100
+        
+        # Build the optimal allocation path using greedy within the optimal endpoint
+        # We know where we want to end up, now find the best order to get there
+        remaining = {s: p for s, p in zip(skills, best_dist_tuple)}
+        path = []
+        
+        for _ in range(levels_ahead):
+            # Find which skill to add next that gives best immediate gain
+            # (only considering skills that are part of the optimal final distribution)
+            best_next = None
+            best_next_floors = -1
+            
+            for skill in skills:
+                if remaining[skill] > 0:
+                    self.skill_points[skill] += 1
+                    test_floors = self.calculate_floors_per_run(self.get_total_stats(), self.current_stage)
+                    self.skill_points[skill] -= 1
+                    
+                    if test_floors > best_next_floors:
+                        best_next_floors = test_floors
+                        best_next = skill
+            
+            if best_next:
+                path.append(best_next)
+                remaining[best_next] -= 1
+                self.skill_points[best_next] += 1
+        
+        # Revert all path changes
+        for skill in path:
+            self.skill_points[skill] -= 1
+        
+        best_result['path'] = path
+        
+        return best_result
+    
+    def format_distribution(self, distribution: dict) -> str:
+        """Format a skill distribution as a compact string like '3S 2A 1L'"""
+        abbrev = {'strength': 'S', 'agility': 'A', 'intellect': 'I', 'perception': 'P', 'luck': 'L'}
+        parts = []
+        for skill in ['strength', 'agility', 'intellect', 'perception', 'luck']:
+            if distribution.get(skill, 0) > 0:
+                parts.append(f"{distribution[skill]}{abbrev[skill]}")
+        return ' '.join(parts) if parts else '—'
+    
     def remove_upgrade(self, upgrade_name):
         if upgrade_name == 'flat_damage' and self.upgrade_flat_damage > 0:
             self.upgrade_flat_damage -= 1
@@ -728,9 +847,17 @@ class ArchaeologySimulatorWindow:
         col_frame = tk.Frame(parent, background="#E3F2FD", relief=tk.RIDGE, borderwidth=2)
         col_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 2), pady=0)
         
-        # Stats header
-        tk.Label(col_frame, text="Current Stats", font=("Arial", 11, "bold"), 
-                background="#E3F2FD").pack(pady=(5, 3))
+        # Stats header with help icon
+        stats_header_frame = tk.Frame(col_frame, background="#E3F2FD")
+        stats_header_frame.pack(pady=(5, 3))
+        
+        tk.Label(stats_header_frame, text="Current Stats", font=("Arial", 11, "bold"), 
+                background="#E3F2FD").pack(side=tk.LEFT)
+        
+        stats_help_label = tk.Label(stats_header_frame, text="?", font=("Arial", 9, "bold"), 
+                                   cursor="hand2", foreground="#1976D2", background="#E3F2FD")
+        stats_help_label.pack(side=tk.LEFT, padx=(5, 0))
+        self._create_stats_help_tooltip(stats_help_label)
         
         # Stats grid
         stats_grid = tk.Frame(col_frame, background="#E3F2FD")
@@ -928,6 +1055,12 @@ class ArchaeologySimulatorWindow:
             tk.Label(row_frame, text=info, background="#E8F5E9", 
                     font=("Arial", 9), foreground="#555555").pack(side=tk.LEFT)
             
+            # Help icon with tooltip for skill details
+            skill_help_label = tk.Label(row_frame, text="?", background="#E8F5E9", 
+                                       font=("Arial", 8, "bold"), foreground="#1976D2", cursor="hand2")
+            skill_help_label.pack(side=tk.LEFT, padx=(3, 0))
+            self._create_skill_tooltip(skill_help_label, skill)
+            
             self.skill_buttons[skill] = (minus_btn, plus_btn)
         
         ttk.Separator(col_frame, orient='horizontal').pack(fill=tk.X, pady=5, padx=5)
@@ -1107,13 +1240,70 @@ class ArchaeologySimulatorWindow:
         
         ttk.Separator(col_frame, orient='horizontal').pack(fill=tk.X, pady=5, padx=5)
         
-        # Recommendation
-        tk.Label(col_frame, text="Best Next Point:", font=("Arial", 10, "bold"), 
-                background="#E8F5E9").pack(pady=(0, 3))
+        # Simple Greedy Recommendation (Best Next Point)
+        rec_frame = tk.Frame(col_frame, background="#FFECB3", relief=tk.GROOVE, borderwidth=1)
+        rec_frame.pack(fill=tk.X, padx=5, pady=(0, 5))
         
-        self.recommendation_label = tk.Label(col_frame, text="—", font=("Arial", 10, "bold"),
-                                            background="#E8F5E9", foreground="#1976D2")
-        self.recommendation_label.pack(pady=(0, 5))
+        rec_inner = tk.Frame(rec_frame, background="#FFECB3", padx=8, pady=5)
+        rec_inner.pack(fill=tk.X)
+        
+        tk.Label(rec_inner, text="Best Next (Greedy):", font=("Arial", 9, "bold"),
+                background="#FFECB3", foreground="#FF6F00").pack(side=tk.LEFT)
+        self.recommendation_label = tk.Label(rec_inner, text="—", font=("Arial", 11, "bold"),
+                                            background="#FFECB3", foreground="#1976D2")
+        self.recommendation_label.pack(side=tk.LEFT, padx=(8, 0))
+        
+        # Help icon
+        rec_help = tk.Label(rec_inner, text="?", font=("Arial", 8, "bold"),
+                           cursor="hand2", foreground="#FF6F00", background="#FFECB3")
+        rec_help.pack(side=tk.RIGHT)
+        self._create_greedy_help_tooltip(rec_help)
+    
+    def _create_greedy_help_tooltip(self, widget):
+        """Creates a tooltip explaining the greedy recommendation"""
+        def on_enter(event):
+            tooltip = tk.Toplevel()
+            tooltip.wm_overrideredirect(True)
+            tooltip.wm_geometry(f"+{event.x_root-250}+{event.y_root+10}")
+            
+            outer_frame = tk.Frame(tooltip, background="#FF6F00", relief=tk.FLAT)
+            outer_frame.pack(padx=2, pady=2)
+            
+            inner_frame = tk.Frame(outer_frame, background="#FFFFFF")
+            inner_frame.pack(padx=1, pady=1)
+            
+            content_frame = tk.Frame(inner_frame, background="#FFFFFF", padx=10, pady=8)
+            content_frame.pack()
+            
+            tk.Label(content_frame, text="Greedy Recommendation", 
+                    font=("Arial", 10, "bold"), foreground="#FF6F00", 
+                    background="#FFFFFF").pack(anchor=tk.W)
+            
+            lines = [
+                "",
+                "Shows the single best next skill point.",
+                "",
+                "This is 'greedy' - it only looks one step ahead.",
+                "Good for quick decisions, but may miss",
+                "important damage breakpoints.",
+                "",
+                "For strategic planning, see the Skill Forecast",
+                "section on the right which plans 5-10 levels ahead.",
+            ]
+            
+            for line in lines:
+                tk.Label(content_frame, text=line, font=("Arial", 9), 
+                        background="#FFFFFF", anchor=tk.W).pack(anchor=tk.W)
+            
+            widget.tooltip = tooltip
+        
+        def on_leave(event):
+            if hasattr(widget, 'tooltip'):
+                widget.tooltip.destroy()
+                del widget.tooltip
+        
+        widget.bind("<Enter>", on_enter)
+        widget.bind("<Leave>", on_leave)
     
     def _create_arch_xp_tooltip(self, widget):
         """Creates a tooltip for the Archaeology Exp Gain upgrade"""
@@ -1485,120 +1675,424 @@ class ArchaeologySimulatorWindow:
         widget.bind("<Enter>", on_enter)
         widget.bind("<Leave>", on_leave)
     
+    def _create_stats_help_tooltip(self, widget):
+        """Creates a tooltip explaining all stats in detail"""
+        def on_enter(event):
+            tooltip = tk.Toplevel()
+            tooltip.wm_overrideredirect(True)
+            
+            # Position tooltip
+            tooltip_width = 380
+            tooltip_height = 520
+            
+            screen_width = tooltip.winfo_screenwidth()
+            screen_height = tooltip.winfo_screenheight()
+            
+            x = event.x_root + 15
+            if x + tooltip_width > screen_width - 20:
+                x = event.x_root - tooltip_width - 15
+            
+            y = event.y_root - 50
+            if y + tooltip_height > screen_height - 50:
+                y = screen_height - tooltip_height - 50
+            if y < 10:
+                y = 10
+            
+            tooltip.wm_geometry(f"+{x}+{y}")
+            
+            # Outer frame for shadow effect
+            outer_frame = tk.Frame(tooltip, background="#1976D2", relief=tk.FLAT, borderwidth=0)
+            outer_frame.pack(padx=2, pady=2)
+            
+            # Inner frame
+            inner_frame = tk.Frame(outer_frame, background="#FFFFFF", relief=tk.FLAT, borderwidth=0)
+            inner_frame.pack(padx=1, pady=1)
+            
+            content_frame = tk.Frame(inner_frame, background="#FFFFFF", padx=12, pady=10)
+            content_frame.pack()
+            
+            # Title
+            tk.Label(content_frame, text="Stats & Skills Explained", 
+                    font=("Arial", 11, "bold"), foreground="#1976D2", 
+                    background="#FFFFFF").pack(anchor=tk.W)
+            
+            tk.Label(content_frame, text="", background="#FFFFFF").pack()
+            
+            # Combat Stats
+            tk.Label(content_frame, text="Combat Stats:", 
+                    font=("Arial", 9, "bold"), foreground="#C73E1D", 
+                    background="#FFFFFF").pack(anchor=tk.W)
+            
+            combat_lines = [
+                "• Damage: Base 10 + Flat Dmg upgrade + STR×1",
+                "    → Total = Flat × (1 + STR×1% bonus)",
+                "• Armor Pen: Reduces effective block armor",
+                "    → PER gives +2 Armor Pen per point",
+                "• Stamina: Base 100 + AGI×5 + Gem upgrade×2",
+                "    → Determines blocks you can hit per run",
+                "• Crit %: AGI×1% + LUK×2%",
+                "• Crit Dmg: Base 1.5× + STR×0.03×",
+                "• One-Hit %: LUK×0.04% (instant kill chance)",
+            ]
+            for line in combat_lines:
+                tk.Label(content_frame, text=line, font=("Arial", 8), 
+                        background="#FFFFFF", anchor=tk.W).pack(anchor=tk.W)
+            
+            tk.Label(content_frame, text="", background="#FFFFFF").pack()
+            
+            # Mod Chances
+            tk.Label(content_frame, text="Mod Chances (per block hit):", 
+                    font=("Arial", 9, "bold"), foreground="#9932CC", 
+                    background="#FFFFFF").pack(anchor=tk.W)
+            
+            mod_lines = [
+                "• Exp Mod: INT×0.3% + LUK×0.2% + Gem×0.05%",
+                "    → Triggers 3×-5× XP for that block (avg 4×)",
+                "• Loot Mod: PER×0.3% + LUK×0.2% + Gem×0.05%",
+                "    → Triggers 2×-5× Fragments (avg 3.5×)",
+                "• Speed Mod: AGI×0.2% + LUK×0.2%",
+                "    → 2× attack speed for 10-110 hits (QoL only)",
+                "• Stamina Mod: LUK×0.2% + Gem×0.05%",
+                "    → Grants +3 to +10 Stamina (avg +6.5)",
+            ]
+            for line in mod_lines:
+                tk.Label(content_frame, text=line, font=("Arial", 8), 
+                        background="#FFFFFF", anchor=tk.W).pack(anchor=tk.W)
+            
+            tk.Label(content_frame, text="", background="#FFFFFF").pack()
+            
+            # Multipliers
+            tk.Label(content_frame, text="Multipliers:", 
+                    font=("Arial", 9, "bold"), foreground="#2E7D32", 
+                    background="#FFFFFF").pack(anchor=tk.W)
+            
+            mult_lines = [
+                "• XP Mult: Base 1.0× + INT×5% + Gem×5%",
+                "    → Applied to all XP gained",
+                "• Frag Mult: Base 1.0× + PER×4% + Gem×2%",
+                "    → Applied to fragment drops",
+                "• Arch XP: Common upgrade, +2% per level",
+                "    → Speeds up leveling (not floors/run)",
+            ]
+            for line in mult_lines:
+                tk.Label(content_frame, text=line, font=("Arial", 8), 
+                        background="#FFFFFF", anchor=tk.W).pack(anchor=tk.W)
+            
+            tk.Label(content_frame, text="", background="#FFFFFF").pack()
+            
+            # Skill Summary
+            tk.Label(content_frame, text="Skill Point Summary:", 
+                    font=("Arial", 9, "bold"), foreground="#1976D2", 
+                    background="#FFFFFF").pack(anchor=tk.W)
+            
+            skill_lines = [
+                "• STR: +1 Flat Dmg, +1% Dmg, +3% Crit Dmg",
+                "• AGI: +5 Stamina, +1% Crit, +0.2% Speed Mod",
+                "• INT: +5% XP Mult, +0.3% Exp Mod",
+                "• PER: +4% Frag Mult, +0.3% Loot Mod, +2 Armor Pen",
+                "• LUK: +2% Crit, +0.2% ALL Mods, +0.04% One-Hit",
+            ]
+            for line in skill_lines:
+                tk.Label(content_frame, text=line, font=("Arial", 8), 
+                        background="#FFFFFF", anchor=tk.W).pack(anchor=tk.W)
+            
+            widget.tooltip = tooltip
+        
+        def on_leave(event):
+            if hasattr(widget, 'tooltip'):
+                widget.tooltip.destroy()
+                del widget.tooltip
+        
+        widget.bind("<Enter>", on_enter)
+        widget.bind("<Leave>", on_leave)
+    
+    def _create_skill_tooltip(self, widget, skill_name):
+        """Creates a tooltip explaining what a specific skill does"""
+        # Detailed skill descriptions
+        skill_details = {
+            'strength': {
+                'title': 'Strength (STR)',
+                'color': '#C73E1D',
+                'bonuses': [
+                    ('+1 Flat Damage', 'Added to base damage before % bonus'),
+                    ('+1% Damage Bonus', 'Multiplies total flat damage'),
+                    ('+3% Crit Damage', 'Added to crit multiplier (base 1.5×)'),
+                ],
+                'example': 'At 10 STR: +10 flat dmg, +10% dmg bonus, +30% crit dmg',
+                'tip': 'Best for: Raw damage output. Scales well with flat damage upgrades.',
+            },
+            'agility': {
+                'title': 'Agility (AGI)',
+                'color': '#2E7D32',
+                'bonuses': [
+                    ('+5 Max Stamina', 'More hits per run = more blocks'),
+                    ('+1% Crit Chance', 'Chance to deal crit damage'),
+                    ('+0.2% Speed Mod Chance', 'Per block: 2× attack speed for 10-110 hits'),
+                ],
+                'example': 'At 10 AGI: +50 stamina, +10% crit, +2% speed mod',
+                'tip': 'Best for: Longer runs. Speed Mod is QoL only (no extra floors).',
+            },
+            'intellect': {
+                'title': 'Intellect (INT)',
+                'color': '#1976D2',
+                'bonuses': [
+                    ('+5% XP Multiplier', 'Applied to all XP gained from blocks'),
+                    ('+0.3% Exp Mod Chance', 'Per block: 3×-5× XP (avg 4×) when triggered'),
+                ],
+                'example': 'At 10 INT: +50% XP mult, +3% exp mod chance',
+                'tip': 'Best for: Faster leveling. Does NOT improve floors/run directly.',
+            },
+            'perception': {
+                'title': 'Perception (PER)',
+                'color': '#9932CC',
+                'bonuses': [
+                    ('+4% Fragment Multiplier', 'Applied to all fragment drops'),
+                    ('+0.3% Loot Mod Chance', 'Per block: 2×-5× fragments (avg 3.5×)'),
+                    ('+2 Armor Penetration', 'Reduces effective block armor'),
+                ],
+                'example': 'At 10 PER: +40% frags, +3% loot mod, +20 armor pen',
+                'tip': 'Best for: Fragment farming AND damage vs armored blocks.',
+            },
+            'luck': {
+                'title': 'Luck (LUK)',
+                'color': '#FF6F00',
+                'bonuses': [
+                    ('+2% Crit Chance', 'Double the crit chance of AGI!'),
+                    ('+0.2% ALL Mod Chances', 'Adds to Exp, Loot, Speed, AND Stamina mods'),
+                    ('+0.04% One-Hit Chance', 'Instant kill any block (ignores HP/armor)'),
+                ],
+                'example': 'At 10 LUK: +20% crit, +2% all mods, +0.4% one-hit',
+                'tip': 'Best for: Universal boost. One-hit is small but powerful.',
+            },
+        }
+        
+        def on_enter(event):
+            details = skill_details.get(skill_name, {})
+            if not details:
+                return
+            
+            tooltip = tk.Toplevel()
+            tooltip.wm_overrideredirect(True)
+            
+            # Position tooltip
+            tooltip_width = 320
+            tooltip_height = 200
+            
+            screen_width = tooltip.winfo_screenwidth()
+            screen_height = tooltip.winfo_screenheight()
+            
+            x = event.x_root + 15
+            if x + tooltip_width > screen_width - 20:
+                x = event.x_root - tooltip_width - 15
+            
+            y = event.y_root - 30
+            if y + tooltip_height > screen_height - 50:
+                y = screen_height - tooltip_height - 50
+            if y < 10:
+                y = 10
+            
+            tooltip.wm_geometry(f"+{x}+{y}")
+            
+            # Outer frame for shadow effect
+            outer_frame = tk.Frame(tooltip, background=details['color'], relief=tk.FLAT, borderwidth=0)
+            outer_frame.pack(padx=2, pady=2)
+            
+            # Inner frame
+            inner_frame = tk.Frame(outer_frame, background="#FFFFFF", relief=tk.FLAT, borderwidth=0)
+            inner_frame.pack(padx=1, pady=1)
+            
+            content_frame = tk.Frame(inner_frame, background="#FFFFFF", padx=10, pady=8)
+            content_frame.pack()
+            
+            # Title
+            tk.Label(content_frame, text=details['title'], 
+                    font=("Arial", 10, "bold"), foreground=details['color'], 
+                    background="#FFFFFF").pack(anchor=tk.W)
+            
+            tk.Label(content_frame, text="", background="#FFFFFF").pack()
+            
+            # Bonuses per point
+            tk.Label(content_frame, text="Per Skill Point:", 
+                    font=("Arial", 9, "bold"), background="#FFFFFF").pack(anchor=tk.W)
+            
+            for bonus, desc in details['bonuses']:
+                bonus_frame = tk.Frame(content_frame, background="#FFFFFF")
+                bonus_frame.pack(anchor=tk.W, fill=tk.X)
+                tk.Label(bonus_frame, text=f"• {bonus}", font=("Arial", 9, "bold"), 
+                        foreground=details['color'], background="#FFFFFF").pack(side=tk.LEFT)
+                tk.Label(content_frame, text=f"    {desc}", font=("Arial", 8), 
+                        foreground="#555555", background="#FFFFFF").pack(anchor=tk.W)
+            
+            tk.Label(content_frame, text="", background="#FFFFFF").pack()
+            
+            # Example
+            tk.Label(content_frame, text=details['example'], 
+                    font=("Arial", 8, "italic"), foreground="#555555", 
+                    background="#FFFFFF").pack(anchor=tk.W)
+            
+            tk.Label(content_frame, text="", background="#FFFFFF").pack()
+            
+            # Tip
+            tk.Label(content_frame, text=details['tip'], 
+                    font=("Arial", 8, "bold"), foreground="#2E7D32", 
+                    background="#FFFFFF", wraplength=280, justify=tk.LEFT).pack(anchor=tk.W)
+            
+            widget.tooltip = tooltip
+        
+        def on_leave(event):
+            if hasattr(widget, 'tooltip'):
+                widget.tooltip.destroy()
+                del widget.tooltip
+        
+        widget.bind("<Enter>", on_enter)
+        widget.bind("<Leave>", on_leave)
+    
     def create_results_column(self, parent):
-        """Right column: Results and spawn chart"""
-        col_frame = tk.Frame(parent, background="#FFF3E0", relief=tk.RIDGE, borderwidth=2)
-        col_frame.grid(row=0, column=2, sticky="nsew", padx=(2, 0), pady=0)
+        """Right column: Results, spawn chart, breakpoints, and forecast - scrollable"""
+        # Outer frame for the column
+        col_outer = tk.Frame(parent, background="#FFF3E0", relief=tk.RIDGE, borderwidth=2)
+        col_outer.grid(row=0, column=2, sticky="nsew", padx=(2, 0), pady=0)
         
-        # Results
-        tk.Label(col_frame, text="Run Statistics", font=("Arial", 11, "bold"), 
-                background="#FFF3E0").pack(pady=(5, 5))
+        # Create canvas with scrollbar for scrollable content
+        canvas = tk.Canvas(col_outer, background="#FFF3E0", highlightthickness=0)
+        scrollbar = ttk.Scrollbar(col_outer, orient="vertical", command=canvas.yview)
         
-        results_grid = tk.Frame(col_frame, background="#FFF3E0")
-        results_grid.pack(fill=tk.X, padx=10, pady=2)
+        # Scrollable frame inside canvas
+        col_frame = tk.Frame(canvas, background="#FFF3E0")
+        
+        # Configure scrolling
+        col_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.create_window((0, 0), window=col_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        
+        # Pack scrollbar and canvas
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        
+        # Enable mousewheel scrolling
+        def _on_mousewheel(event):
+            canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+        canvas.bind_all("<MouseWheel>", _on_mousewheel)
+        
+        # Store canvas reference for width updates
+        self.results_canvas = canvas
+        self.results_inner_frame = col_frame
+        
+        # === TOP ROW: Run Statistics + Spawn Chart side by side ===
+        top_row = tk.Frame(col_frame, background="#FFF3E0")
+        top_row.pack(fill=tk.X, padx=5, pady=(5, 0))
+        
+        # Left: Run Statistics
+        stats_frame = tk.Frame(top_row, background="#FFF3E0")
+        stats_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        
+        tk.Label(stats_frame, text="Run Statistics", font=("Arial", 10, "bold"), 
+                background="#FFF3E0").pack(anchor=tk.W)
+        
+        results_grid = tk.Frame(stats_frame, background="#FFF3E0")
+        results_grid.pack(fill=tk.X, pady=2)
         
         # Floors per run - PRIMARY
-        tk.Label(results_grid, text="Floors / Run:", font=("Arial", 10, "bold"), 
-                background="#FFF3E0").grid(row=0, column=0, sticky=tk.W, pady=2)
+        tk.Label(results_grid, text="Floors/Run:", font=("Arial", 9, "bold"), 
+                background="#FFF3E0").grid(row=0, column=0, sticky=tk.W, pady=1)
         self.floors_per_run_label = tk.Label(results_grid, text="—", 
-                                             font=("Arial", 14, "bold"), 
+                                             font=("Arial", 12, "bold"), 
                                              background="#FFF3E0", foreground="#2E7D32")
-        self.floors_per_run_label.grid(row=0, column=1, sticky=tk.E, pady=2)
+        self.floors_per_run_label.grid(row=0, column=1, sticky=tk.E, pady=1)
         
         # Blocks per run
-        tk.Label(results_grid, text="Blocks / Run:", font=("Arial", 9), 
+        tk.Label(results_grid, text="Blocks/Run:", font=("Arial", 8), 
                 background="#FFF3E0").grid(row=1, column=0, sticky=tk.W, pady=1)
         self.blocks_per_run_label = tk.Label(results_grid, text="—", 
-                                             font=("Arial", 10, "bold"), 
+                                             font=("Arial", 9, "bold"), 
                                              background="#FFF3E0", foreground="#1976D2")
         self.blocks_per_run_label.grid(row=1, column=1, sticky=tk.E, pady=1)
         
         # Avg hits
-        tk.Label(results_grid, text="Avg Hits / Block:", font=("Arial", 9), 
+        tk.Label(results_grid, text="Avg Hits:", font=("Arial", 8), 
                 background="#FFF3E0").grid(row=2, column=0, sticky=tk.W, pady=1)
         self.avg_hits_label = tk.Label(results_grid, text="—", 
-                                       font=("Arial", 10, "bold"), 
+                                       font=("Arial", 9, "bold"), 
                                        background="#FFF3E0", foreground="#1976D2")
         self.avg_hits_label.grid(row=2, column=1, sticky=tk.E, pady=1)
         
         # Effective damage
-        tk.Label(results_grid, text="Eff. Dmg (Dirt/Com):", font=("Arial", 9), 
+        tk.Label(results_grid, text="Eff Dmg:", font=("Arial", 8), 
                 background="#FFF3E0").grid(row=3, column=0, sticky=tk.W, pady=1)
         self.eff_dmg_label = tk.Label(results_grid, text="—", 
-                                      font=("Arial", 10, "bold"), 
+                                      font=("Arial", 9, "bold"), 
                                       background="#FFF3E0", foreground="#C73E1D")
         self.eff_dmg_label.grid(row=3, column=1, sticky=tk.E, pady=1)
         
-        ttk.Separator(col_frame, orient='horizontal').pack(fill=tk.X, pady=8, padx=5)
+        # Right: Spawn distribution chart
+        chart_frame = tk.Frame(top_row, background="#FFF3E0")
+        chart_frame.pack(side=tk.RIGHT, padx=(10, 0))
         
-        # Spawn distribution chart
-        tk.Label(col_frame, text="Block Spawn Distribution", font=("Arial", 10, "bold"), 
-                background="#FFF3E0").pack(pady=(0, 3))
+        tk.Label(chart_frame, text="Spawn Distribution", font=("Arial", 9, "bold"), 
+                background="#FFF3E0").pack()
         
-        self.chart_canvas = tk.Canvas(col_frame, width=280, height=140, 
+        self.chart_canvas = tk.Canvas(chart_frame, width=180, height=100, 
                                       background="#FFFFFF", highlightthickness=1,
                                       highlightbackground="#CCCCCC")
-        self.chart_canvas.pack(padx=10, pady=(0, 5))
+        self.chart_canvas.pack()
         
         ttk.Separator(col_frame, orient='horizontal').pack(fill=tk.X, pady=5, padx=5)
         
-        # Average block stats for current stage
-        tk.Label(col_frame, text="Avg Block Stats (weighted)", font=("Arial", 10, "bold"), 
-                background="#FFF3E0").pack(pady=(0, 3))
+        # === SECOND ROW: Avg Block Stats (compact) ===
+        avg_stats_header = tk.Frame(col_frame, background="#FFF3E0")
+        avg_stats_header.pack(fill=tk.X, padx=5)
+        tk.Label(avg_stats_header, text="Avg Block Stats", font=("Arial", 9, "bold"), 
+                background="#FFF3E0").pack(side=tk.LEFT)
         
         avg_stats_grid = tk.Frame(col_frame, background="#FFF3E0")
-        avg_stats_grid.pack(fill=tk.X, padx=10, pady=2)
+        avg_stats_grid.pack(fill=tk.X, padx=5, pady=2)
         
-        # HP
-        tk.Label(avg_stats_grid, text="Avg HP:", font=("Arial", 9), 
-                background="#FFF3E0").grid(row=0, column=0, sticky=tk.W, pady=1)
+        # Row 1: HP and Armor
+        tk.Label(avg_stats_grid, text="HP:", font=("Arial", 8), 
+                background="#FFF3E0").grid(row=0, column=0, sticky=tk.W)
         self.avg_block_hp_label = tk.Label(avg_stats_grid, text="—", 
-                                          font=("Arial", 9, "bold"), 
-                                          background="#FFF3E0", foreground="#C73E1D")
-        self.avg_block_hp_label.grid(row=0, column=1, sticky=tk.E, pady=1)
+                                          font=("Arial", 8, "bold"), 
+                                          background="#FFF3E0", foreground="#C73E1D", width=6)
+        self.avg_block_hp_label.grid(row=0, column=1, sticky=tk.W)
         
-        # Armor
-        tk.Label(avg_stats_grid, text="Avg Armor:", font=("Arial", 9), 
-                background="#FFF3E0").grid(row=1, column=0, sticky=tk.W, pady=1)
+        tk.Label(avg_stats_grid, text="Armor:", font=("Arial", 8), 
+                background="#FFF3E0").grid(row=0, column=2, sticky=tk.W, padx=(10, 0))
         self.avg_block_armor_label = tk.Label(avg_stats_grid, text="—", 
-                                             font=("Arial", 9, "bold"), 
-                                             background="#FFF3E0", foreground="#1976D2")
-        self.avg_block_armor_label.grid(row=1, column=1, sticky=tk.E, pady=1)
+                                             font=("Arial", 8, "bold"), 
+                                             background="#FFF3E0", foreground="#1976D2", width=4)
+        self.avg_block_armor_label.grid(row=0, column=3, sticky=tk.W)
         
-        # XP
-        tk.Label(avg_stats_grid, text="Avg XP:", font=("Arial", 9), 
-                background="#FFF3E0").grid(row=2, column=0, sticky=tk.W, pady=1)
-        self.avg_block_xp_label = tk.Label(avg_stats_grid, text="—", 
-                                          font=("Arial", 9, "bold"), 
-                                          background="#FFF3E0", foreground="#2E7D32")
-        self.avg_block_xp_label.grid(row=2, column=1, sticky=tk.E, pady=1)
-        
-        # Fragments
-        tk.Label(avg_stats_grid, text="Avg Fragment:", font=("Arial", 9), 
-                background="#FFF3E0").grid(row=3, column=0, sticky=tk.W, pady=1)
-        self.avg_block_frag_label = tk.Label(avg_stats_grid, text="—", 
-                                            font=("Arial", 9, "bold"), 
-                                            background="#FFF3E0", foreground="#9932CC")
-        self.avg_block_frag_label.grid(row=3, column=1, sticky=tk.E, pady=1)
-        
-        # Armor pen needed hint
-        tk.Label(avg_stats_grid, text="Armor Pen needed:", font=("Arial", 9), 
-                background="#FFF3E0", foreground="#555555").grid(row=4, column=0, sticky=tk.W, pady=(3,1))
+        tk.Label(avg_stats_grid, text="Pen needed:", font=("Arial", 8), 
+                background="#FFF3E0", foreground="#555555").grid(row=0, column=4, sticky=tk.W, padx=(10, 0))
         self.armor_pen_hint_label = tk.Label(avg_stats_grid, text="—", 
                                             font=("Arial", 8, "bold"), 
                                             background="#FFF3E0", foreground="#555555")
-        self.armor_pen_hint_label.grid(row=4, column=1, sticky=tk.E, pady=(3,1))
+        self.armor_pen_hint_label.grid(row=0, column=5, sticky=tk.W)
+        
+        # Row 2: XP and Fragment
+        tk.Label(avg_stats_grid, text="XP:", font=("Arial", 8), 
+                background="#FFF3E0").grid(row=1, column=0, sticky=tk.W)
+        self.avg_block_xp_label = tk.Label(avg_stats_grid, text="—", 
+                                          font=("Arial", 8, "bold"), 
+                                          background="#FFF3E0", foreground="#2E7D32", width=6)
+        self.avg_block_xp_label.grid(row=1, column=1, sticky=tk.W)
+        
+        tk.Label(avg_stats_grid, text="Frag:", font=("Arial", 8), 
+                background="#FFF3E0").grid(row=1, column=2, sticky=tk.W, padx=(10, 0))
+        self.avg_block_frag_label = tk.Label(avg_stats_grid, text="—", 
+                                            font=("Arial", 8, "bold"), 
+                                            background="#FFF3E0", foreground="#9932CC", width=6)
+        self.avg_block_frag_label.grid(row=1, column=3, sticky=tk.W)
         
         ttk.Separator(col_frame, orient='horizontal').pack(fill=tk.X, pady=5, padx=5)
         
-        # Damage Breakpoints Section
+        # === DAMAGE BREAKPOINTS SECTION ===
         breakpoint_header = tk.Frame(col_frame, background="#FFF3E0")
         breakpoint_header.pack(fill=tk.X, padx=5)
         
         tk.Label(breakpoint_header, text="Damage Breakpoints", font=("Arial", 10, "bold"), 
                 background="#FFF3E0").pack(side=tk.LEFT)
         
-        # Help icon for breakpoints
         bp_help_label = tk.Label(breakpoint_header, text="?", font=("Arial", 9, "bold"), 
                                 cursor="hand2", foreground="#C73E1D", background="#FFF3E0")
         bp_help_label.pack(side=tk.LEFT, padx=(5, 0))
@@ -1608,54 +2102,46 @@ class ArchaeologySimulatorWindow:
         self.best_bp_frame = tk.Frame(col_frame, background="#FFECB3", relief=tk.GROOVE, borderwidth=1)
         self.best_bp_frame.pack(fill=tk.X, padx=5, pady=(3, 2))
         
-        best_bp_inner = tk.Frame(self.best_bp_frame, background="#FFECB3", padx=5, pady=3)
+        best_bp_inner = tk.Frame(self.best_bp_frame, background="#FFECB3", padx=5, pady=2)
         best_bp_inner.pack(fill=tk.X)
         
-        tk.Label(best_bp_inner, text="★ Best Next:", font=("Arial", 8, "bold"), 
+        tk.Label(best_bp_inner, text="★ Best:", font=("Arial", 8, "bold"), 
                 background="#FFECB3", foreground="#FF6F00").pack(side=tk.LEFT)
         
-        self.best_bp_label = tk.Label(best_bp_inner, text="—", font=("Arial", 9), 
+        self.best_bp_label = tk.Label(best_bp_inner, text="—", font=("Arial", 8), 
                                      background="#FFECB3", foreground="#333333")
         self.best_bp_label.pack(side=tk.LEFT, padx=(5, 0))
         
-        # Help icon for best breakpoint
         best_bp_help = tk.Label(best_bp_inner, text="?", font=("Arial", 8, "bold"), 
                                cursor="hand2", foreground="#FF6F00", background="#FFECB3")
         best_bp_help.pack(side=tk.RIGHT)
         self._create_best_bp_help_tooltip(best_bp_help)
         
-        # Container for breakpoint rows (will be dynamically sorted)
+        # Container for breakpoint rows
         self.bp_container = tk.Frame(col_frame, background="#FFF3E0")
-        self.bp_container.pack(fill=tk.BOTH, expand=True, padx=5, pady=3)
+        self.bp_container.pack(fill=tk.X, padx=5, pady=3)
         
-        # We'll store breakpoint labels in a dict for updating
         self.breakpoint_labels = {}
         
-        # Create a label for each block type that can appear
         for block_type in BLOCK_TYPES:
             row_frame = tk.Frame(self.bp_container, background="#FFF3E0")
-            # Don't pack yet - will be packed in sorted order during update
             
             color = self.BLOCK_COLORS.get(block_type, '#888888')
             
-            # Block type name
             name_label = tk.Label(row_frame, text=f"{block_type.capitalize()[:4]}:", 
                                  font=("Arial", 8, "bold"), foreground=color,
                                  background="#FFF3E0", width=5, anchor=tk.W)
             name_label.pack(side=tk.LEFT)
             
-            # Stamina impact indicator
-            impact_label = tk.Label(row_frame, text="", font=("Arial", 9), 
-                                   background="#FFF3E0", foreground="#888888", width=8, anchor=tk.W)
+            impact_label = tk.Label(row_frame, text="", font=("Arial", 8), 
+                                   background="#FFF3E0", foreground="#888888", width=7, anchor=tk.W)
             impact_label.pack(side=tk.LEFT)
             
-            # Current hits
-            hits_label = tk.Label(row_frame, text="—", font=("Arial", 9), 
-                                 background="#FFF3E0", width=6, anchor=tk.W)
+            hits_label = tk.Label(row_frame, text="—", font=("Arial", 8), 
+                                 background="#FFF3E0", width=5, anchor=tk.W)
             hits_label.pack(side=tk.LEFT)
             
-            # Next breakpoint info
-            bp_info_label = tk.Label(row_frame, text="", font=("Arial", 9), 
+            bp_info_label = tk.Label(row_frame, text="", font=("Arial", 8), 
                                     background="#FFF3E0", foreground="#555555",
                                     anchor=tk.W)
             bp_info_label.pack(side=tk.LEFT, fill=tk.X, expand=True)
@@ -1666,11 +2152,205 @@ class ArchaeologySimulatorWindow:
                 'impact': impact_label,
                 'hits': hits_label,
                 'bp_info': bp_info_label,
-                'tooltip_data': {}  # Will store data for dynamic tooltip
+                'tooltip_data': {}
             }
             
-            # Add hover tooltip for each row
             self._create_block_breakpoint_tooltip(row_frame, block_type)
+        
+        ttk.Separator(col_frame, orient='horizontal').pack(fill=tk.X, pady=5, padx=5)
+        
+        # === SKILL FORECAST SECTION ===
+        forecast_header = tk.Frame(col_frame, background="#FFF3E0")
+        forecast_header.pack(fill=tk.X, padx=5)
+        
+        tk.Label(forecast_header, text="Skill Forecast", font=("Arial", 10, "bold"), 
+                background="#FFF3E0").pack(side=tk.LEFT)
+        
+        forecast_help_label = tk.Label(forecast_header, text="?", font=("Arial", 9, "bold"), 
+                                      cursor="hand2", foreground="#1976D2", background="#FFF3E0")
+        forecast_help_label.pack(side=tk.LEFT, padx=(5, 0))
+        self._create_forecast_help_tooltip(forecast_help_label)
+        
+        # Forecast table frame
+        forecast_frame = tk.Frame(col_frame, background="#E3F2FD", relief=tk.GROOVE, borderwidth=1)
+        forecast_frame.pack(fill=tk.X, padx=5, pady=(3, 5))
+        
+        forecast_inner = tk.Frame(forecast_frame, background="#E3F2FD", padx=8, pady=5)
+        forecast_inner.pack(fill=tk.X)
+        
+        # Initialize forecast level variables
+        self.forecast_levels_1 = tk.IntVar(value=5)
+        self.forecast_levels_2 = tk.IntVar(value=10)
+        
+        # Header row
+        header_frame = tk.Frame(forecast_inner, background="#E3F2FD")
+        header_frame.pack(fill=tk.X)
+        
+        tk.Label(header_frame, text="Levels", font=("Arial", 8, "bold"), 
+                background="#E3F2FD", width=8, anchor=tk.W).pack(side=tk.LEFT)
+        tk.Label(header_frame, text="Optimal Build", font=("Arial", 8, "bold"), 
+                background="#E3F2FD", width=10, anchor=tk.W).pack(side=tk.LEFT, padx=(3, 0))
+        tk.Label(header_frame, text="Floors", font=("Arial", 8, "bold"), 
+                background="#E3F2FD", width=5, anchor=tk.E).pack(side=tk.LEFT, padx=(3, 0))
+        tk.Label(header_frame, text="Gain", font=("Arial", 8, "bold"), 
+                background="#E3F2FD", anchor=tk.E).pack(side=tk.RIGHT)
+        
+        # === Row 1: Adjustable forecast ===
+        row_1_frame = tk.Frame(forecast_inner, background="#E3F2FD")
+        row_1_frame.pack(fill=tk.X, pady=(3, 0))
+        
+        # Top: Level selector + build and stats
+        row_1_top = tk.Frame(row_1_frame, background="#E3F2FD")
+        row_1_top.pack(fill=tk.X)
+        
+        # Level adjuster with +/- buttons
+        level_1_frame = tk.Frame(row_1_top, background="#E3F2FD")
+        level_1_frame.pack(side=tk.LEFT)
+        
+        tk.Button(level_1_frame, text="-", width=1, font=("Arial", 7, "bold"),
+                 command=lambda: self._adjust_forecast_level(1, -1)).pack(side=tk.LEFT)
+        self.forecast_1_level_label = tk.Label(level_1_frame, text="+5", font=("Arial", 9, "bold"), 
+                                              background="#E3F2FD", foreground="#1976D2", width=3)
+        self.forecast_1_level_label.pack(side=tk.LEFT)
+        tk.Button(level_1_frame, text="+", width=1, font=("Arial", 7, "bold"),
+                 command=lambda: self._adjust_forecast_level(1, 1)).pack(side=tk.LEFT)
+        
+        self.forecast_1_dist_label = tk.Label(row_1_top, text="—", font=("Arial", 9), 
+                                             background="#E3F2FD", width=10, anchor=tk.W)
+        self.forecast_1_dist_label.pack(side=tk.LEFT, padx=(5, 0))
+        self.forecast_1_floors_label = tk.Label(row_1_top, text="—", font=("Arial", 9, "bold"), 
+                                               background="#E3F2FD", foreground="#2E7D32", 
+                                               width=5, anchor=tk.E)
+        self.forecast_1_floors_label.pack(side=tk.LEFT, padx=(3, 0))
+        self.forecast_1_gain_label = tk.Label(row_1_top, text="—", font=("Arial", 9, "bold"), 
+                                             background="#E3F2FD", foreground="#2E7D32", anchor=tk.E)
+        self.forecast_1_gain_label.pack(side=tk.RIGHT)
+        
+        # Path for row 1
+        row_1_path = tk.Frame(row_1_frame, background="#E8F5E9")
+        row_1_path.pack(fill=tk.X, pady=(1, 0))
+        
+        tk.Label(row_1_path, text="    Path:", font=("Arial", 7), 
+                background="#E8F5E9", foreground="#555555").pack(side=tk.LEFT)
+        self.forecast_1_path_label = tk.Label(row_1_path, text="—", font=("Arial", 8), 
+                                             background="#E8F5E9", foreground="#333333")
+        self.forecast_1_path_label.pack(side=tk.LEFT, padx=(3, 0))
+        
+        # === Row 2: Adjustable forecast ===
+        row_2_frame = tk.Frame(forecast_inner, background="#E3F2FD")
+        row_2_frame.pack(fill=tk.X, pady=(5, 0))
+        
+        # Top: Level selector + build and stats
+        row_2_top = tk.Frame(row_2_frame, background="#E3F2FD")
+        row_2_top.pack(fill=tk.X)
+        
+        # Level adjuster with +/- buttons
+        level_2_frame = tk.Frame(row_2_top, background="#E3F2FD")
+        level_2_frame.pack(side=tk.LEFT)
+        
+        tk.Button(level_2_frame, text="-", width=1, font=("Arial", 7, "bold"),
+                 command=lambda: self._adjust_forecast_level(2, -1)).pack(side=tk.LEFT)
+        self.forecast_2_level_label = tk.Label(level_2_frame, text="+10", font=("Arial", 9, "bold"), 
+                                              background="#E3F2FD", foreground="#1976D2", width=3)
+        self.forecast_2_level_label.pack(side=tk.LEFT)
+        tk.Button(level_2_frame, text="+", width=1, font=("Arial", 7, "bold"),
+                 command=lambda: self._adjust_forecast_level(2, 1)).pack(side=tk.LEFT)
+        
+        self.forecast_2_dist_label = tk.Label(row_2_top, text="—", font=("Arial", 9), 
+                                              background="#E3F2FD", width=10, anchor=tk.W)
+        self.forecast_2_dist_label.pack(side=tk.LEFT, padx=(5, 0))
+        self.forecast_2_floors_label = tk.Label(row_2_top, text="—", font=("Arial", 9, "bold"), 
+                                                background="#E3F2FD", foreground="#2E7D32", 
+                                                width=5, anchor=tk.E)
+        self.forecast_2_floors_label.pack(side=tk.LEFT, padx=(3, 0))
+        self.forecast_2_gain_label = tk.Label(row_2_top, text="—", font=("Arial", 9, "bold"), 
+                                              background="#E3F2FD", foreground="#2E7D32", anchor=tk.E)
+        self.forecast_2_gain_label.pack(side=tk.RIGHT)
+        
+        # Path for row 2
+        row_2_path = tk.Frame(row_2_frame, background="#E8F5E9")
+        row_2_path.pack(fill=tk.X, pady=(1, 0))
+        
+        tk.Label(row_2_path, text="    Path:", font=("Arial", 7), 
+                background="#E8F5E9", foreground="#555555").pack(side=tk.LEFT)
+        self.forecast_2_path_label = tk.Label(row_2_path, text="—", font=("Arial", 8), 
+                                              background="#E8F5E9", foreground="#333333")
+        self.forecast_2_path_label.pack(side=tk.LEFT, padx=(3, 0))
+    
+    def _adjust_forecast_level(self, row: int, delta: int):
+        """Adjust the forecast level for a row and recalculate"""
+        if row == 1:
+            new_val = max(1, min(20, self.forecast_levels_1.get() + delta))
+            self.forecast_levels_1.set(new_val)
+            self.forecast_1_level_label.config(text=f"+{new_val}")
+        else:
+            new_val = max(1, min(20, self.forecast_levels_2.get() + delta))
+            self.forecast_levels_2.set(new_val)
+            self.forecast_2_level_label.config(text=f"+{new_val}")
+        
+        self.update_forecast_display()
+    
+    def _create_forecast_help_tooltip(self, widget):
+        """Creates a tooltip explaining the Skill Forecast feature"""
+        def on_enter(event):
+            tooltip = tk.Toplevel()
+            tooltip.wm_overrideredirect(True)
+            
+            tooltip_width = 340
+            x = event.x_root - tooltip_width - 10
+            if x < 10:
+                x = event.x_root + 20
+            y = event.y_root - 20
+            
+            tooltip.wm_geometry(f"+{x}+{y}")
+            
+            outer_frame = tk.Frame(tooltip, background="#1976D2", relief=tk.FLAT)
+            outer_frame.pack(padx=2, pady=2)
+            
+            inner_frame = tk.Frame(outer_frame, background="#FFFFFF")
+            inner_frame.pack(padx=1, pady=1)
+            
+            content_frame = tk.Frame(inner_frame, background="#FFFFFF", padx=10, pady=8)
+            content_frame.pack()
+            
+            tk.Label(content_frame, text="Skill Forecast", 
+                    font=("Arial", 10, "bold"), foreground="#1976D2", 
+                    background="#FFFFFF").pack(anchor=tk.W)
+            
+            lines = [
+                "",
+                "Plans ahead instead of greedy optimization!",
+                "",
+                "The greedy approach (Best Next Point) picks",
+                "the skill that gives the best immediate gain.",
+                "But this can miss important breakpoints.",
+                "",
+                "Forecast calculates the OPTIMAL distribution",
+                "for the next 5 or 10 skill points combined.",
+                "",
+                "Example:",
+                "  Greedy: +3A +2P = +8% (picks Agi each time)",
+                "  Optimal: +4S +1A = +15% (hits STR breakpoint!)",
+                "",
+                "Legend: S=Str, A=Agi, I=Int, P=Per, L=Luck",
+                "",
+                "'Next 5' shows the optimal order to allocate",
+                "your next 5 skill points.",
+            ]
+            
+            for line in lines:
+                tk.Label(content_frame, text=line, font=("Arial", 9), 
+                        background="#FFFFFF", anchor=tk.W).pack(anchor=tk.W)
+            
+            widget.tooltip = tooltip
+        
+        def on_leave(event):
+            if hasattr(widget, 'tooltip'):
+                widget.tooltip.destroy()
+                del widget.tooltip
+        
+        widget.bind("<Enter>", on_enter)
+        widget.bind("<Leave>", on_leave)
     
     def _create_breakpoint_help_tooltip(self, widget):
         """Creates a tooltip explaining damage breakpoints"""
@@ -2073,13 +2753,13 @@ class ArchaeologySimulatorWindow:
         self.chart_canvas.delete("all")
         spawn_rates = get_normalized_spawn_rates(self.current_stage)
         
-        # Chart layout
-        canvas_width = 280
-        margin_left = 70
-        margin_right = 10
-        margin_top = 5
-        bar_height = 18
-        bar_spacing = 4
+        # Chart layout - compact version (180x100)
+        canvas_width = 180
+        margin_left = 45
+        margin_right = 5
+        margin_top = 3
+        bar_height = 14
+        bar_spacing = 2
         chart_width = canvas_width - margin_left - margin_right
         
         y = margin_top
@@ -2087,11 +2767,11 @@ class ArchaeologySimulatorWindow:
             rate = spawn_rates.get(block_type, 0)
             color = self.BLOCK_COLORS.get(block_type, '#888888')
             
-            # Label on left
+            # Label on left (abbreviated)
             self.chart_canvas.create_text(
-                margin_left - 5, y + bar_height/2,
-                text=block_type.capitalize(), anchor=tk.E,
-                font=("Arial", 8), fill="#333333"
+                margin_left - 3, y + bar_height/2,
+                text=block_type.capitalize()[:4], anchor=tk.E,
+                font=("Arial", 7), fill="#333333"
             )
             
             if rate > 0:
@@ -2104,18 +2784,18 @@ class ArchaeologySimulatorWindow:
                 )
                 
                 # Percentage label
-                pct_text = f"{rate*100:.1f}%"
-                if bar_width > 35:
+                pct_text = f"{rate*100:.0f}%"
+                if bar_width > 25:
                     self.chart_canvas.create_text(
-                        margin_left + bar_width - 3, y + bar_height/2,
+                        margin_left + bar_width - 2, y + bar_height/2,
                         text=pct_text, anchor=tk.E,
-                        font=("Arial", 7, "bold"), fill="white"
+                        font=("Arial", 6, "bold"), fill="white"
                     )
                 else:
                     self.chart_canvas.create_text(
-                        margin_left + bar_width + 3, y + bar_height/2,
+                        margin_left + bar_width + 2, y + bar_height/2,
                         text=pct_text, anchor=tk.W,
-                        font=("Arial", 8), fill="#333333"
+                        font=("Arial", 7), fill="#333333"
                     )
             else:
                 # Gray placeholder for 0%
@@ -2127,7 +2807,7 @@ class ArchaeologySimulatorWindow:
                 self.chart_canvas.create_text(
                     margin_left + 5, y + bar_height/2,
                     text="0%", anchor=tk.W,
-                    font=("Arial", 8), fill="#666666"
+                    font=("Arial", 7), fill="#666666"
                 )
             
             y += bar_height + bar_spacing
@@ -2304,6 +2984,48 @@ class ArchaeologySimulatorWindow:
         
         # Update damage breakpoints
         self.update_breakpoints_display()
+        
+        # Update skill forecast
+        self.update_forecast_display()
+    
+    def update_forecast_display(self):
+        """Update the skill forecast table with optimal distributions"""
+        if not hasattr(self, 'forecast_1_dist_label'):
+            return
+        
+        abbrev = {'strength': 'S', 'agility': 'A', 'intellect': 'I', 'perception': 'P', 'luck': 'L'}
+        
+        # Get current forecast levels
+        levels_1 = self.forecast_levels_1.get()
+        levels_2 = self.forecast_levels_2.get()
+        
+        # Calculate forecast for row 1
+        forecast_1 = self.calculate_forecast(levels_1)
+        dist_1_str = self.format_distribution(forecast_1['distribution'])
+        self.forecast_1_dist_label.config(text=dist_1_str)
+        self.forecast_1_floors_label.config(text=f"{forecast_1['floors_per_run']:.2f}")
+        self.forecast_1_gain_label.config(text=f"+{forecast_1['improvement_pct']:.1f}%")
+        
+        # Path for row 1
+        if forecast_1['path']:
+            path_1_str = ' → '.join(abbrev[s] for s in forecast_1['path'])
+            self.forecast_1_path_label.config(text=path_1_str)
+        else:
+            self.forecast_1_path_label.config(text="—")
+        
+        # Calculate forecast for row 2
+        forecast_2 = self.calculate_forecast(levels_2)
+        dist_2_str = self.format_distribution(forecast_2['distribution'])
+        self.forecast_2_dist_label.config(text=dist_2_str)
+        self.forecast_2_floors_label.config(text=f"{forecast_2['floors_per_run']:.2f}")
+        self.forecast_2_gain_label.config(text=f"+{forecast_2['improvement_pct']:.1f}%")
+        
+        # Path for row 2
+        if forecast_2['path']:
+            path_2_str = ' → '.join(abbrev[s] for s in forecast_2['path'])
+            self.forecast_2_path_label.config(text=path_2_str)
+        else:
+            self.forecast_2_path_label.config(text="—")
     
     def reset_and_update(self):
         self.reset_to_level1()
