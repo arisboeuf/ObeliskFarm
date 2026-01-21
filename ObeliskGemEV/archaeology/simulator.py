@@ -14,6 +14,7 @@ from PIL import Image, ImageTk
 from .block_spawn_rates import get_block_mix_for_stage, get_stage_range_label, STAGE_RANGES, get_normalized_spawn_rates
 from .block_stats import get_block_at_floor, get_block_mix_for_floor, BlockData, BLOCK_TYPES
 from .upgrade_costs import get_upgrade_cost, get_total_cost, get_max_level
+from .monte_carlo_crit import run_crit_analysis, MonteCarloCritSimulator
 
 import sys
 import os
@@ -453,9 +454,7 @@ class ArchaeologySimulatorWindow:
             'flurry_enabled': self.flurry_enabled.get() if hasattr(self, 'flurry_enabled') else True,
             'crit_calc_enabled': self.crit_calc_enabled.get() if hasattr(self, 'crit_calc_enabled') else False,
             'forecast_levels_1': self.forecast_levels_1.get() if hasattr(self, 'forecast_levels_1') else 5,
-            'budget_points': self.budget_points.get() if hasattr(self, 'budget_points') else 20,
-            'xp_budget_points': self.xp_budget_points.get() if hasattr(self, 'xp_budget_points') else 20,
-            'frag_budget_points': self.frag_budget_points.get() if hasattr(self, 'frag_budget_points') else 20,
+            'shared_planner_points': self.shared_planner_points.get() if hasattr(self, 'shared_planner_points') else 20,
             'frag_target_type': self.frag_target_var.get() if hasattr(self, 'frag_target_var') else 'common',
         }
         try:
@@ -519,20 +518,17 @@ class ArchaeologySimulatorWindow:
                 self.forecast_levels_1.set(state.get('forecast_levels_1', 5))
                 self.forecast_1_level_label.config(text=f"+{self.forecast_levels_1.get()}")
             
-            # Update budget points
-            if hasattr(self, 'budget_points'):
-                self.budget_points.set(state.get('budget_points', 20))
-                self.budget_points_label.config(text=str(self.budget_points.get()))
+            # Update shared planner points (used by all planners except Forecaster)
+            if hasattr(self, 'shared_planner_points'):
+                # Try to load shared_planner_points, fallback to old individual values for migration
+                shared_points = state.get('shared_planner_points')
+                if shared_points is None:
+                    # Migration: use budget_points if available, otherwise default to 20
+                    shared_points = state.get('budget_points', state.get('xp_budget_points', state.get('frag_budget_points', 20)))
+                self.shared_planner_points.set(shared_points)
+                self.shared_planner_points_label.config(text=str(self.shared_planner_points.get()))
             
-            # Update XP budget points
-            if hasattr(self, 'xp_budget_points'):
-                self.xp_budget_points.set(state.get('xp_budget_points', 20))
-                self.xp_budget_points_label.config(text=str(self.xp_budget_points.get()))
-            
-            # Update Fragment Planner budget points and target type
-            if hasattr(self, 'frag_budget_points'):
-                self.frag_budget_points.set(state.get('frag_budget_points', 20))
-                self.frag_budget_points_label.config(text=str(self.frag_budget_points.get()))
+            # Update Fragment Planner target type
             if hasattr(self, 'frag_target_var'):
                 self.frag_target_var.set(state.get('frag_target_type', 'common'))
                 self._update_frag_target_buttons()
@@ -1293,12 +1289,17 @@ class ArchaeologySimulatorWindow:
         return new_floors, percent_improvement
     
     def calculate_fragment_upgrade_efficiency(self, upgrade_key):
-        """Calculate the efficiency of adding one fragment upgrade level (Stage Rush = Floors/Run)"""
+        """Calculate the efficiency factor of adding one fragment upgrade level (Stage Rush = Floors/Run improvement per cost)"""
         upgrade_info = self.FRAGMENT_UPGRADES.get(upgrade_key, {})
         max_level = upgrade_info.get('max_level', 25)
         current_level = self.fragment_upgrade_levels.get(upgrade_key, 0)
         
         if current_level >= max_level:
+            return 0, 0
+        
+        # Get cost for next level
+        cost = get_upgrade_cost(upgrade_key, current_level)
+        if cost is None or cost <= 0:
             return 0, 0
         
         current_stats = self.get_total_stats()
@@ -1311,20 +1312,24 @@ class ArchaeologySimulatorWindow:
         # Restore original level
         self.fragment_upgrade_levels[upgrade_key] = current_level
         
-        if current_floors > 0:
-            percent_improvement = ((new_floors - current_floors) / current_floors) * 100
-        else:
-            percent_improvement = 0
+        # Calculate efficiency factor: floors improvement per fragment cost
+        floors_improvement = new_floors - current_floors
+        efficiency_factor = floors_improvement / cost if cost > 0 else 0
         
-        return new_floors, percent_improvement
+        return new_floors, efficiency_factor
     
     def calculate_fragment_upgrade_xp_efficiency(self, upgrade_key):
-        """Calculate the XP efficiency of adding one fragment upgrade level"""
+        """Calculate the XP efficiency factor of adding one fragment upgrade level (XP improvement per cost)"""
         upgrade_info = self.FRAGMENT_UPGRADES.get(upgrade_key, {})
         max_level = upgrade_info.get('max_level', 25)
         current_level = self.fragment_upgrade_levels.get(upgrade_key, 0)
         
         if current_level >= max_level:
+            return 0, 0
+        
+        # Get cost for next level
+        cost = get_upgrade_cost(upgrade_key, current_level)
+        if cost is None or cost <= 0:
             return 0, 0
         
         current_stats = self.get_total_stats()
@@ -1337,25 +1342,29 @@ class ArchaeologySimulatorWindow:
         # Restore original level
         self.fragment_upgrade_levels[upgrade_key] = current_level
         
-        if current_xp > 0:
-            percent_improvement = ((new_xp - current_xp) / current_xp) * 100
-        else:
-            percent_improvement = 0
+        # Calculate efficiency factor: XP improvement per fragment cost
+        xp_improvement = new_xp - current_xp
+        efficiency_factor = xp_improvement / cost if cost > 0 else 0
         
-        return new_xp, percent_improvement
+        return new_xp, efficiency_factor
     
     def calculate_fragment_upgrade_fragment_efficiency(self, upgrade_key):
         """
-        Calculate the Fragment/Hour efficiency of adding one fragment upgrade level.
+        Calculate the Fragment/Hour efficiency factor of adding one fragment upgrade level.
         
         Returns:
-            (new_frags_per_hour, percent_improvement) - percentage gain in Frag/h
+            (new_frags_per_hour, efficiency_factor) - Frag/h improvement per fragment cost
         """
         upgrade_info = self.FRAGMENT_UPGRADES.get(upgrade_key, {})
         max_level = upgrade_info.get('max_level', 25)
         current_level = self.fragment_upgrade_levels.get(upgrade_key, 0)
         
         if current_level >= max_level:
+            return 0, 0
+        
+        # Get cost for next level
+        cost = get_upgrade_cost(upgrade_key, current_level)
+        if cost is None or cost <= 0:
             return 0, 0
         
         current_stats = self.get_total_stats()
@@ -1384,13 +1393,11 @@ class ArchaeologySimulatorWindow:
         else:
             new_frags_per_hour = 0
         
-        # Return percentage improvement
-        if current_frags_per_hour > 0:
-            percent_improvement = ((new_frags_per_hour - current_frags_per_hour) / current_frags_per_hour) * 100
-        else:
-            percent_improvement = 0
+        # Calculate efficiency factor: Frag/h improvement per fragment cost
+        frag_improvement = new_frags_per_hour - current_frags_per_hour
+        efficiency_factor = frag_improvement / cost if cost > 0 else 0
         
-        return new_frags_per_hour, percent_improvement
+        return new_frags_per_hour, efficiency_factor
     
     def calculate_forecast(self, levels_ahead: int):
         """
@@ -1692,8 +1699,16 @@ class ArchaeologySimulatorWindow:
         # Help icon for crit toggle
         crit_help_label = tk.Label(controls_frame, text="?", font=("Arial", 9, "bold"), 
                                   cursor="hand2", foreground="#1976D2", background="#E3F2FD")
-        crit_help_label.pack(side=tk.LEFT, padx=(0, 10))
+        crit_help_label.pack(side=tk.LEFT, padx=(0, 5))
         self._create_crit_toggle_help_tooltip(crit_help_label)
+        
+        # Monte Carlo analysis button
+        mc_button = ttk.Button(
+            controls_frame,
+            text="MC Crit Analysis",
+            command=self.run_monte_carlo_analysis
+        )
+        mc_button.pack(side=tk.LEFT, padx=(5, 10))
         
         # Center: Level display
         self.level_label = tk.Label(header_frame, text="Level: 1", font=("Arial", 12, "bold"),
@@ -2032,9 +2047,40 @@ class ArchaeologySimulatorWindow:
         cards_help.pack(side=tk.LEFT, padx=(5, 0))
         self._create_cards_help_tooltip(cards_help)
         
-        # Cards container
-        self.cards_container = tk.Frame(col_frame, background="#E8F5E9")
-        self.cards_container.pack(fill=tk.X, padx=5, pady=2)
+        # Cards container with scrollbar
+        cards_scroll_frame = tk.Frame(col_frame, background="#E8F5E9")
+        cards_scroll_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=2)
+        
+        # Create canvas and scrollbar
+        cards_canvas = tk.Canvas(cards_scroll_frame, background="#E8F5E9", highlightthickness=0)
+        cards_scrollbar = tk.Scrollbar(cards_scroll_frame, orient="vertical", command=cards_canvas.yview)
+        self.cards_container = tk.Frame(cards_canvas, background="#E8F5E9")
+        
+        # Create window in canvas
+        canvas_window = cards_canvas.create_window((0, 0), window=self.cards_container, anchor="nw")
+        
+        # Configure scroll region and canvas width
+        def update_scroll_region(event):
+            cards_canvas.configure(scrollregion=cards_canvas.bbox("all"))
+            # Update canvas window width to match canvas width
+            canvas_width = cards_canvas.winfo_width()
+            if canvas_width > 1:  # Only update if canvas has been rendered
+                cards_canvas.itemconfig(canvas_window, width=canvas_width)
+        
+        self.cards_container.bind("<Configure>", update_scroll_region)
+        cards_canvas.bind('<Configure>', lambda e: cards_canvas.itemconfig(canvas_window, width=e.width))
+        
+        # Configure canvas scrolling
+        cards_canvas.configure(yscrollcommand=cards_scrollbar.set)
+        
+        # Pack canvas and scrollbar
+        cards_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        cards_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # Enable mousewheel scrolling
+        def _on_mousewheel(event):
+            cards_canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+        cards_canvas.bind_all("<MouseWheel>", _on_mousewheel)
         
         self.card_labels = {}
         
@@ -2147,8 +2193,8 @@ class ArchaeologySimulatorWindow:
             'common': 'fragmentcommon.png',
             'rare': 'fragmentrare.png',
             'epic': 'fragmentepic.png',
-            'legendary': 'fragmentepic.png',  # Use epic icon as fallback
-            'mythic': 'fragmentepic.png',  # Use epic icon as fallback
+            'legendary': 'fragmentlegendary.png',
+            'mythic': 'fragmentmythic.png',
         }
         
         for frag_type, filename in icon_map.items():
@@ -3506,11 +3552,11 @@ class ArchaeologySimulatorWindow:
         
         ttk.Separator(col_frame, orient='horizontal').pack(fill=tk.X, pady=5, padx=5)
         
-        # === STAGE RUSHING PLANNER ===
+        # === STAGE RUSHING FORECASTER ===
         forecast_header = tk.Frame(col_frame, background="#FFF3E0")
         forecast_header.pack(fill=tk.X, padx=5)
         
-        tk.Label(forecast_header, text="Stage Rushing Planner", font=("Arial", 10, "bold"), 
+        tk.Label(forecast_header, text="Stage Rushing Forecaster", font=("Arial", 10, "bold"), 
                 background="#FFF3E0").pack(side=tk.LEFT)
         
         forecast_help_label = tk.Label(forecast_header, text="?", font=("Arial", 9, "bold"), 
@@ -3584,11 +3630,40 @@ class ArchaeologySimulatorWindow:
         
         ttk.Separator(col_frame, orient='horizontal').pack(fill=tk.X, pady=5, padx=5)
         
-        # === BUDGET PLANNER SECTION ===
+        # === SHARED PLANNER POINTS ===
+        # All planners (except Forecaster) share the same point value
+        shared_points_header = tk.Frame(col_frame, background="#FFF3E0")
+        shared_points_header.pack(fill=tk.X, padx=5, pady=(0, 3))
+        
+        tk.Label(shared_points_header, text="Planner Points (shared):", font=("Arial", 9, "bold"), 
+                background="#FFF3E0", foreground="#7B1FA2").pack(side=tk.LEFT)
+        
+        # Shared points adjuster
+        shared_points_frame = tk.Frame(shared_points_header, background="#FFF3E0")
+        shared_points_frame.pack(side=tk.LEFT, padx=(8, 0))
+        
+        # Initialize shared planner points variable
+        self.shared_planner_points = tk.IntVar(value=20)
+        
+        tk.Button(shared_points_frame, text="-5", width=2, font=("Arial", 7, "bold"),
+                 command=lambda: self._adjust_shared_planner_points(-5)).pack(side=tk.LEFT)
+        tk.Button(shared_points_frame, text="-", width=1, font=("Arial", 7, "bold"),
+                 command=lambda: self._adjust_shared_planner_points(-1)).pack(side=tk.LEFT)
+        self.shared_planner_points_label = tk.Label(shared_points_frame, text="20", font=("Arial", 11, "bold"), 
+                                                     background="#FFF3E0", foreground="#7B1FA2", width=4)
+        self.shared_planner_points_label.pack(side=tk.LEFT)
+        tk.Button(shared_points_frame, text="+", width=1, font=("Arial", 7, "bold"),
+                 command=lambda: self._adjust_shared_planner_points(1)).pack(side=tk.LEFT)
+        tk.Button(shared_points_frame, text="+5", width=2, font=("Arial", 7, "bold"),
+                 command=lambda: self._adjust_shared_planner_points(5)).pack(side=tk.LEFT)
+        
+        ttk.Separator(col_frame, orient='horizontal').pack(fill=tk.X, pady=5, padx=5)
+        
+        # === STAGE RUSHER PLANNER SECTION ===
         budget_header = tk.Frame(col_frame, background="#FFF3E0")
         budget_header.pack(fill=tk.X, padx=5)
         
-        tk.Label(budget_header, text="Skill Budget Planner", font=("Arial", 10, "bold"), 
+        tk.Label(budget_header, text="Stage Rusher Planner", font=("Arial", 10, "bold"), 
                 background="#FFF3E0").pack(side=tk.LEFT)
         
         budget_help_label = tk.Label(budget_header, text="?", font=("Arial", 9, "bold"), 
@@ -3603,31 +3678,7 @@ class ArchaeologySimulatorWindow:
         budget_inner = tk.Frame(budget_frame, background="#F3E5F5", padx=8, pady=5)
         budget_inner.pack(fill=tk.X)
         
-        # Initialize budget variable
-        self.budget_points = tk.IntVar(value=20)
-        
-        # Input row: Points selector
-        input_row = tk.Frame(budget_inner, background="#F3E5F5")
-        input_row.pack(fill=tk.X)
-        
-        tk.Label(input_row, text="Available Points:", font=("Arial", 9, "bold"), 
-                background="#F3E5F5", foreground="#7B1FA2").pack(side=tk.LEFT)
-        
-        # Points adjuster with +/- buttons
-        points_frame = tk.Frame(input_row, background="#F3E5F5")
-        points_frame.pack(side=tk.LEFT, padx=(8, 0))
-        
-        tk.Button(points_frame, text="-5", width=2, font=("Arial", 7, "bold"),
-                 command=lambda: self._adjust_budget(-5)).pack(side=tk.LEFT)
-        tk.Button(points_frame, text="-", width=1, font=("Arial", 7, "bold"),
-                 command=lambda: self._adjust_budget(-1)).pack(side=tk.LEFT)
-        self.budget_points_label = tk.Label(points_frame, text="20", font=("Arial", 11, "bold"), 
-                                           background="#F3E5F5", foreground="#7B1FA2", width=4)
-        self.budget_points_label.pack(side=tk.LEFT)
-        tk.Button(points_frame, text="+", width=1, font=("Arial", 7, "bold"),
-                 command=lambda: self._adjust_budget(1)).pack(side=tk.LEFT)
-        tk.Button(points_frame, text="+5", width=2, font=("Arial", 7, "bold"),
-                 command=lambda: self._adjust_budget(5)).pack(side=tk.LEFT)
+        # Budget uses shared planner points (no separate input)
         
         # Header row for results
         header_row = tk.Frame(budget_inner, background="#F3E5F5", padx=5)
@@ -3635,9 +3686,9 @@ class ArchaeologySimulatorWindow:
         
         tk.Label(header_row, text="Distribution", font=("Arial", 8, "bold"), 
                 background="#F3E5F5", width=14, anchor=tk.W).pack(side=tk.LEFT)
-        tk.Label(header_row, text="Floors", font=("Arial", 8, "bold"), 
+        tk.Label(header_row, text="Stage/h", font=("Arial", 8, "bold"), 
                 background="#F3E5F5", width=6, anchor=tk.E).pack(side=tk.LEFT)
-        tk.Label(header_row, text="XP/Run", font=("Arial", 8, "bold"), 
+        tk.Label(header_row, text="XP/h", font=("Arial", 8, "bold"), 
                 background="#F3E5F5", width=7, anchor=tk.E).pack(side=tk.LEFT)
         tk.Label(header_row, text="Gain", font=("Arial", 8, "bold"), 
                 background="#F3E5F5", anchor=tk.E).pack(side=tk.RIGHT)
@@ -3709,31 +3760,7 @@ class ArchaeologySimulatorWindow:
         xp_budget_inner = tk.Frame(xp_budget_frame, background="#B2EBF2", padx=8, pady=5)
         xp_budget_inner.pack(fill=tk.X)
         
-        # Initialize XP budget variable
-        self.xp_budget_points = tk.IntVar(value=20)
-        
-        # Input row: Points selector
-        xp_input_row = tk.Frame(xp_budget_inner, background="#B2EBF2")
-        xp_input_row.pack(fill=tk.X)
-        
-        tk.Label(xp_input_row, text="Available Points:", font=("Arial", 9, "bold"), 
-                background="#B2EBF2", foreground="#00695C").pack(side=tk.LEFT)
-        
-        # Points adjuster with +/- buttons
-        xp_points_frame = tk.Frame(xp_input_row, background="#B2EBF2")
-        xp_points_frame.pack(side=tk.LEFT, padx=(8, 0))
-        
-        tk.Button(xp_points_frame, text="-5", width=2, font=("Arial", 7, "bold"),
-                 command=lambda: self._adjust_xp_budget(-5)).pack(side=tk.LEFT)
-        tk.Button(xp_points_frame, text="-", width=1, font=("Arial", 7, "bold"),
-                 command=lambda: self._adjust_xp_budget(-1)).pack(side=tk.LEFT)
-        self.xp_budget_points_label = tk.Label(xp_points_frame, text="20", font=("Arial", 11, "bold"), 
-                                              background="#B2EBF2", foreground="#00695C", width=4)
-        self.xp_budget_points_label.pack(side=tk.LEFT)
-        tk.Button(xp_points_frame, text="+", width=1, font=("Arial", 7, "bold"),
-                 command=lambda: self._adjust_xp_budget(1)).pack(side=tk.LEFT)
-        tk.Button(xp_points_frame, text="+5", width=2, font=("Arial", 7, "bold"),
-                 command=lambda: self._adjust_xp_budget(5)).pack(side=tk.LEFT)
+        # XP Budget uses shared planner points (no separate input)
         
         # Header row for results
         xp_header_row = tk.Frame(xp_budget_inner, background="#B2EBF2", padx=5)
@@ -3741,9 +3768,9 @@ class ArchaeologySimulatorWindow:
         
         tk.Label(xp_header_row, text="Distribution", font=("Arial", 8, "bold"), 
                 background="#B2EBF2", width=14, anchor=tk.W).pack(side=tk.LEFT)
-        tk.Label(xp_header_row, text="Floors", font=("Arial", 8, "bold"), 
+        tk.Label(xp_header_row, text="Stage/h", font=("Arial", 8, "bold"), 
                 background="#B2EBF2", width=6, anchor=tk.E).pack(side=tk.LEFT)
-        tk.Label(xp_header_row, text="XP/Run", font=("Arial", 8, "bold"), 
+        tk.Label(xp_header_row, text="XP/h", font=("Arial", 8, "bold"), 
                 background="#B2EBF2", width=7, anchor=tk.E).pack(side=tk.LEFT)
         tk.Label(xp_header_row, text="Gain", font=("Arial", 8, "bold"), 
                 background="#B2EBF2", anchor=tk.E).pack(side=tk.RIGHT)
@@ -3839,28 +3866,7 @@ class ArchaeologySimulatorWindow:
             btn.bind("<Button-1>", lambda e, ft=frag_type: self._set_frag_target(ft))
             self.frag_target_buttons[frag_type] = btn
         
-        # Budget row
-        budget_row = tk.Frame(frag_planner_inner, background="#EDE7F6")
-        budget_row.pack(fill=tk.X, pady=3)
-        
-        tk.Label(budget_row, text="Points:", font=("Arial", 9), 
-                background="#EDE7F6").pack(side=tk.LEFT)
-        
-        self.frag_budget_points = tk.IntVar(value=20)
-        
-        tk.Button(budget_row, text="-5", width=2, font=("Arial", 7),
-                 command=lambda: self._adjust_frag_budget(-5)).pack(side=tk.LEFT, padx=1)
-        tk.Button(budget_row, text="-", width=2, font=("Arial", 7),
-                 command=lambda: self._adjust_frag_budget(-1)).pack(side=tk.LEFT, padx=1)
-        
-        self.frag_budget_points_label = tk.Label(budget_row, text="20", font=("Arial", 9, "bold"),
-                                                 background="#EDE7F6", width=3)
-        self.frag_budget_points_label.pack(side=tk.LEFT, padx=3)
-        
-        tk.Button(budget_row, text="+", width=2, font=("Arial", 7),
-                 command=lambda: self._adjust_frag_budget(1)).pack(side=tk.LEFT, padx=1)
-        tk.Button(budget_row, text="+5", width=2, font=("Arial", 7),
-                 command=lambda: self._adjust_frag_budget(5)).pack(side=tk.LEFT, padx=1)
+        # Fragment Planner uses shared planner points (no separate input)
         
         # Result row 1: Best distribution
         result_row1 = tk.Frame(frag_planner_inner, background="#EDE7F6")
@@ -3882,7 +3888,7 @@ class ArchaeologySimulatorWindow:
                                                   background="#EDE7F6", foreground="#2E7D32")
         self.frag_planner_result_label.pack(side=tk.LEFT, padx=(3, 10))
         
-        tk.Label(result_row2, text="Stages:", font=("Arial", 9), 
+        tk.Label(result_row2, text="Stage/h:", font=("Arial", 9), 
                 background="#EDE7F6").pack(side=tk.LEFT)
         self.frag_planner_stages_label = tk.Label(result_row2, text="—", font=("Arial", 9, "bold"),
                                                   background="#EDE7F6", foreground="#1976D2")
@@ -3923,19 +3929,7 @@ class ArchaeologySimulatorWindow:
             else:
                 btn.config(relief=tk.RAISED, background="#EDE7F6")
     
-    def _adjust_frag_budget(self, delta: int):
-        """Adjust the fragment budget points and recalculate"""
-        new_val = max(1, min(100, self.frag_budget_points.get() + delta))
-        self.frag_budget_points.set(new_val)
-        self.frag_budget_points_label.config(text=str(new_val))
-        self.update_frag_planner_display()
-    
-    def _adjust_xp_budget(self, delta: int):
-        """Adjust the XP budget points and recalculate"""
-        new_val = max(1, min(100, self.xp_budget_points.get() + delta))
-        self.xp_budget_points.set(new_val)
-        self.xp_budget_points_label.config(text=str(new_val))
-        self.update_xp_budget_display()
+    # Removed _adjust_frag_budget and _adjust_xp_budget - now using _adjust_shared_planner_points
     
     def _create_frag_planner_help_tooltip(self, widget):
         """Creates a tooltip explaining the Fragment Farm Planner feature"""
@@ -4052,15 +4046,10 @@ class ArchaeologySimulatorWindow:
         widget.bind("<Enter>", on_enter)
         widget.bind("<Leave>", on_leave)
     
-    def _adjust_budget(self, delta: int):
-        """Adjust the budget points and recalculate"""
-        new_val = max(1, min(100, self.budget_points.get() + delta))
-        self.budget_points.set(new_val)
-        self.budget_points_label.config(text=str(new_val))
-        self.update_budget_display()
+    # Removed _adjust_budget - now using _adjust_shared_planner_points
     
     def _create_budget_help_tooltip(self, widget):
-        """Creates a tooltip explaining the Budget Planner feature"""
+        """Creates a tooltip explaining the Stage Rusher Planner feature"""
         def on_enter(event):
             tooltip = tk.Toplevel()
             tooltip.wm_overrideredirect(True)
@@ -4081,7 +4070,7 @@ class ArchaeologySimulatorWindow:
             content_frame = tk.Frame(inner_frame, background="#FFFFFF", padx=10, pady=8)
             content_frame.pack()
             
-            tk.Label(content_frame, text="Skill Budget Planner", 
+            tk.Label(content_frame, text="Stage Rusher Planner", 
                     font=("Arial", 10, "bold"), foreground="#7B1FA2", 
                     background="#FFFFFF").pack(anchor=tk.W)
             
@@ -4090,7 +4079,7 @@ class ArchaeologySimulatorWindow:
                 "Plan how to spend a fixed pool of points.",
                 "",
                 "Unlike Forecast (which adds to current stats),",
-                "Budget Planner helps when you have unspent",
+                "Stage Rusher Planner helps when you have unspent",
                 "points and want to distribute them optimally.",
                 "",
                 "Use case: You saved up 20 skill points and",
@@ -4117,6 +4106,16 @@ class ArchaeologySimulatorWindow:
         widget.bind("<Enter>", on_enter)
         widget.bind("<Leave>", on_leave)
     
+    def _adjust_shared_planner_points(self, delta: int):
+        """Adjust shared planner points (used by all planners except Forecaster)"""
+        new_val = max(1, min(100, self.shared_planner_points.get() + delta))
+        self.shared_planner_points.set(new_val)
+        self.shared_planner_points_label.config(text=str(new_val))
+        # Update all planners that use shared points
+        self.update_budget_display()
+        self.update_xp_budget_display()
+        self.update_frag_planner_display()
+    
     def _adjust_forecast_level(self, row: int, delta: int):
         """Adjust the forecast level and recalculate"""
         new_val = max(1, min(20, self.forecast_levels_1.get() + delta))
@@ -4125,7 +4124,7 @@ class ArchaeologySimulatorWindow:
         self.update_forecast_display()
     
     def _create_forecast_help_tooltip(self, widget):
-        """Creates a tooltip explaining the Stage Rushing Planner feature"""
+        """Creates a tooltip explaining the Stage Rushing Forecaster feature"""
         def on_enter(event):
             tooltip = tk.Toplevel()
             tooltip.wm_overrideredirect(True)
@@ -4146,7 +4145,7 @@ class ArchaeologySimulatorWindow:
             content_frame = tk.Frame(inner_frame, background="#FFFFFF", padx=10, pady=8)
             content_frame.pack()
             
-            tk.Label(content_frame, text="Stage Rushing Planner", 
+            tk.Label(content_frame, text="Stage Rushing Forecaster", 
                     font=("Arial", 10, "bold"), foreground="#1976D2", 
                     background="#FFFFFF").pack(anchor=tk.W)
             
@@ -4611,10 +4610,10 @@ class ArchaeologySimulatorWindow:
                 else:
                     gilded_btn.config(foreground="#888888", background="#E8F5E9", relief=tk.RAISED)
             
-            # Calculate and display gilded improvement (only if not already gilded)
+            # Calculate and display gilded improvement (only if normal card is present, not if no card or already gilded)
             gilded_improve_label = labels.get('gilded_improve')
             if gilded_improve_label:
-                if card_level < 2 and spawn_rate > 0:
+                if card_level == 1 and spawn_rate > 0:
                     gilded_improvement = self._calculate_gilded_improvement(block_type, stats, spawn_rate)
                     if gilded_improvement > 0.005:
                         gilded_improve_label.config(text=f"+{gilded_improvement:.2f}%", foreground="#B8860B")
@@ -4640,7 +4639,7 @@ class ArchaeologySimulatorWindow:
         total_per_hour = total_per_run * runs_per_hour
         
         self.frags_per_run_label.config(text=f"{total_per_run:.3f}")
-        self.frags_per_hour_label.config(text=f"{total_per_hour:.2f}")
+        self.frags_per_hour_label.config(text=f"{total_per_hour:.1f}")
         
         # Update per-type breakdown
         for frag_type, labels in self.frag_hour_labels.items():
@@ -4766,6 +4765,533 @@ class ArchaeologySimulatorWindow:
             
             y += bar_height + bar_spacing
     
+    def run_monte_carlo_analysis(self):
+        """Run Monte Carlo simulation with Matrix-style UI"""
+        import threading
+        
+        # Create Matrix-style window
+        mc_window = tk.Toplevel(self.window)
+        mc_window.title("Monte Carlo Simulation")
+        mc_window.geometry("900x700")
+        mc_window.transient(self.window)
+        mc_window.configure(bg="#000000")
+        
+        # Matrix green color
+        matrix_green = "#00FF41"
+        dark_green = "#00CC33"
+        
+        # Main container - use grid for better vertical layout
+        main_frame = tk.Frame(mc_window, bg="#000000")
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        main_frame.grid_rowconfigure(2, weight=1)  # Results area expands
+        main_frame.grid_columnconfigure(0, weight=1)
+        
+        # Title
+        title_label = tk.Label(main_frame, text="MONTE CARLO SIMULATION", 
+                              font=("Courier", 14, "bold"), 
+                              bg="#000000", fg=matrix_green)
+        title_label.grid(row=0, column=0, pady=(0, 10), sticky=tk.W)
+        
+        # Top controls frame (selection + points)
+        top_controls = tk.Frame(main_frame, bg="#000000")
+        top_controls.grid(row=1, column=0, sticky=tk.W+tk.E, pady=(0, 10))
+        top_controls.grid_columnconfigure(1, weight=1)
+        
+        # Selection frame (left side)
+        selection_frame = tk.Frame(top_controls, bg="#000000")
+        selection_frame.grid(row=0, column=0, sticky=tk.W, padx=(0, 20))
+        
+        tk.Label(selection_frame, text="SIMULATION TYPE:", 
+                font=("Courier", 9, "bold"), bg="#000000", fg=matrix_green).pack(anchor=tk.W)
+        
+        sim_type_var = tk.StringVar(value="stage_rushing")
+        
+        # Radio buttons for simulation type - horizontal layout
+        rb_frame = tk.Frame(selection_frame, bg="#000000")
+        rb_frame.pack(fill=tk.X, pady=3)
+        
+        tk.Radiobutton(rb_frame, text="Stage Rushing", variable=sim_type_var, value="stage_rushing",
+                      font=("Courier", 8), bg="#000000", fg=matrix_green, 
+                      selectcolor="#000000", activebackground="#000000", 
+                      activeforeground=dark_green).pack(side=tk.LEFT, padx=(0, 10))
+        
+        tk.Radiobutton(rb_frame, text="XP/Hour", variable=sim_type_var, value="xp_per_hour",
+                      font=("Courier", 8), bg="#000000", fg=matrix_green,
+                      selectcolor="#000000", activebackground="#000000",
+                      activeforeground=dark_green).pack(side=tk.LEFT, padx=(0, 10))
+        
+        tk.Radiobutton(rb_frame, text="Fragments/Hour", variable=sim_type_var, value="frags_per_hour",
+                      font=("Courier", 8), bg="#000000", fg=matrix_green,
+                      selectcolor="#000000", activebackground="#000000",
+                      activeforeground=dark_green).pack(side=tk.LEFT)
+        
+        # Points info (right side)
+        points_frame = tk.Frame(top_controls, bg="#000000")
+        points_frame.grid(row=0, column=1, sticky=tk.E)
+        
+        tk.Label(points_frame, text="PLANNER POINTS:", 
+                font=("Courier", 9, "bold"), bg="#000000", fg=matrix_green).pack(anchor=tk.E)
+        
+        points_info_label = tk.Label(points_frame, text="", 
+                                    font=("Courier", 9), bg="#000000", fg=dark_green)
+        points_info_label.pack(anchor=tk.E)
+        
+        def update_points_info():
+            if hasattr(self, 'shared_planner_points'):
+                points = self.shared_planner_points.get()
+                points_info_label.config(text=f"{points}")
+            else:
+                points_info_label.config(text="20 (default)")
+        
+        update_points_info()
+        
+        # Results area - use grid
+        results_frame = tk.Frame(main_frame, bg="#000000", relief=tk.SOLID, borderwidth=1)
+        results_frame.grid(row=2, column=0, sticky=tk.N+tk.S+tk.E+tk.W, pady=(0, 10))
+        
+        # Results text with Matrix style - optimized height
+        results_text = tk.Text(results_frame, wrap=tk.WORD, height=20, width=90,
+                              font=("Courier", 8), bg="#000000", fg=matrix_green,
+                              insertbackground=matrix_green, borderwidth=0,
+                              highlightthickness=1, highlightbackground=matrix_green)
+        results_text.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        
+        # Bottom frame (status + buttons)
+        bottom_frame = tk.Frame(main_frame, bg="#000000")
+        bottom_frame.grid(row=3, column=0, sticky=tk.W+tk.E, pady=(0, 0))
+        bottom_frame.grid_columnconfigure(0, weight=1)
+        
+        # Status and hours label
+        status_frame = tk.Frame(bottom_frame, bg="#000000")
+        status_frame.grid(row=0, column=0, sticky=tk.W+tk.E, pady=(0, 5))
+        
+        status_label = tk.Label(status_frame, text="READY", 
+                               font=("Courier", 9, "bold"), bg="#000000", fg=matrix_green)
+        status_label.pack(side=tk.LEFT)
+        
+        hours_label = tk.Label(status_frame, text="", 
+                              font=("Courier", 9), bg="#000000", fg=dark_green)
+        hours_label.pack(side=tk.RIGHT)
+        
+        # Buttons
+        button_frame = tk.Frame(bottom_frame, bg="#000000")
+        button_frame.grid(row=1, column=0, sticky=tk.W+tk.E)
+        
+        def start_simulation():
+            """Start the simulation"""
+            sim_type = sim_type_var.get()
+            
+            # Disable start button
+            start_btn.config(state=tk.DISABLED)
+            results_text.delete(1.0, tk.END)
+            status_label.config(text="INITIALIZING...")
+            hours_label.config(text="")
+            
+            def run_sim():
+                try:
+                    import time
+                    start_time = time.time()
+                    
+                    # Get planner points (shared across all planners)
+                    num_points = self.shared_planner_points.get() if hasattr(self, 'shared_planner_points') else 20
+                    
+                    # Save original crit toggle state
+                    original_crit_enabled = getattr(self, 'crit_calc_enabled', None)
+                    original_crit_state = original_crit_enabled.get() if original_crit_enabled else False
+                    
+                    # Calculate planner distribution FOR WITH CRIT (crit enabled)
+                    if original_crit_enabled:
+                        original_crit_enabled.set(True)
+                    if sim_type == "stage_rushing":
+                        forecast_with_crit = self.calculate_forecast(num_points)
+                        planner_dist_with_crit = forecast_with_crit['distribution']
+                    elif sim_type == "xp_per_hour":
+                        forecast_with_crit = self.calculate_xp_forecast(num_points)
+                        planner_dist_with_crit = forecast_with_crit['distribution']
+                    else:  # frags_per_hour
+                        budget = num_points
+                        target_frag = self.frag_target_var.get() if hasattr(self, 'frag_target_var') else 'common'
+                        frag_result_with_crit = self.calculate_frag_forecast(budget, target_frag)
+                        planner_dist_with_crit = frag_result_with_crit['distribution']
+                    
+                    # Calculate planner distribution FOR WITHOUT CRIT (crit disabled)
+                    if original_crit_enabled:
+                        original_crit_enabled.set(False)
+                    if sim_type == "stage_rushing":
+                        forecast_without_crit = self.calculate_forecast(num_points)
+                        planner_dist_without_crit = forecast_without_crit['distribution']
+                    elif sim_type == "xp_per_hour":
+                        forecast_without_crit = self.calculate_xp_forecast(num_points)
+                        planner_dist_without_crit = forecast_without_crit['distribution']
+                    else:  # frags_per_hour
+                        budget = num_points
+                        target_frag = self.frag_target_var.get() if hasattr(self, 'frag_target_var') else 'common'
+                        frag_result_without_crit = self.calculate_frag_forecast(budget, target_frag)
+                        planner_dist_without_crit = frag_result_without_crit['distribution']
+                    
+                    # Restore original crit state
+                    if original_crit_enabled:
+                        original_crit_enabled.set(original_crit_state)
+                    
+                    # Apply planner distributions temporarily to get stats
+                    original_points = self.skill_points.copy()
+                    
+                    # Get stats WITH CRIT distribution
+                    for skill, points in planner_dist_with_crit.items():
+                        self.skill_points[skill] += points
+                    planner_stats_with_crit = self.get_total_stats()
+                    self.skill_points = original_points.copy()
+                    
+                    # Get stats WITHOUT CRIT distribution
+                    for skill, points in planner_dist_without_crit.items():
+                        self.skill_points[skill] += points
+                    planner_stats_without_crit = self.get_total_stats()
+                    
+                    # Restore original
+                    self.skill_points = original_points
+                    
+                    # Prepare for Monte Carlo
+                    enrage_enabled = getattr(self, 'enrage_enabled', None)
+                    enrage_enabled = enrage_enabled.get() if enrage_enabled else False
+                    
+                    flurry_enabled = getattr(self, 'flurry_enabled', None)
+                    flurry_enabled = flurry_enabled.get() if flurry_enabled else False
+                    
+                    # Prepare stats for WITH CRIT simulation
+                    mc_stats_with_crit = {
+                        'total_damage': planner_stats_with_crit['total_damage'],
+                        'armor_pen': planner_stats_with_crit['armor_pen'],
+                        'max_stamina': planner_stats_with_crit['max_stamina'],
+                        'crit_chance': planner_stats_with_crit['crit_chance'],
+                        'crit_damage': planner_stats_with_crit['crit_damage'],
+                        'one_hit_chance': planner_stats_with_crit['one_hit_chance'],
+                        'stamina_mod_chance': planner_stats_with_crit.get('stamina_mod_chance', 0),
+                        'stamina_mod_gain': planner_stats_with_crit.get('stamina_mod_gain', 6.5),
+                        'xp_mult': planner_stats_with_crit.get('xp_mult', 1.0),
+                        'fragment_mult': planner_stats_with_crit.get('fragment_mult', 1.0),
+                    }
+                    
+                    # Prepare stats for WITHOUT CRIT simulation
+                    mc_stats_without_crit = {
+                        'total_damage': planner_stats_without_crit['total_damage'],
+                        'armor_pen': planner_stats_without_crit['armor_pen'],
+                        'max_stamina': planner_stats_without_crit['max_stamina'],
+                        'crit_chance': planner_stats_without_crit['crit_chance'],
+                        'crit_damage': planner_stats_without_crit['crit_damage'],
+                        'one_hit_chance': planner_stats_without_crit['one_hit_chance'],
+                        'stamina_mod_chance': planner_stats_without_crit.get('stamina_mod_chance', 0),
+                        'stamina_mod_gain': planner_stats_without_crit.get('stamina_mod_gain', 6.5),
+                        'xp_mult': planner_stats_without_crit.get('xp_mult', 1.0),
+                        'fragment_mult': planner_stats_without_crit.get('fragment_mult', 1.0),
+                    }
+                    
+                    starting_floor = self.current_stage
+                    num_simulations = 1000
+                    
+                    # Run simulation WITH CRIT and WITHOUT CRIT
+                    status_label.config(text=f"RUNNING {num_simulations} SIMULATIONS (WITH CRIT)...")
+                    mc_window.update()
+                    
+                    from .monte_carlo_crit import MonteCarloCritSimulator
+                    simulator = MonteCarloCritSimulator(seed=None)
+                    
+                    results_with_crit = []
+                    results_without_crit = []
+                    
+                    for i in range(num_simulations):
+                        if (i + 1) % 200 == 0:
+                            status_label.config(text=f"PROGRESS: {i + 1}/{num_simulations} (WITH CRIT)...")
+                            mc_window.update()
+                        
+                        # Simulate one hour WITH CRIT (using WITH CRIT distribution)
+                        run_duration = self.calculate_run_duration(planner_stats_with_crit, starting_floor)
+                        runs_per_hour = int(3600 / run_duration) if run_duration > 0 else 60
+                        runs_per_hour = max(1, min(runs_per_hour, 100))
+                        
+                        total_xp_crit = 0
+                        total_frags_crit = {'common': 0, 'rare': 0, 'epic': 0, 'legendary': 0, 'mythic': 0}
+                        max_stage_reached_crit = starting_floor
+                        
+                        for run in range(runs_per_hour):
+                            floors = simulator.simulate_run(
+                                mc_stats_with_crit, starting_floor, use_crit=True,
+                                enrage_enabled=enrage_enabled, flurry_enabled=flurry_enabled
+                            )
+                            
+                            if sim_type == "xp_per_hour":
+                                xp_per_run = self.calculate_xp_per_run(planner_stats_with_crit, starting_floor)
+                                expected_floors = self.calculate_floors_per_run(planner_stats_with_crit, starting_floor)
+                                if expected_floors > 0:
+                                    xp_scale = floors / expected_floors
+                                    total_xp_crit += xp_per_run * xp_scale
+                            
+                            if sim_type == "frags_per_hour":
+                                frags_per_run = self.calculate_fragments_per_run(planner_stats_with_crit, starting_floor)
+                                expected_floors = self.calculate_floors_per_run(planner_stats_with_crit, starting_floor)
+                                if expected_floors > 0:
+                                    frag_scale = floors / expected_floors
+                                    for frag_type in total_frags_crit:
+                                        total_frags_crit[frag_type] += frags_per_run.get(frag_type, 0) * frag_scale
+                            
+                            current_stage_after_run = starting_floor + int(floors)
+                            max_stage_reached_crit = max(max_stage_reached_crit, current_stage_after_run)
+                        
+                        # Simulate one hour WITHOUT CRIT (using WITHOUT CRIT distribution)
+                        if (i + 1) % 200 == 0:
+                            status_label.config(text=f"PROGRESS: {i + 1}/{num_simulations} (WITHOUT CRIT)...")
+                            mc_window.update()
+                        
+                        run_duration = self.calculate_run_duration(planner_stats_without_crit, starting_floor)
+                        runs_per_hour = int(3600 / run_duration) if run_duration > 0 else 60
+                        runs_per_hour = max(1, min(runs_per_hour, 100))
+                        
+                        total_xp_no_crit = 0
+                        total_frags_no_crit = {'common': 0, 'rare': 0, 'epic': 0, 'legendary': 0, 'mythic': 0}
+                        max_stage_reached_no_crit = starting_floor
+                        
+                        for run in range(runs_per_hour):
+                            floors = simulator.simulate_run(
+                                mc_stats_without_crit, starting_floor, use_crit=False,
+                                enrage_enabled=enrage_enabled, flurry_enabled=flurry_enabled
+                            )
+                            
+                            if sim_type == "xp_per_hour":
+                                xp_per_run = self.calculate_xp_per_run(planner_stats_without_crit, starting_floor)
+                                expected_floors = self.calculate_floors_per_run(planner_stats_without_crit, starting_floor)
+                                if expected_floors > 0:
+                                    xp_scale = floors / expected_floors
+                                    total_xp_no_crit += xp_per_run * xp_scale
+                            
+                            if sim_type == "frags_per_hour":
+                                frags_per_run = self.calculate_fragments_per_run(planner_stats_without_crit, starting_floor)
+                                expected_floors = self.calculate_floors_per_run(planner_stats_without_crit, starting_floor)
+                                if expected_floors > 0:
+                                    frag_scale = floors / expected_floors
+                                    for frag_type in total_frags_no_crit:
+                                        total_frags_no_crit[frag_type] += frags_per_run.get(frag_type, 0) * frag_scale
+                            
+                            current_stage_after_run = starting_floor + int(floors)
+                            max_stage_reached_no_crit = max(max_stage_reached_no_crit, current_stage_after_run)
+                        
+                        # Store results
+                        if sim_type == "stage_rushing":
+                            results_with_crit.append(max_stage_reached_crit)
+                            results_without_crit.append(max_stage_reached_no_crit)
+                        elif sim_type == "xp_per_hour":
+                            results_with_crit.append(total_xp_crit)
+                            results_without_crit.append(total_xp_no_crit)
+                        else:
+                            target_frag = self.frag_target_var.get() if hasattr(self, 'frag_target_var') else 'common'
+                            results_with_crit.append(total_frags_crit.get(target_frag, 0))
+                            results_without_crit.append(total_frags_no_crit.get(target_frag, 0))
+                    
+                    # Calculate statistics for both
+                    results = results_with_crit
+                    results_no_crit = results_without_crit
+                    
+                    # Calculate statistics
+                    import statistics
+                    mean_val = statistics.mean(results)
+                    median_val = statistics.median(results)
+                    std_dev = statistics.stdev(results) if len(results) > 1 else 0
+                    min_val = min(results)
+                    max_val = max(results)
+                    sorted_results = sorted(results)
+                    p5 = sorted_results[int(len(results) * 0.05)]
+                    p95 = sorted_results[int(len(results) * 0.95)]
+                    
+                    # For stage_rushing: Count how often max stage was reached
+                    max_stage_count_crit = 0
+                    max_stage_count_no_crit = 0
+                    if sim_type == "stage_rushing":
+                        max_stage_count_crit = results.count(max_val)
+                        max_stage_count_no_crit = results_no_crit.count(max(results_no_crit))
+                    
+                    # Calculate statistics for WITHOUT CRIT
+                    mean_no_crit = statistics.mean(results_no_crit)
+                    median_no_crit = statistics.median(results_no_crit)
+                    std_dev_no_crit = statistics.stdev(results_no_crit) if len(results_no_crit) > 1 else 0
+                    min_no_crit = min(results_no_crit)
+                    max_no_crit = max(results_no_crit)
+                    sorted_no_crit = sorted(results_no_crit)
+                    p5_no_crit = sorted_no_crit[int(len(results_no_crit) * 0.05)]
+                    p95_no_crit = sorted_no_crit[int(len(results_no_crit) * 0.95)]
+                    
+                    # Display results
+                    elapsed_time = time.time() - start_time
+                    simulated_hours = num_simulations
+                    
+                    results_text.insert(tk.END, f"╔═══════════════════════════════════════════════════════════╗\n")
+                    results_text.insert(tk.END, f"║  MONTE CARLO: CRIT vs NO-CRIT                             ║\n")
+                    results_text.insert(tk.END, f"╚═══════════════════════════════════════════════════════════╝\n\n")
+                    
+                    abbrev = {'strength': 'STR', 'agility': 'AGI', 'intellect': 'INT', 'perception': 'PER', 'luck': 'LUK'}
+                    results_text.insert(tk.END, f"TYPE: {sim_type.upper().replace('_', ' ')} | POINTS: {num_points}\n")
+                    results_text.insert(tk.END, f"WITH CRIT:    {self.format_distribution(planner_dist_with_crit)}\n")
+                    results_text.insert(tk.END, f"WITHOUT CRIT: {self.format_distribution(planner_dist_without_crit)}\n\n")
+                    
+                    # WITH CRIT results
+                    results_text.insert(tk.END, f"───────────────────────────────────────────────────────────\n")
+                    results_text.insert(tk.END, f"WITH CRIT ({self.format_distribution(planner_dist_with_crit)}):\n")
+                    
+                    if sim_type == "stage_rushing":
+                        results_text.insert(tk.END, f"  Mean: {mean_val:.2f} | Med: {median_val:.2f} | Range: [{min_val:.0f}, {max_val:.0f}]\n")
+                        results_text.insert(tk.END, f"  Max Stage {max_val:.0f}: {max_stage_count_crit}x ({max_stage_count_crit/len(results)*100:.1f}%) | StdDev: {std_dev:.2f}\n")
+                    elif sim_type == "xp_per_hour":
+                        results_text.insert(tk.END, f"  Mean: {mean_val:.1f} | Med: {median_val:.1f} | Range: [{min_val:.1f}, {max_val:.1f}]\n")
+                        results_text.insert(tk.END, f"  5-95%: [{p5:.1f}, {p95:.1f}] | StdDev: {std_dev:.2f}\n")
+                    else:
+                        results_text.insert(tk.END, f"  Mean: {mean_val:.2f} | Med: {median_val:.2f} | Range: [{min_val:.2f}, {max_val:.2f}]\n")
+                        results_text.insert(tk.END, f"  5-95%: [{p5:.2f}, {p95:.2f}] | StdDev: {std_dev:.2f}\n")
+                    
+                    # WITHOUT CRIT results
+                    results_text.insert(tk.END, f"───────────────────────────────────────────────────────────\n")
+                    results_text.insert(tk.END, f"WITHOUT CRIT ({self.format_distribution(planner_dist_without_crit)}):\n")
+                    
+                    if sim_type == "stage_rushing":
+                        results_text.insert(tk.END, f"  Mean: {mean_no_crit:.2f} | Med: {median_no_crit:.2f} | Range: [{min_no_crit:.0f}, {max_no_crit:.0f}]\n")
+                        results_text.insert(tk.END, f"  Max Stage {max_no_crit:.0f}: {max_stage_count_no_crit}x ({max_stage_count_no_crit/len(results_no_crit)*100:.1f}%) | StdDev: {std_dev_no_crit:.2f}\n")
+                    elif sim_type == "xp_per_hour":
+                        results_text.insert(tk.END, f"  Mean: {mean_no_crit:.1f} | Med: {median_no_crit:.1f} | Range: [{min_no_crit:.1f}, {max_no_crit:.1f}]\n")
+                        results_text.insert(tk.END, f"  5-95%: [{p5_no_crit:.1f}, {p95_no_crit:.1f}] | StdDev: {std_dev_no_crit:.2f}\n")
+                    else:
+                        results_text.insert(tk.END, f"  Mean: {mean_no_crit:.2f} | Med: {median_no_crit:.2f} | Range: [{min_no_crit:.2f}, {max_no_crit:.2f}]\n")
+                        results_text.insert(tk.END, f"  5-95%: [{p5_no_crit:.2f}, {p95_no_crit:.2f}] | StdDev: {std_dev_no_crit:.2f}\n")
+                    
+                    # Calculate difference first (needed for statistical test)
+                    diff = mean_val - mean_no_crit
+                    diff_pct = (diff / mean_no_crit * 100) if mean_no_crit > 0 else 0
+                    
+                    # Statistical test: t-test for independent samples
+                    from scipy import stats as scipy_stats
+                    try:
+                        # Perform t-test
+                        t_stat, p_value = scipy_stats.ttest_ind(results, results_no_crit)
+                        
+                        # Calculate effect size (Cohen's d)
+                        pooled_std = ((std_dev ** 2 + std_dev_no_crit ** 2) / 2) ** 0.5
+                        cohens_d = diff / pooled_std if pooled_std > 0 else 0
+                        
+                        # Interpretation
+                        if p_value < 0.001:
+                            significance = "*** HIGHLY SIGNIFICANT ***"
+                        elif p_value < 0.01:
+                            significance = "** VERY SIGNIFICANT **"
+                        elif p_value < 0.05:
+                            significance = "* SIGNIFICANT *"
+                        else:
+                            significance = "NOT SIGNIFICANT"
+                        
+                        if abs(cohens_d) < 0.2:
+                            effect_size = "negligible"
+                        elif abs(cohens_d) < 0.5:
+                            effect_size = "small"
+                        elif abs(cohens_d) < 0.8:
+                            effect_size = "medium"
+                        else:
+                            effect_size = "large"
+                    except ImportError:
+                        # Fallback if scipy not available - use simple t-test approximation
+                        pooled_std = ((std_dev ** 2 + std_dev_no_crit ** 2) / 2) ** 0.5
+                        n = len(results)
+                        se = pooled_std * (2 / n) ** 0.5  # Standard error
+                        if se > 0:
+                            t_stat = diff / se
+                            # Approximate p-value from t-statistic (two-tailed)
+                            # For large n (>30), t approximates normal distribution
+                            if abs(t_stat) > 3.29:
+                                p_value = 0.001
+                            elif abs(t_stat) > 2.58:
+                                p_value = 0.01
+                            elif abs(t_stat) > 1.96:
+                                p_value = 0.05
+                            else:
+                                p_value = 0.10
+                            
+                            cohens_d = diff / pooled_std if pooled_std > 0 else 0
+                            
+                            if p_value < 0.001:
+                                significance = "*** HIGHLY SIGNIFICANT ***"
+                            elif p_value < 0.01:
+                                significance = "** VERY SIGNIFICANT **"
+                            elif p_value < 0.05:
+                                significance = "* SIGNIFICANT *"
+                            else:
+                                significance = "NOT SIGNIFICANT"
+                            
+                            if abs(cohens_d) < 0.2:
+                                effect_size = "negligible"
+                            elif abs(cohens_d) < 0.5:
+                                effect_size = "small"
+                            elif abs(cohens_d) < 0.8:
+                                effect_size = "medium"
+                            else:
+                                effect_size = "large"
+                        else:
+                            t_stat = 0
+                            p_value = 1.0
+                            cohens_d = 0
+                            significance = "CANNOT COMPUTE"
+                            effect_size = "unknown"
+                    
+                    # Comparison (diff already calculated above)
+                    results_text.insert(tk.END, f"\n───────────────────────────────────────────────────────────\n")
+                    results_text.insert(tk.END, f"COMPARISON:\n")
+                    
+                    if sim_type == "stage_rushing":
+                        diff_str = f"{diff:+.2f} stages ({diff_pct:+.2f}%)"
+                    elif sim_type == "xp_per_hour":
+                        diff_str = f"{diff:+.1f} XP/h ({diff_pct:+.2f}%)"
+                    else:
+                        diff_str = f"{diff:+.2f} frags/h ({diff_pct:+.2f}%)"
+                    
+                    results_text.insert(tk.END, f"  Difference: {diff_str}\n")
+                    results_text.insert(tk.END, f"  t-test: t={t_stat:.3f}, p={p_value:.4f} → {significance}\n")
+                    results_text.insert(tk.END, f"  Effect: {effect_size} (d={cohens_d:.3f})\n")
+                    
+                    # Interpretation
+                    if p_value < 0.05:
+                        if diff > 0:
+                            results_text.insert(tk.END, f"\n>>> WITH CRIT IS STATISTICALLY BETTER <<<\n")
+                        elif diff < 0:
+                            results_text.insert(tk.END, f"\n>>> WITHOUT CRIT IS STATISTICALLY BETTER <<<\n")
+                    else:
+                        results_text.insert(tk.END, f"\n>>> NO STATISTICALLY SIGNIFICANT DIFFERENCE <<<\n")
+                    
+                    results_text.insert(tk.END, f"\nSimulated: {simulated_hours}h | Time: {elapsed_time:.1f}s\n")
+                    
+                    hours_label.config(text=f"SIMULATED: {simulated_hours} HOURS")
+                    status_label.config(text="COMPLETE")
+                    start_btn.config(state=tk.NORMAL)
+                    
+                except Exception as e:
+                    import traceback
+                    error_msg = f"ERROR:\n{str(e)}\n\n{traceback.format_exc()}"
+                    results_text.insert(tk.END, error_msg)
+                    status_label.config(text="ERROR")
+                    start_btn.config(state=tk.NORMAL)
+            
+            thread = threading.Thread(target=run_sim, daemon=True)
+            thread.start()
+        
+        start_btn = tk.Button(button_frame, text="START SIMULATION", 
+                             command=start_simulation,
+                             font=("Courier", 10, "bold"),
+                             bg="#000000", fg=matrix_green,
+                             activebackground="#001100", activeforeground=dark_green,
+                             relief=tk.RAISED, borderwidth=2,
+                             highlightbackground=matrix_green)
+        start_btn.pack(side=tk.LEFT, padx=5)
+        
+        close_btn = tk.Button(button_frame, text="CLOSE", 
+                             command=mc_window.destroy,
+                             font=("Courier", 10, "bold"),
+                             bg="#000000", fg=matrix_green,
+                             activebackground="#001100", activeforeground=dark_green,
+                             relief=tk.RAISED, borderwidth=2,
+                             highlightbackground=matrix_green)
+        close_btn.pack(side=tk.LEFT, padx=5)
+    
     def update_display(self):
         stats = self.get_total_stats()
         
@@ -4879,22 +5405,22 @@ class ArchaeologySimulatorWindow:
                     if hasattr(self, 'upgrade_frag_efficiency_labels') and upgrade_key in self.upgrade_frag_efficiency_labels:
                         self.upgrade_frag_efficiency_labels[upgrade_key].config(text="MAX", foreground="#C73E1D")
                 else:
-                    # Stage Rush efficiency (floors/run)
-                    _, stage_improvement = self.calculate_fragment_upgrade_efficiency(upgrade_key)
+                    # Stage Rush efficiency factor (floors improvement per fragment cost)
+                    _, stage_efficiency = self.calculate_fragment_upgrade_efficiency(upgrade_key)
                     self.upgrade_efficiency_labels[upgrade_key].config(
-                        text=f"+{stage_improvement:.2f}%", foreground="#2E7D32")
+                        text=f"{stage_efficiency:.3f}", foreground="#2E7D32")
                     
-                    # XP efficiency
+                    # XP efficiency factor (XP improvement per fragment cost)
                     if hasattr(self, 'upgrade_xp_efficiency_labels') and upgrade_key in self.upgrade_xp_efficiency_labels:
-                        _, xp_improvement = self.calculate_fragment_upgrade_xp_efficiency(upgrade_key)
+                        _, xp_efficiency = self.calculate_fragment_upgrade_xp_efficiency(upgrade_key)
                         self.upgrade_xp_efficiency_labels[upgrade_key].config(
-                            text=f"+{xp_improvement:.2f}%", foreground="#1976D2")
+                            text=f"{xp_efficiency:.3f}", foreground="#1976D2")
                     
-                    # Fragment farming efficiency (% improvement in Frag/h)
+                    # Fragment farming efficiency factor (Frag/h improvement per fragment cost)
                     if hasattr(self, 'upgrade_frag_efficiency_labels') and upgrade_key in self.upgrade_frag_efficiency_labels:
-                        _, frag_improvement = self.calculate_fragment_upgrade_fragment_efficiency(upgrade_key)
+                        _, frag_efficiency = self.calculate_fragment_upgrade_fragment_efficiency(upgrade_key)
                         self.upgrade_frag_efficiency_labels[upgrade_key].config(
-                            text=f"+{frag_improvement:.2f}%", foreground="#9932CC")
+                            text=f"{frag_efficiency:.3f}", foreground="#9932CC")
         
         # Note: Greedy recommendation removed - use Planner/Forecaster on the right instead
         
@@ -5041,11 +5567,11 @@ class ArchaeologySimulatorWindow:
         self.update_budget_display()
     
     def update_budget_display(self):
-        """Update the budget planner with optimal distribution for fixed points"""
+        """Update the stage rusher planner with optimal distribution for fixed points"""
         if not hasattr(self, 'budget_dist_label'):
             return
         
-        budget = self.budget_points.get()
+        budget = self.shared_planner_points.get()
         
         # Calculate optimal distribution for the budget
         # This uses the same algorithm as forecast
@@ -5065,11 +5591,15 @@ class ArchaeologySimulatorWindow:
         for skill, points in result['distribution'].items():
             self.skill_points[skill] -= points
         
+        # Calculate Stage/h and XP/h
+        stages_per_hour = result['floors_per_run'] * runs_per_hour
+        xp_per_hour = xp_with_floors_build * runs_per_hour
+        
         # Format and display
         dist_str = self.format_distribution(result['distribution'])
         self.budget_dist_label.config(text=dist_str)
-        self.budget_floors_label.config(text=f"{result['floors_per_run']:.2f}")
-        self.budget_xp_label.config(text=f"{xp_with_floors_build:.2f}")
+        self.budget_floors_label.config(text=f"{stages_per_hour:.1f}")
+        self.budget_xp_label.config(text=f"{xp_per_hour:.1f}")
         self.budget_gain_label.config(text=f"+{result['improvement_pct']:.1f}%")
         
         # Update frags/h display based on selected fragment type from Fragment Farm Planner
@@ -5085,7 +5615,7 @@ class ArchaeologySimulatorWindow:
             
             # Update label text with fragment type (neutral colors since icon distinguishes)
             self.budget_frag_type_label.config(text=f"{target_frag.capitalize()}/h:", foreground="#555555")
-            self.budget_frag_value_label.config(text=f"{frag_per_hour:.3f}", foreground="#333333")
+            self.budget_frag_value_label.config(text=f"{frag_per_hour:.1f}", foreground="#333333")
         
         # Detailed breakdown showing exact values
         abbrev = {'strength': 'STR', 'agility': 'AGI', 'intellect': 'INT', 'perception': 'PER', 'luck': 'LUK'}
@@ -5107,7 +5637,7 @@ class ArchaeologySimulatorWindow:
         if not hasattr(self, 'xp_budget_dist_label'):
             return
         
-        budget = self.xp_budget_points.get()
+        budget = self.shared_planner_points.get()
         
         # Calculate optimal distribution for XP (not floors)
         result = self.calculate_xp_forecast(budget)
@@ -5126,11 +5656,15 @@ class ArchaeologySimulatorWindow:
         for skill, points in result['distribution'].items():
             self.skill_points[skill] -= points
         
+        # Calculate Stage/h and XP/h
+        stages_per_hour = floors_with_xp_build * runs_per_hour
+        xp_per_hour = result['xp_per_run'] * runs_per_hour
+        
         # Format and display
         dist_str = self.format_distribution(result['distribution'])
         self.xp_budget_dist_label.config(text=dist_str)
-        self.xp_budget_floors_label.config(text=f"{floors_with_xp_build:.2f}")
-        self.xp_budget_xp_label.config(text=f"{result['xp_per_run']:.2f}")
+        self.xp_budget_floors_label.config(text=f"{stages_per_hour:.1f}")
+        self.xp_budget_xp_label.config(text=f"{xp_per_hour:.1f}")
         self.xp_budget_gain_label.config(text=f"+{result['improvement_pct']:.1f}%")
         
         # Update frags/h display based on selected fragment type from Fragment Farm Planner
@@ -5146,7 +5680,7 @@ class ArchaeologySimulatorWindow:
             
             # Update label text with fragment type (neutral colors since icon distinguishes)
             self.xp_budget_frag_type_label.config(text=f"{target_frag.capitalize()}/h:", foreground="#555555")
-            self.xp_budget_frag_value_label.config(text=f"{frag_per_hour:.3f}", foreground="#333333")
+            self.xp_budget_frag_value_label.config(text=f"{frag_per_hour:.1f}", foreground="#333333")
         
         # Detailed breakdown showing exact values
         abbrev = {'strength': 'STR', 'agility': 'AGI', 'intellect': 'INT', 'perception': 'PER', 'luck': 'LUK'}
@@ -5168,7 +5702,7 @@ class ArchaeologySimulatorWindow:
         if not hasattr(self, 'frag_planner_dist_label'):
             return
         
-        budget = self.frag_budget_points.get()
+        budget = self.shared_planner_points.get()
         target_frag = self.frag_target_var.get()
         
         # Calculate optimal distribution for target fragment
@@ -5177,9 +5711,9 @@ class ArchaeologySimulatorWindow:
         # Format and display
         dist_str = self.format_distribution(result['distribution'])
         self.frag_planner_dist_label.config(text=dist_str)
-        self.frag_planner_result_label.config(text=f"{result['frags_per_hour']:.3f}")
-        self.frag_planner_stages_label.config(text=f"{result['stages_per_run']:.2f}")
-        self.frag_planner_xp_label.config(text=f"{result['xp_per_hour']:.2f}")
+        self.frag_planner_result_label.config(text=f"{result['frags_per_hour']:.1f}")
+        self.frag_planner_stages_label.config(text=f"{result['stages_per_hour']:.1f}")
+        self.frag_planner_xp_label.config(text=f"{result['xp_per_hour']:.1f}")
         self.frag_planner_gain_label.config(text=f"+{result['improvement_pct']:.1f}%")
     
     def calculate_frag_forecast(self, levels_ahead: int, target_frag_type: str):
@@ -5194,7 +5728,7 @@ class ArchaeologySimulatorWindow:
             dict with:
                 - 'distribution': dict of skill -> points to add
                 - 'frags_per_hour': resulting frags/hour for target type
-                - 'stages_per_run': floors cleared per run with this build
+                - 'stages_per_hour': stages cleared per hour with this build
                 - 'xp_per_hour': XP earned per hour with this build
                 - 'improvement_pct': percentage improvement
         """
@@ -5209,11 +5743,12 @@ class ArchaeologySimulatorWindow:
         runs_per_hour = 3600 / run_duration if run_duration > 0 else 0
         current_frag_per_hour = current_frags.get(target_frag_type, 0) * runs_per_hour
         current_xp_per_hour = current_xp * runs_per_hour
+        current_stages_per_hour = current_floors * runs_per_hour
         
         best_result = {
             'distribution': {s: 0 for s in skills},
             'frags_per_hour': current_frag_per_hour,
-            'stages_per_run': current_floors,
+            'stages_per_hour': current_stages_per_hour,
             'xp_per_hour': current_xp_per_hour,
             'improvement_pct': 0.0,
         }
@@ -5243,12 +5778,13 @@ class ArchaeologySimulatorWindow:
             new_runs_per_hour = 3600 / new_run_duration if new_run_duration > 0 else 0
             new_frag_per_hour = new_frags.get(target_frag_type, 0) * new_runs_per_hour
             new_xp_per_hour = new_xp * new_runs_per_hour
+            new_stages_per_hour = new_floors * new_runs_per_hour
             
             if new_frag_per_hour > best_frag_per_hour:
                 best_frag_per_hour = new_frag_per_hour
                 best_result['distribution'] = {s: p for s, p in zip(skills, dist_tuple)}
                 best_result['frags_per_hour'] = new_frag_per_hour
-                best_result['stages_per_run'] = new_floors
+                best_result['stages_per_hour'] = new_stages_per_hour
                 best_result['xp_per_hour'] = new_xp_per_hour
             
             # Revert changes
