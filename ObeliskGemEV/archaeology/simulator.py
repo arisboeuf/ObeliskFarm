@@ -13,6 +13,10 @@ from PIL import Image, ImageTk
 from .block_spawn_rates import get_block_mix_for_stage, get_stage_range_label, STAGE_RANGES, get_normalized_spawn_rates
 from .block_stats import get_block_at_floor, get_block_mix_for_floor, BlockData, BLOCK_TYPES
 
+import sys
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from ui_utils import calculate_tooltip_position
+
 # Save file path (in central save folder)
 SAVE_DIR = Path(__file__).parent.parent / "save"
 SAVE_FILE = SAVE_DIR / "archaeology_save.json"
@@ -1517,7 +1521,13 @@ class ArchaeologySimulatorWindow:
         def on_enter(event):
             tooltip = tk.Toplevel()
             tooltip.wm_overrideredirect(True)
-            tooltip.wm_geometry(f"+{event.x_root-250}+{event.y_root+10}")
+            
+            tooltip_width = 280
+            tooltip_height = 200
+            screen_width = tooltip.winfo_screenwidth()
+            screen_height = tooltip.winfo_screenheight()
+            x, y = calculate_tooltip_position(event, tooltip_width, tooltip_height, screen_width, screen_height)
+            tooltip.wm_geometry(f"+{x}+{y}")
             
             outer_frame = tk.Frame(tooltip, background="#FF6F00", relief=tk.FLAT)
             outer_frame.pack(padx=2, pady=2)
@@ -1568,7 +1578,13 @@ class ArchaeologySimulatorWindow:
             
             tooltip = tk.Toplevel()
             tooltip.wm_overrideredirect(True)
-            tooltip.wm_geometry(f"+{event.x_root+10}+{event.y_root+10}")
+            
+            tooltip_width = 300
+            tooltip_height = 250
+            screen_width = tooltip.winfo_screenwidth()
+            screen_height = tooltip.winfo_screenheight()
+            x, y = calculate_tooltip_position(event, tooltip_width, tooltip_height, screen_width, screen_height)
+            tooltip.wm_geometry(f"+{x}+{y}")
             
             # Outer frame for shadow effect (gray for Common)
             outer_frame = tk.Frame(tooltip, background="#808080", relief=tk.FLAT, borderwidth=0)
@@ -1667,7 +1683,13 @@ class ArchaeologySimulatorWindow:
             
             tooltip = tk.Toplevel()
             tooltip.wm_overrideredirect(True)
-            tooltip.wm_geometry(f"+{event.x_root+10}+{event.y_root+10}")
+            
+            tooltip_width = 280
+            tooltip_height = 220
+            screen_width = tooltip.winfo_screenwidth()
+            screen_height = tooltip.winfo_screenheight()
+            x, y = calculate_tooltip_position(event, tooltip_width, tooltip_height, screen_width, screen_height)
+            tooltip.wm_geometry(f"+{x}+{y}")
             
             # Outer frame for shadow effect (gray for Common)
             outer_frame = tk.Frame(tooltip, background="#808080", relief=tk.FLAT, borderwidth=0)
@@ -1763,7 +1785,13 @@ class ArchaeologySimulatorWindow:
             
             tooltip = tk.Toplevel()
             tooltip.wm_overrideredirect(True)
-            tooltip.wm_geometry(f"+{event.x_root+10}+{event.y_root+10}")
+            
+            tooltip_width = 280
+            tooltip_height = 200
+            screen_width = tooltip.winfo_screenwidth()
+            screen_height = tooltip.winfo_screenheight()
+            x, y = calculate_tooltip_position(event, tooltip_width, tooltip_height, screen_width, screen_height)
+            tooltip.wm_geometry(f"+{x}+{y}")
             
             # Outer frame for shadow effect
             outer_frame = tk.Frame(tooltip, background=border_color, relief=tk.FLAT, borderwidth=0)
@@ -1830,26 +1858,11 @@ class ArchaeologySimulatorWindow:
             tooltip = tk.Toplevel()
             tooltip.wm_overrideredirect(True)
             
-            # Position tooltip to the left of cursor to avoid going off-screen
-            # Tooltip is roughly 320px wide, 400px tall
             tooltip_width = 320
             tooltip_height = 420
-            
-            # Get screen dimensions
             screen_width = tooltip.winfo_screenwidth()
             screen_height = tooltip.winfo_screenheight()
-            
-            # Calculate position - prefer left of cursor, with bounds checking
-            x = event.x_root - tooltip_width - 10
-            if x < 10:
-                x = event.x_root + 20  # Fall back to right side if too close to left edge
-            
-            y = event.y_root - 50
-            if y + tooltip_height > screen_height - 50:
-                y = screen_height - tooltip_height - 50
-            if y < 10:
-                y = 10
-            
+            x, y = calculate_tooltip_position(event, tooltip_width, tooltip_height, screen_width, screen_height)
             tooltip.wm_geometry(f"+{x}+{y}")
             
             # Outer frame for shadow effect
@@ -1934,23 +1947,11 @@ class ArchaeologySimulatorWindow:
             tooltip = tk.Toplevel()
             tooltip.wm_overrideredirect(True)
             
-            # Position tooltip
             tooltip_width = 380
             tooltip_height = 520
-            
             screen_width = tooltip.winfo_screenwidth()
             screen_height = tooltip.winfo_screenheight()
-            
-            x = event.x_root + 15
-            if x + tooltip_width > screen_width - 20:
-                x = event.x_root - tooltip_width - 15
-            
-            y = event.y_root - 50
-            if y + tooltip_height > screen_height - 50:
-                y = screen_height - tooltip_height - 50
-            if y < 10:
-                y = 10
-            
+            x, y = calculate_tooltip_position(event, tooltip_width, tooltip_height, screen_width, screen_height)
             tooltip.wm_geometry(f"+{x}+{y}")
             
             # Outer frame for shadow effect
@@ -2127,23 +2128,11 @@ class ArchaeologySimulatorWindow:
             tooltip = tk.Toplevel()
             tooltip.wm_overrideredirect(True)
             
-            # Position tooltip
             tooltip_width = 320
             tooltip_height = 200
-            
             screen_width = tooltip.winfo_screenwidth()
             screen_height = tooltip.winfo_screenheight()
-            
-            x = event.x_root + 15
-            if x + tooltip_width > screen_width - 20:
-                x = event.x_root - tooltip_width - 15
-            
-            y = event.y_root - 30
-            if y + tooltip_height > screen_height - 50:
-                y = screen_height - tooltip_height - 50
-            if y < 10:
-                y = 10
-            
+            x, y = calculate_tooltip_position(event, tooltip_width, tooltip_height, screen_width, screen_height)
             tooltip.wm_geometry(f"+{x}+{y}")
             
             # Outer frame for shadow effect
@@ -2716,11 +2705,10 @@ class ArchaeologySimulatorWindow:
             tooltip.wm_overrideredirect(True)
             
             tooltip_width = 340
-            x = event.x_root - tooltip_width - 10
-            if x < 10:
-                x = event.x_root + 20
-            y = event.y_root - 20
-            
+            tooltip_height = 300
+            screen_width = tooltip.winfo_screenwidth()
+            screen_height = tooltip.winfo_screenheight()
+            x, y = calculate_tooltip_position(event, tooltip_width, tooltip_height, screen_width, screen_height)
             tooltip.wm_geometry(f"+{x}+{y}")
             
             outer_frame = tk.Frame(tooltip, background="#00838F", relief=tk.FLAT)
@@ -2782,11 +2770,10 @@ class ArchaeologySimulatorWindow:
             tooltip.wm_overrideredirect(True)
             
             tooltip_width = 320
-            x = event.x_root - tooltip_width - 10
-            if x < 10:
-                x = event.x_root + 20
-            y = event.y_root - 20
-            
+            tooltip_height = 320
+            screen_width = tooltip.winfo_screenwidth()
+            screen_height = tooltip.winfo_screenheight()
+            x, y = calculate_tooltip_position(event, tooltip_width, tooltip_height, screen_width, screen_height)
             tooltip.wm_geometry(f"+{x}+{y}")
             
             outer_frame = tk.Frame(tooltip, background="#7B1FA2", relief=tk.FLAT)
@@ -2848,11 +2835,10 @@ class ArchaeologySimulatorWindow:
             tooltip.wm_overrideredirect(True)
             
             tooltip_width = 340
-            x = event.x_root - tooltip_width - 10
-            if x < 10:
-                x = event.x_root + 20
-            y = event.y_root - 20
-            
+            tooltip_height = 380
+            screen_width = tooltip.winfo_screenwidth()
+            screen_height = tooltip.winfo_screenheight()
+            x, y = calculate_tooltip_position(event, tooltip_width, tooltip_height, screen_width, screen_height)
             tooltip.wm_geometry(f"+{x}+{y}")
             
             outer_frame = tk.Frame(tooltip, background="#1976D2", relief=tk.FLAT)

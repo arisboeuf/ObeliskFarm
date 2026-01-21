@@ -32,7 +32,7 @@ from archaeology import ArchaeologySimulatorWindow
 from lootbug import LootbugWindow
 from event import EventSimulatorWindow
 from stargazing import StargazingWindow
-from ui_utils import create_tooltip as _create_tooltip
+from ui_utils import create_tooltip as _create_tooltip, calculate_tooltip_position
 
 
 class ObeliskGemEVGUI:
@@ -784,7 +784,14 @@ class ObeliskGemEVGUI:
         def on_enter(event):
             tooltip = tk.Toplevel()
             tooltip.wm_overrideredirect(True)
-            tooltip.wm_geometry(f"+{event.x_root+10}+{event.y_root+10}")
+            
+            # Estimate tooltip dimensions
+            tooltip_width = 450
+            tooltip_height = 280
+            screen_width = tooltip.winfo_screenwidth()
+            screen_height = tooltip.winfo_screenheight()
+            x, y = calculate_tooltip_position(event, tooltip_width, tooltip_height, screen_width, screen_height)
+            tooltip.wm_geometry(f"+{x}+{y}")
             
             # Äußerer Rahmen für Schatten-Effekt
             outer_frame = tk.Frame(
