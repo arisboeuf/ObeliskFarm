@@ -5,12 +5,39 @@ GUI for ObeliskGemEV Calculator
 import tkinter as tk
 from tkinter import ttk, messagebox
 import sys
+import os
 import json
+import copy
 from pathlib import Path
 from PIL import Image, ImageTk
 
-# Save file path (in central save folder)
-SAVE_DIR = Path(__file__).parent / "save"
+
+def get_resource_path(relative_path: str) -> Path:
+    """Get absolute path to resource, works for dev and for PyInstaller bundle."""
+    if getattr(sys, 'frozen', False):
+        # Running as compiled exe - use temp directory where PyInstaller extracts files
+        base_path = Path(sys._MEIPASS)
+    else:
+        # Running as script - use the script's directory
+        base_path = Path(__file__).parent
+    return base_path / relative_path
+
+
+def get_user_data_path() -> Path:
+    """Get path for user data (saves) - persists outside of bundle."""
+    if getattr(sys, 'frozen', False):
+        # Running as exe - use AppData folder on Windows
+        app_data = os.environ.get('APPDATA', os.path.expanduser('~'))
+        save_dir = Path(app_data) / 'ObeliskGemEV' / 'save'
+    else:
+        # Running as script - use local save folder
+        save_dir = Path(__file__).parent / 'save'
+    save_dir.mkdir(parents=True, exist_ok=True)
+    return save_dir
+
+
+# Save file path (in user data folder for persistence)
+SAVE_DIR = get_user_data_path()
 SAVE_FILE = SAVE_DIR / "gemev_save.json"
 
 # Matplotlib for Bar Chart
@@ -34,20 +61,27 @@ from event import EventSimulatorWindow
 from stargazing import StargazingWindow
 from ui_utils import create_tooltip as _create_tooltip, calculate_tooltip_position
 
+# Import version/config info
+try:
+    from . import OBELISK_LEVEL
+except ImportError:
+    # Direct execution fallback
+    OBELISK_LEVEL = 30
+
 
 class ObeliskGemEVGUI:
     """GUI for the ObeliskGemEV Calculator"""
     
     def __init__(self, root):
         self.root = root
-        self.root.title("ObeliskGemEV Calculator")
+        self.root.title(f"ObeliskGemEV Calculator (Data based on Obelisk Level {OBELISK_LEVEL})")
         # Maximized window on startup
         self.root.state('zoomed')  # Maximize window on Windows
         self.root.resizable(True, True)
         
         # Icon setzen (gem.png)
         try:
-            icon_path = Path(__file__).parent / "sprites" / "common" / "gem.png"
+            icon_path = get_resource_path("sprites/common/gem.png")
             if icon_path.exists():
                 icon_image = Image.open(icon_path)
                 icon_photo = ImageTk.PhotoImage(icon_image)
@@ -148,10 +182,9 @@ class ObeliskGemEVGUI:
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(0, weight=1)
         
-        # Flexible Spalten ohne minsize für besseres responsive Verhalten
-        # Linke Spalte (Parameter) schmaler, rechte Spalte (Ergebnisse) breiter
-        main_frame.columnconfigure(0, weight=1)
-        main_frame.columnconfigure(1, weight=3)
+        # Linke Spalte (Parameter) feste Breite, rechte Spalte (Ergebnisse) flexibel
+        main_frame.columnconfigure(0, weight=0, minsize=320)
+        main_frame.columnconfigure(1, weight=1)
         main_frame.rowconfigure(1, weight=1)
         
         # Titel-Zeile: Kompakt mit Lootbug-Button direkt daneben
@@ -232,7 +265,8 @@ class ObeliskGemEVGUI:
         
         freebie_frame = tk.Frame(freebie_container, background="#E3F2FD")
         freebie_frame.pack(fill=tk.X, padx=5, pady=5)
-        freebie_frame.columnconfigure(1, weight=1)
+        freebie_frame.columnconfigure(0, weight=0)  # Labels - fixed width
+        freebie_frame.columnconfigure(1, weight=0)  # Entry fields - fixed width
         
         # Tooltip für Freebie-Info
         freebie_info = (
@@ -256,11 +290,11 @@ class ObeliskGemEVGUI:
         
         # Basis-Parameter
         tk.Label(freebie_frame, text="Base:", font=("Arial", 9, "bold"), background="#E3F2FD").grid(
-            row=row, column=0, columnspan=2, sticky=tk.W, pady=(0, 3)
+            row=row, column=0, columnspan=3, sticky=tk.W, pady=(0, 3)
         )
         row += 1
         
-        self.create_entry(freebie_frame, "freebie_gems_base", "  Freebie Gems (Base):", row, "9.0", bg_color="#E3F2FD")
+        self.create_entry_with_buttons(freebie_frame, "freebie_gems_base", "  Freebie Gems (Base):", row, "9.0", bg_color="#E3F2FD", show_marginal_ev=True)
         row += 1
         
         self.create_entry(freebie_frame, "freebie_timer_minutes", "  Freebie Timer (Minutes):", row, "7.0", bg_color="#E3F2FD")
@@ -280,7 +314,7 @@ class ObeliskGemEVGUI:
         
         # Versuche, das Skill Shard Icon zu laden
         try:
-            skill_shard_icon_path = Path(__file__).parent / "sprites" / "common" / "skill_shard.png"
+            skill_shard_icon_path = get_resource_path("sprites/common/skill_shard.png")
             if skill_shard_icon_path.exists():
                 skill_shard_image = Image.open(skill_shard_icon_path)
                 skill_shard_image = skill_shard_image.resize((16, 16), Image.Resampling.LANCZOS)
@@ -310,7 +344,7 @@ class ObeliskGemEVGUI:
         
         # Versuche, das Stonks Icon zu laden
         try:
-            stonks_icon_path = Path(__file__).parent / "sprites" / "common" / "stonks_tree.png"
+            stonks_icon_path = get_resource_path("sprites/common/stonks_tree.png")
             if stonks_icon_path.exists():
                 stonks_image = Image.open(stonks_icon_path)
                 stonks_image = stonks_image.resize((20, 20), Image.Resampling.LANCZOS)
@@ -383,7 +417,8 @@ class ObeliskGemEVGUI:
         
         founder_frame = tk.Frame(founder_container, background="#E8F5E9")
         founder_frame.pack(fill=tk.X, padx=5, pady=5)
-        founder_frame.columnconfigure(1, weight=1)
+        founder_frame.columnconfigure(0, weight=0)  # Labels - fixed width
+        founder_frame.columnconfigure(1, weight=0)  # Entry fields - fixed width
         
         # Tooltip für Founder Supply Drop Info
         founder_info = (
@@ -431,7 +466,8 @@ class ObeliskGemEVGUI:
         
         bomb_frame = tk.Frame(bomb_container, background="#FFF3E0")
         bomb_frame.pack(fill=tk.X, padx=5, pady=5)
-        bomb_frame.columnconfigure(1, weight=1)
+        bomb_frame.columnconfigure(0, weight=0)  # Labels - fixed width
+        bomb_frame.columnconfigure(1, weight=0)  # Entry fields - fixed width
         
         # Tooltip für Bombs-Info
         bombs_info = (
@@ -507,7 +543,7 @@ class ObeliskGemEVGUI:
         
         # Versuche, das Bomb Icon zu laden
         try:
-            bomb_icon_path = Path(__file__).parent / "sprites" / "event" / "founderbomb.png"
+            bomb_icon_path = get_resource_path("sprites/event/founderbomb.png")
             if bomb_icon_path.exists():
                 bomb_image = Image.open(bomb_icon_path)
                 bomb_image = bomb_image.resize((16, 16), Image.Resampling.LANCZOS)
@@ -546,7 +582,7 @@ class ObeliskGemEVGUI:
         
         # Versuche, das Lootbug-Logo zu laden
         try:
-            lootbug_path = Path(__file__).parent / "sprites" / "lootbug" / "lootbug.png"
+            lootbug_path = get_resource_path("sprites/lootbug/lootbug.png")
             if lootbug_path.exists():
                 # Lade und skaliere das Bild
                 lootbug_image = Image.open(lootbug_path)
@@ -591,7 +627,7 @@ class ObeliskGemEVGUI:
         
         # Try to load archaeology icon
         try:
-            icon_path = Path(__file__).parent / "sprites" / "archaeology" / "archaeology.png"
+            icon_path = get_resource_path("sprites/archaeology/archaeology.png")
             if icon_path.exists():
                 # Load and scale the image
                 icon_image = Image.open(icon_path)
@@ -647,7 +683,7 @@ class ObeliskGemEVGUI:
         
         # Try to load event icon (valentines event button from wiki)
         try:
-            icon_path = Path(__file__).parent / "sprites" / "event" / "event_button.png"
+            icon_path = get_resource_path("sprites/event/event_button.png")
             if icon_path.exists():
                 # Load and scale the image
                 icon_image = Image.open(icon_path)
@@ -703,7 +739,7 @@ class ObeliskGemEVGUI:
         
         # Try to load stargazing icon
         try:
-            icon_path = Path(__file__).parent / "sprites" / "stargazing" / "stargazing.png"
+            icon_path = get_resource_path("sprites/stargazing/stargazing.png")
             if icon_path.exists():
                 # Load and scale the image
                 icon_image = Image.open(icon_path)
@@ -900,15 +936,77 @@ class ObeliskGemEVGUI:
         """Creates an input field with label"""
         
         if bg_color:
-            tk.Label(parent, text=label_text, background=bg_color).grid(row=row, column=0, sticky=tk.W, padx=(0, 10), pady=2)
+            tk.Label(parent, text=label_text, background=bg_color).grid(row=row, column=0, sticky=tk.W, padx=(0, 5), pady=2)
         else:
-            ttk.Label(parent, text=label_text).grid(row=row, column=0, sticky=tk.W, padx=(0, 10), pady=2)
+            ttk.Label(parent, text=label_text).grid(row=row, column=0, sticky=tk.W, padx=(0, 5), pady=2)
         
         var = tk.StringVar(value=default_value)
         self.vars[var_name] = {'var': var, 'is_percent': is_percent, 'is_int': is_int}
         
-        entry = ttk.Entry(parent, textvariable=var, width=20)
-        entry.grid(row=row, column=1, sticky=(tk.W, tk.E), pady=2)
+        entry = ttk.Entry(parent, textvariable=var, width=10)
+        entry.grid(row=row, column=1, sticky=tk.W, pady=2)
+        
+        # Live-Update: Berechne automatisch bei Änderung (mit Delay)
+        var.trace_add('write', lambda *args: self.trigger_auto_calculate())
+    
+    def create_entry_with_buttons(self, parent, var_name, label_text, row, default_value, is_percent=False, is_int=False, bg_color=None, show_marginal_ev=False):
+        """Creates an input field with +/- buttons and optional marginal EV display"""
+        
+        if bg_color:
+            tk.Label(parent, text=label_text, background=bg_color).grid(row=row, column=0, sticky=tk.W, padx=(0, 5), pady=2)
+        else:
+            ttk.Label(parent, text=label_text).grid(row=row, column=0, sticky=tk.W, padx=(0, 5), pady=2)
+        
+        var = tk.StringVar(value=default_value)
+        self.vars[var_name] = {'var': var, 'is_percent': is_percent, 'is_int': is_int}
+        
+        # Frame für Entry und Buttons
+        entry_frame = tk.Frame(parent, background=bg_color if bg_color else parent.cget('background'))
+        entry_frame.grid(row=row, column=1, sticky=tk.W, pady=2)
+        
+        # - Button
+        def decrement():
+            try:
+                current = float(var.get())
+                step = 1.0 if not is_int else 1
+                new_value = current - step
+                if new_value >= 0:  # Prevent negative values
+                    if is_int:
+                        var.set(str(int(new_value)))
+                    else:
+                        var.set(str(new_value))
+            except ValueError:
+                pass
+        
+        minus_btn = tk.Button(entry_frame, text="-", width=2, command=decrement, font=("Arial", 9, "bold"))
+        minus_btn.pack(side=tk.LEFT, padx=(0, 2))
+        
+        # Entry
+        entry = ttk.Entry(entry_frame, textvariable=var, width=6)
+        entry.pack(side=tk.LEFT)
+        
+        # + Button
+        def increment():
+            try:
+                current = float(var.get())
+                step = 1.0 if not is_int else 1
+                new_value = current + step
+                if is_int:
+                    var.set(str(int(new_value)))
+                else:
+                    var.set(str(new_value))
+            except ValueError:
+                pass
+        
+        plus_btn = tk.Button(entry_frame, text="+", width=2, command=increment, font=("Arial", 9, "bold"))
+        plus_btn.pack(side=tk.LEFT, padx=(2, 0))
+        
+        # Marginal EV display (for freebie_gems_base)
+        if show_marginal_ev:
+            # Store reference to the label for updates
+            marginal_label = tk.Label(entry_frame, text="", font=("Arial", 8), background=bg_color if bg_color else parent.cget('background'), foreground="#2E7D32")
+            marginal_label.pack(side=tk.LEFT, padx=(6, 0))
+            self.marginal_ev_label = marginal_label
         
         # Live-Update: Berechne automatisch bei Änderung (mit Delay)
         var.trace_add('write', lambda *args: self.trigger_auto_calculate())
@@ -920,57 +1018,15 @@ class ObeliskGemEVGUI:
         result_frame = ttk.LabelFrame(parent, text="Results", padding="5")
         result_frame.grid(row=1, column=1, sticky=(tk.W, tk.E, tk.N, tk.S), padx=(5, 0))
         result_frame.columnconfigure(0, weight=1)
-        result_frame.rowconfigure(1, weight=0)  # Separator
-        result_frame.rowconfigure(2, weight=0)  # EV Frame (kompakt)
-        result_frame.rowconfigure(3, weight=1)  # Chart bekommt den meisten Platz
+        result_frame.rowconfigure(0, weight=0)  # EV Frame (kompakt)
+        result_frame.rowconfigure(1, weight=1)  # Chart bekommt den meisten Platz
         
-        # Multiplikatoren oben - kompakter
-        mult_frame = ttk.Frame(result_frame)
-        mult_frame.grid(row=0, column=0, sticky=(tk.W, tk.E), pady=(0, 5))
-        mult_frame.columnconfigure(1, weight=1)
-        
-        self.mult_labels = {}
-        mult_labels_text = [
-            ("Expected Rolls per Claim:", "expected_rolls"),
-            ("Refresh Multiplier:", "refresh_mult"),
-            ("Total Multiplier:", "total_mult")
-        ]
-        
-        for i, (label_text, key) in enumerate(mult_labels_text):
-            ttk.Label(mult_frame, text=label_text).grid(row=i, column=0, sticky=tk.W, padx=(0, 10))
-            value_label = ttk.Label(mult_frame, text="—", font=("Arial", 9))
-            value_label.grid(row=i, column=1, sticky=tk.W)
-            self.mult_labels[key] = value_label
-        
-        # Separator - kompakter
-        ttk.Separator(result_frame, orient='horizontal').grid(
-            row=1, column=0, sticky=(tk.W, tk.E), pady=5
-        )
-        
-        # EV-Ergebnisse Frame (ohne Tabelle, nur Total und Gift-EV) - kompakter
+        # EV-Ergebnisse Frame (nur Total und Gift-EV)
         ev_frame = ttk.Frame(result_frame)
-        ev_frame.grid(row=2, column=0, sticky=(tk.W, tk.E), pady=(0, 5))
+        ev_frame.grid(row=0, column=0, sticky=(tk.W, tk.E), pady=(0, 5))
         ev_frame.columnconfigure(1, weight=1)
         
-        # EV-Labels für Bar Chart (werden nicht angezeigt, aber für Chart benötigt)
-        self.ev_labels = {}
-        ev_labels_text = [
-            ("Gems (Basis aus Rolls):", "gems_base"),
-            ("Gems (Stonks EV):", "stonks_ev"),
-            ("Skill Shards (Gem-Äq):", "skill_shards_ev"),
-            ("Founder Speed Boost:", "founder_speed_boost"),
-            ("Founder Gems:", "founder_gems"),
-            ("Gem Bomb Gems:", "gem_bomb_gems"),
-            ("Founder Bomb Boost:", "founder_bomb_boost")
-        ]
-        
-        # Labels werden nicht angezeigt, aber erstellt für Chart-Updates
-        for i, (label_text, key) in enumerate(ev_labels_text):
-            value_label = ttk.Label(ev_frame, text="—", font=("Arial", 9))
-            # Nicht im GUI anzeigen, nur für Daten
-            self.ev_labels[key] = value_label
-        
-        # Total - kompakter
+        # Total
         ttk.Label(ev_frame, text="TOTAL:", font=("Arial", 11, "bold")).grid(
             row=0, column=0, sticky=tk.W, padx=(0, 10), pady=3
         )
@@ -1021,10 +1077,10 @@ class ObeliskGemEVGUI:
             value_label = tk.Label(ev_frame, text="—", font=("Arial", 8))
             self.gift_contrib_labels[key] = value_label
         
-        # Bar Chart - kompakter, nimmt verfügbaren Platz
+        # Bar Chart - nimmt verfügbaren Platz
         if MATPLOTLIB_AVAILABLE:
             chart_frame = ttk.LabelFrame(result_frame, text="Contributions (Bar Chart)", padding="3")
-            chart_frame.grid(row=3, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), pady=(5, 0))
+            chart_frame.grid(row=1, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), pady=(5, 0))
             chart_frame.columnconfigure(0, weight=1)
             chart_frame.rowconfigure(0, weight=1)
             
@@ -1038,7 +1094,7 @@ class ObeliskGemEVGUI:
                 result_frame,
                 text="Matplotlib not available.\nBar Chart will not be displayed.",
                 foreground="gray"
-            ).grid(row=3, column=0, pady=5)
+            ).grid(row=1, column=0, pady=5)
     
     def load_defaults(self):
         """Loads the default values"""
@@ -1390,27 +1446,8 @@ class ObeliskGemEVGUI:
         try:
             calculator = FreebieEVCalculator(params)
             
-            # Multiplikatoren berechnen
-            expected_rolls = calculator.calculate_expected_rolls_per_claim()
-            refresh_mult = calculator.calculate_refresh_multiplier()
-            total_mult = calculator.calculate_total_multiplier()
-            
             # EV berechnen
             ev = calculator.calculate_total_ev_per_hour()
-            
-            # Multiplikatoren anzeigen
-            self.mult_labels['expected_rolls'].config(text=f"{expected_rolls:.4f}")
-            self.mult_labels['refresh_mult'].config(text=f"{refresh_mult:.4f}")
-            self.mult_labels['total_mult'].config(text=f"{total_mult:.4f}")
-            
-            # EV-Ergebnisse für Chart aktualisieren (werden nicht angezeigt, aber für Chart benötigt)
-            self.ev_labels['gems_base'].config(text=f"{ev['gems_base']:.1f} Gems/h")
-            self.ev_labels['stonks_ev'].config(text=f"{ev['stonks_ev']:.1f} Gems/h")
-            self.ev_labels['skill_shards_ev'].config(text=f"{ev['skill_shards_ev']:.1f} Gems/h")
-            self.ev_labels['founder_speed_boost'].config(text=f"{ev['founder_speed_boost']:.1f} Gems/h")
-            self.ev_labels['founder_gems'].config(text=f"{ev['founder_gems']:.1f} Gems/h")
-            self.ev_labels['gem_bomb_gems'].config(text=f"{ev['gem_bomb_gems']:.1f} Gems/h")
-            self.ev_labels['founder_bomb_boost'].config(text=f"{ev['founder_bomb_boost']:.1f} Gems/h")
             
             # Total anzeigen
             self.total_label.config(text=f"{ev['total']:.1f} Gem-Equivalent/h")
@@ -1431,11 +1468,40 @@ class ObeliskGemEVGUI:
             
             # Chart aktualisieren
             self.update_chart(ev, calculator)
+            
+            # Marginal EV berechnen (+1 Freebie Gem)
+            if hasattr(self, 'marginal_ev_label'):
+                self.update_marginal_ev(params, ev['total'])
         
         except Exception as e:
             # Bei Auto-Calculate keine Fehlermeldung anzeigen, nur bei manueller Berechnung
             if not hasattr(self, '_auto_calculating') or not self._auto_calculating:
                 messagebox.showerror("Calculation Error", f"An error occurred:\n{str(e)}")
+    
+    def update_marginal_ev(self, current_params, current_total_ev):
+        """
+        Calculates and displays the marginal EV for +1 Freebie Gem.
+        
+        Args:
+            current_params: Current GameParameters
+            current_total_ev: Current total EV per hour
+        """
+        try:
+            # Create params with +1 Freebie Gem
+            params_plus_one = copy.copy(current_params)
+            params_plus_one.freebie_gems_base = current_params.freebie_gems_base + 1.0
+            
+            # Calculate EV with +1 Gem
+            calculator_plus_one = FreebieEVCalculator(params_plus_one)
+            ev_plus_one = calculator_plus_one.calculate_total_ev_per_hour()
+            
+            # Marginal EV = difference
+            marginal_ev = ev_plus_one['total'] - current_total_ev
+            
+            # Update label
+            self.marginal_ev_label.config(text=f"+1 Gem = +{marginal_ev:.2f} EV/h")
+        except Exception:
+            self.marginal_ev_label.config(text="")
     
     def trigger_auto_calculate(self):
         """Triggers an automatic calculation with delay"""
