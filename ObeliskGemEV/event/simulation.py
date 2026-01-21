@@ -258,13 +258,42 @@ def calculate_hits_to_kill(player_atk: float, enemy_hp: float) -> int:
     return max(1, math.ceil(enemy_hp / player_atk))
 
 
+def calculate_hits_to_kill_with_crit(player_atk: float, enemy_hp: float, 
+                                      crit_chance: float, crit_dmg: float) -> float:
+    """Calculate expected hits needed to kill an enemy with crits factored in
+    
+    Uses average damage per hit including crit probability.
+    
+    Args:
+        player_atk: Player attack damage
+        enemy_hp: Enemy health points
+        crit_chance: Crit chance as percentage (e.g., 15 for 15%)
+        crit_dmg: Crit damage multiplier (e.g., 1.5 for 150%)
+    
+    Returns:
+        Expected number of hits (can be fractional)
+    """
+    # Convert crit chance from percentage to decimal
+    crit_prob = min(crit_chance / 100.0, 1.0)  # Cap at 100%
+    
+    # Average damage per hit = base_dmg * (1 - crit_prob) + base_dmg * crit_dmg * crit_prob
+    # Simplified: avg_dmg = base_dmg * (1 + crit_prob * (crit_dmg - 1))
+    avg_dmg_per_hit = player_atk * (1 + crit_prob * (crit_dmg - 1))
+    
+    if avg_dmg_per_hit <= 0:
+        return float('inf')
+    
+    return enemy_hp / avg_dmg_per_hit
+
+
 def get_enemy_hp_at_wave(enemy: EnemyStats, wave: int) -> int:
     """Get enemy HP at a specific wave"""
     return enemy.base_health + enemy.health_scaling * wave
 
 
 def calculate_damage_breakpoints(player: PlayerStats, enemy: EnemyStats, 
-                                  target_wave: int = None, max_breakpoints: int = 10) -> List[Dict]:
+                                  target_wave: int = None, max_breakpoints: int = 10,
+                                  use_crit: bool = False) -> List[Dict]:
     """
     Calculate damage breakpoints for event enemies.
     
@@ -281,6 +310,7 @@ def calculate_damage_breakpoints(player: PlayerStats, enemy: EnemyStats,
         enemy: Enemy stats (base_health, health_scaling)
         target_wave: Optional specific wave to calculate for (default: use player stats)
         max_breakpoints: Maximum number of breakpoints to return
+        use_crit: If True, include crit damage in calculations (average expected hits)
     
     Returns:
         List of breakpoint dicts with:
@@ -312,7 +342,15 @@ def calculate_damage_breakpoints(player: PlayerStats, enemy: EnemyStats,
     
     for wave in range(start_wave, end_wave + 1):
         enemy_hp = get_enemy_hp_at_wave(enemy, wave)
-        current_hits = calculate_hits_to_kill(current_atk, enemy_hp)
+        
+        if use_crit:
+            # Use expected hits with crit factored in
+            current_hits_float = calculate_hits_to_kill_with_crit(
+                current_atk, enemy_hp, player.crit, player.crit_dmg
+            )
+            current_hits = math.ceil(current_hits_float)
+        else:
+            current_hits = calculate_hits_to_kill(current_atk, enemy_hp)
         
         if current_hits <= 1:
             continue  # Already one-shotting, no breakpoint possible
@@ -320,10 +358,22 @@ def calculate_damage_breakpoints(player: PlayerStats, enemy: EnemyStats,
         # Calculate the next breakpoint: ATK needed for one fewer hit
         target_hits = current_hits - 1
         
-        # Required ATK to kill in target_hits: ceil(enemy_hp / atk) = target_hits
-        # => enemy_hp / atk <= target_hits
-        # => atk >= enemy_hp / target_hits
-        required_atk = math.ceil(enemy_hp / target_hits)
+        if use_crit:
+            # With crits, we need to find ATK where avg hits = target_hits
+            # avg_dmg = atk * (1 + crit_prob * (crit_dmg - 1))
+            # enemy_hp / avg_dmg = target_hits
+            # => avg_dmg = enemy_hp / target_hits
+            # => atk = (enemy_hp / target_hits) / (1 + crit_prob * (crit_dmg - 1))
+            crit_prob = min(player.crit / 100.0, 1.0)
+            crit_multiplier = 1 + crit_prob * (player.crit_dmg - 1)
+            avg_dmg_needed = enemy_hp / target_hits
+            required_atk = math.ceil(avg_dmg_needed / crit_multiplier) if crit_multiplier > 0 else math.ceil(avg_dmg_needed)
+        else:
+            # Required ATK to kill in target_hits: ceil(enemy_hp / atk) = target_hits
+            # => enemy_hp / atk <= target_hits
+            # => atk >= enemy_hp / target_hits
+            required_atk = math.ceil(enemy_hp / target_hits)
+        
         atk_increase = required_atk - current_atk
         
         if atk_increase <= 0:
@@ -344,6 +394,7 @@ def calculate_damage_breakpoints(player: PlayerStats, enemy: EnemyStats,
             'wave': wave,
             'enemy_hp': enemy_hp,
             'current_hits': current_hits,
+            'current_hits_float': current_hits_float if use_crit else float(current_hits),
             'target_hits': target_hits,
             'current_atk': current_atk,
             'required_atk': required_atk,

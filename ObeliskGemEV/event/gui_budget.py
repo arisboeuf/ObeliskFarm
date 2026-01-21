@@ -25,6 +25,10 @@ from .simulation import (
 )
 from .optimizer import greedy_optimize, format_upgrade_summary, UpgradeState
 
+import sys
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from ui_utils import get_resource_path
+
 
 class BudgetOptimizerPanel:
     """Budget Optimizer mode panel"""
@@ -49,9 +53,8 @@ class BudgetOptimizerPanel:
             return
         
         try:
-            sprites_dir = Path(__file__).parent.parent / "sprites"
             for tier in range(1, 5):
-                icon_path = sprites_dir / "event" / f"currency_{tier}.png"
+                icon_path = get_resource_path(f"sprites/event/currency_{tier}.png")
                 if icon_path.exists():
                     icon_image = Image.open(icon_path)
                     icon_image = icon_image.resize((24, 24), Image.Resampling.LANCZOS)
@@ -187,6 +190,41 @@ class BudgetOptimizerPanel:
         bp_calc_btn = tk.Button(bp_input_frame, text="Calculate", font=("Arial", 9),
                                 command=self.update_breakpoints_display, bg="#1976D2", fg="white")
         bp_calc_btn.pack(side=tk.LEFT, padx=10)
+        
+        # Crit toggle and inputs (second row)
+        bp_crit_frame = tk.Frame(breakpoint_frame, background="#E3F2FD")
+        bp_crit_frame.pack(fill=tk.X, padx=10, pady=(0, 5))
+        
+        # Crit toggle checkbox
+        self.bp_crit_enabled = tk.BooleanVar(value=False)
+        crit_checkbox = ttk.Checkbutton(bp_crit_frame, text="Include Crit",
+                                        variable=self.bp_crit_enabled,
+                                        command=self.update_breakpoints_display)
+        crit_checkbox.pack(side=tk.LEFT)
+        
+        # Help icon for crit toggle
+        crit_help_btn = tk.Label(bp_crit_frame, text="?", font=("Arial", 8, "bold"),
+                                 background="#9932CC", foreground="white", width=2, relief=tk.RAISED,
+                                 cursor="hand2")
+        crit_help_btn.pack(side=tk.LEFT, padx=(3, 10))
+        self._create_crit_toggle_tooltip(crit_help_btn)
+        
+        # Crit chance input
+        tk.Label(bp_crit_frame, text="Crit %:", font=("Arial", 9),
+                background="#E3F2FD").pack(side=tk.LEFT)
+        
+        self.bp_crit_chance_var = tk.StringVar(value="0")
+        crit_chance_entry = ttk.Entry(bp_crit_frame, textvariable=self.bp_crit_chance_var, width=6)
+        crit_chance_entry.pack(side=tk.LEFT, padx=3)
+        crit_chance_entry.bind('<Return>', lambda e: self.update_breakpoints_display())
+        
+        # Crit damage input
+        tk.Label(bp_crit_frame, text="Crit Dmg:", font=("Arial", 9),
+                background="#E3F2FD").pack(side=tk.LEFT, padx=(10, 0))
+        
+        self.bp_crit_dmg_var = tk.StringVar(value="1.5")
+        crit_dmg_entry = ttk.Entry(bp_crit_frame, textvariable=self.bp_crit_dmg_var, width=6)
+        crit_dmg_entry.pack(side=tk.LEFT, padx=3)
         
         # Breakpoint results area
         self.bp_results_frame = tk.Frame(breakpoint_frame, background="#E3F2FD")
@@ -445,6 +483,59 @@ class BudgetOptimizerPanel:
         widget.bind("<Enter>", show_tooltip)
         widget.bind("<Leave>", hide_tooltip)
     
+    def _create_crit_toggle_tooltip(self, widget):
+        """Create tooltip explaining the Crit toggle for events"""
+        tooltip = None
+        
+        def show_tooltip(event):
+            nonlocal tooltip
+            if tooltip:
+                return
+            
+            x = widget.winfo_rootx() + 20
+            y = widget.winfo_rooty() + 20
+            
+            tooltip = tk.Toplevel(widget)
+            tooltip.wm_overrideredirect(True)
+            tooltip.wm_geometry(f"+{x}+{y}")
+            
+            frame = tk.Frame(tooltip, background="#FFFFFF", relief=tk.SOLID, borderwidth=1)
+            frame.pack()
+            
+            content = tk.Frame(frame, background="#FFFFFF", padx=10, pady=8)
+            content.pack()
+            
+            tk.Label(content, text="Crit Calculation Mode", font=("Arial", 10, "bold"),
+                    background="#FFFFFF", foreground="#9932CC").pack(anchor="w")
+            
+            explanation = (
+                "OFF (Deterministic):\n"
+                "  Breakpoints calculated with pure ATK damage.\n"
+                "  Best for early game when crit is low.\n\n"
+                "ON (Crit-based):\n"
+                "  Breakpoints include expected crit damage.\n"
+                "  Uses average damage per hit formula:\n"
+                "  avg_dmg = ATK × (1 + crit% × (crit_dmg - 1))\n\n"
+                "Event Crit builds quickly:\n"
+                "  T1 Upgrade 6: +1% Crit, +0.1 Crit Dmg\n"
+                "  T3 Upgrade 3: +1% Crit Chance\n"
+                "  T4 Upgrade 3: +0.1 Crit Dmg\n\n"
+                "Recommendation:\n"
+                "  Switch to ON once you have ~10-15% crit."
+            )
+            
+            tk.Label(content, text=explanation, font=("Arial", 9),
+                    background="#FFFFFF", justify=tk.LEFT).pack(anchor="w", pady=5)
+        
+        def hide_tooltip(event):
+            nonlocal tooltip
+            if tooltip:
+                tooltip.destroy()
+                tooltip = None
+        
+        widget.bind("<Enter>", show_tooltip)
+        widget.bind("<Leave>", hide_tooltip)
+    
     def update_breakpoints_display(self):
         """Update the breakpoints display based on current ATK and target wave"""
         # Clear existing rows
@@ -458,6 +549,16 @@ class BudgetOptimizerPanel:
             self.bp_info_label.config(text="Please enter valid numbers for ATK and Target Wave")
             return
         
+        # Parse crit values
+        try:
+            crit_chance = float(self.bp_crit_chance_var.get()) if hasattr(self, 'bp_crit_chance_var') else 0
+            crit_dmg = float(self.bp_crit_dmg_var.get()) if hasattr(self, 'bp_crit_dmg_var') else 1.5
+        except ValueError:
+            crit_chance = 0
+            crit_dmg = 1.5
+        
+        use_crit = hasattr(self, 'bp_crit_enabled') and self.bp_crit_enabled.get()
+        
         if current_atk < 1:
             self.bp_info_label.config(text="ATK must be at least 1")
             return
@@ -467,11 +568,11 @@ class BudgetOptimizerPanel:
             return
         
         # Create player and enemy stats
-        player = PlayerStats(atk=current_atk)
+        player = PlayerStats(atk=current_atk, crit=crit_chance, crit_dmg=crit_dmg)
         enemy = EnemyStats()
         
-        # Calculate breakpoints
-        breakpoints = calculate_damage_breakpoints(player, enemy, target_wave, max_breakpoints=8)
+        # Calculate breakpoints (with or without crit)
+        breakpoints = calculate_damage_breakpoints(player, enemy, target_wave, max_breakpoints=8, use_crit=use_crit)
         breakpoints_with_eff = calculate_breakpoint_efficiency(breakpoints, player, enemy, target_wave)
         
         if not breakpoints_with_eff:
@@ -489,10 +590,16 @@ class BudgetOptimizerPanel:
             # Best indicator
             prefix = "★ " if i == 0 else "  "
             
+            # Format hits - show avg in parentheses if using crit
+            if use_crit and 'current_hits_float' in bp:
+                hits_display = f"{bp['current_hits']} ({bp['current_hits_float']:.1f})"
+            else:
+                hits_display = f"{bp['current_hits']}"
+            
             values = [
                 f"{prefix}{bp['wave']}",
                 f"{bp['enemy_hp']}",
-                f"{bp['current_hits']}",
+                hits_display,
                 f"{bp['target_hits']}",
                 f"{bp['required_atk']}",
                 f"+{bp['atk_increase']}",
@@ -510,8 +617,9 @@ class BudgetOptimizerPanel:
         total_time = best.get('total_time_saved', 0)
         waves_affected = best.get('waves_affected', 0)
         
+        crit_suffix = " (with crit)" if use_crit else ""
         info_text = (f"★ Best: +{best['atk_increase']} ATK → {best['target_hits']}-hit kills "
-                     f"(saves {total_time:.1f}s over {waves_affected} waves)")
+                     f"(saves {total_time:.1f}s over {waves_affected} waves){crit_suffix}")
         self.bp_info_label.config(text=info_text, foreground="#1976D2")
     
     def _generate_atk_table(self):

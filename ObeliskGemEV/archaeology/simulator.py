@@ -8,6 +8,7 @@ import tkinter as tk
 from tkinter import ttk
 from pathlib import Path
 import json
+import math
 from PIL import Image, ImageTk
 
 from .block_spawn_rates import get_block_mix_for_stage, get_stage_range_label, STAGE_RANGES, get_normalized_spawn_rates
@@ -15,11 +16,24 @@ from .block_stats import get_block_at_floor, get_block_mix_for_floor, BlockData,
 from .upgrade_costs import get_upgrade_cost, get_total_cost, get_max_level
 
 import sys
+import os
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from ui_utils import calculate_tooltip_position
+from ui_utils import calculate_tooltip_position, get_resource_path
 
-# Save file path (in central save folder)
-SAVE_DIR = Path(__file__).parent.parent / "save"
+
+def get_user_data_path() -> Path:
+    """Get path for user data (saves) - persists outside of bundle."""
+    if getattr(sys, 'frozen', False):
+        app_data = os.environ.get('APPDATA', os.path.expanduser('~'))
+        save_dir = Path(app_data) / 'ObeliskGemEV' / 'save'
+    else:
+        save_dir = Path(__file__).parent.parent / 'save'
+    save_dir.mkdir(parents=True, exist_ok=True)
+    return save_dir
+
+
+# Save file path (in user data folder for persistence)
+SAVE_DIR = get_user_data_path()
 SAVE_FILE = SAVE_DIR / "archaeology_save.json"
 
 
@@ -41,6 +55,7 @@ class ArchaeologySimulatorWindow:
         'intellect': {
             'xp_bonus': 0.05,
             'exp_mod_chance': 0.003,
+            'armor_pen_mult': 0.03,  # +3% armor pen multiplier per point
         },
         'perception': {
             'fragment_gain': 0.04,
@@ -385,10 +400,10 @@ class ArchaeologySimulatorWindow:
     }
     
     # Game constants
-    # Blocks per floor varies between 8-12, average ~10
+    # Blocks per floor varies between 8-15, average ~11.5
     BLOCKS_PER_FLOOR_MIN = 8
-    BLOCKS_PER_FLOOR_MAX = 12
-    BLOCKS_PER_FLOOR = 10  # Average for calculations
+    BLOCKS_PER_FLOOR_MAX = 15
+    BLOCKS_PER_FLOOR = 11.5  # Average for calculations (8+15)/2
     
     def __init__(self, parent):
         self.parent = parent
@@ -403,7 +418,7 @@ class ArchaeologySimulatorWindow:
         
         # Set icon
         try:
-            icon_path = Path(__file__).parent.parent / "sprites" / "common" / "gem.png"
+            icon_path = get_resource_path("sprites/common/gem.png")
             if icon_path.exists():
                 icon_image = Image.open(icon_path)
                 icon_photo = ImageTk.PhotoImage(icon_image)
@@ -436,6 +451,7 @@ class ArchaeologySimulatorWindow:
             'block_cards': self.block_cards,
             'enrage_enabled': self.enrage_enabled.get() if hasattr(self, 'enrage_enabled') else True,
             'flurry_enabled': self.flurry_enabled.get() if hasattr(self, 'flurry_enabled') else True,
+            'crit_calc_enabled': self.crit_calc_enabled.get() if hasattr(self, 'crit_calc_enabled') else False,
             'forecast_levels_1': self.forecast_levels_1.get() if hasattr(self, 'forecast_levels_1') else 5,
             'budget_points': self.budget_points.get() if hasattr(self, 'budget_points') else 20,
             'xp_budget_points': self.xp_budget_points.get() if hasattr(self, 'xp_budget_points') else 20,
@@ -484,6 +500,8 @@ class ArchaeologySimulatorWindow:
                 self.enrage_enabled.set(state.get('enrage_enabled', True))
             if hasattr(self, 'flurry_enabled'):
                 self.flurry_enabled.set(state.get('flurry_enabled', True))
+            if hasattr(self, 'crit_calc_enabled'):
+                self.crit_calc_enabled.set(state.get('crit_calc_enabled', False))
             
             # Update stage combo
             stage_map_reverse = {
@@ -576,11 +594,14 @@ class ArchaeologySimulatorWindow:
         
         # Armor pen from skills (with possible skill buff)
         armor_pen_per_per = self.SKILL_BONUSES['perception']['armor_pen'] + frag_bonuses.get('armor_pen_skill', 0)
-        armor_pen = (self.base_armor_pen + 
+        armor_pen_base = (self.base_armor_pen + 
                     per_pts * armor_pen_per_per +
                     frag_bonuses.get('armor_pen', 0))
-        # Apply percent armor pen bonus
-        armor_pen = int(armor_pen * (1 + frag_bonuses.get('armor_pen_percent', 0)))
+        # Apply percent armor pen bonus from fragment upgrades
+        armor_pen_base = armor_pen_base * (1 + frag_bonuses.get('armor_pen_percent', 0))
+        # INT gives +3% armor pen multiplier per point (rounds up)
+        int_armor_pen_mult = 1 + int_pts * self.SKILL_BONUSES['intellect']['armor_pen_mult']
+        armor_pen = math.ceil(armor_pen_base * int_armor_pen_mult)
         
         # Max stamina: base + agility + gem upgrade + fragment upgrades
         max_stamina_per_agi = self.SKILL_BONUSES['agility']['max_stamina'] + frag_bonuses.get('max_stamina_skill', 0)
@@ -595,8 +616,9 @@ class ArchaeologySimulatorWindow:
                       agi_pts * self.SKILL_BONUSES['agility']['crit_chance'] +
                       luck_pts * self.SKILL_BONUSES['luck']['crit_chance'] +
                       frag_bonuses.get('crit_chance', 0))
-        crit_damage = (self.base_crit_damage + 
-                      str_pts * self.SKILL_BONUSES['strength']['crit_damage'] +
+        # STR crit damage bonus is a MULTIPLIER on base crit damage, not additive
+        str_crit_mult = 1 + str_pts * self.SKILL_BONUSES['strength']['crit_damage']
+        crit_damage = (self.base_crit_damage * str_crit_mult +
                       frag_bonuses.get('crit_damage', 0))
         one_hit_chance = luck_pts * self.SKILL_BONUSES['luck']['one_hit_chance']
         
@@ -796,21 +818,39 @@ class ArchaeologySimulatorWindow:
         """
         Calculate expected hits to kill a block, accounting for:
         - Base damage with armor penetration
-        - Critical hits
-        - One-hit chance
+        - Critical hits (if crit_calc_enabled is ON)
+        - One-hit chance (if crit_calc_enabled is ON)
         - Enrage ability (5 charges every 60s with +20% dmg, +100% crit dmg) - if enabled
         - Card HP reduction (if block_type provided)
+        
+        If crit_calc_enabled is OFF (deterministic mode):
+        - Only uses base damage, no crit averaging
+        - Returns ceil(hp / damage) - exact number of hits needed
         """
+        import math
+        
         # Apply card HP reduction if block_type is provided
         if block_type:
             block_hp = self.get_block_hp_with_card(block_hp, block_type)
         
+        # Calculate effective damage (base, no enrage)
+        effective_dmg_base = self.calculate_effective_damage(stats, block_armor)
+        
+        # Check if Crit calculation is enabled
+        crit_calc_active = getattr(self, 'crit_calc_enabled', None)
+        use_crit = crit_calc_active is not None and crit_calc_active.get()
+        
+        if not use_crit:
+            # DETERMINISTIC MODE: Pure damage without crits
+            # Just calculate ceil(hp / damage)
+            if effective_dmg_base > 0:
+                return math.ceil(block_hp / effective_dmg_base)
+            return float('inf')
+        
+        # CRIT MODE: Include crit calculations
         crit_chance = stats['crit_chance']
         crit_damage = stats['crit_damage']
         one_hit_chance = stats['one_hit_chance']
-        
-        # Calculate effective damage (base, no enrage)
-        effective_dmg_base = self.calculate_effective_damage(stats, block_armor)
         
         # Check if Enrage is enabled
         enrage_active = getattr(self, 'enrage_enabled', None)
@@ -957,11 +997,14 @@ class ArchaeologySimulatorWindow:
             return 0.0
         
         xp_mult = stats['xp_mult']
+        arch_xp_mult = stats.get('arch_xp_mult', 1.0)  # Archaeology XP bonus
         exp_mod_chance = stats.get('exp_mod_chance', 0)
+        exp_mod_gain = stats.get('exp_mod_gain', 0)  # Bonus to exp mod multiplier
         
-        # Exp mod gives 3x-5x XP (avg 4x), so expected multiplier from mod is:
-        # (1 - exp_mod_chance) * 1.0 + exp_mod_chance * 4.0 = 1 + exp_mod_chance * 3
-        exp_mod_factor = 1 + exp_mod_chance * (self.MOD_EXP_MULTIPLIER_AVG - 1)
+        # Exp mod gives 3x-5x XP (avg 4x), plus any bonuses from upgrades
+        exp_mod_multiplier = self.MOD_EXP_MULTIPLIER_AVG + exp_mod_gain
+        # Expected XP multiplier from exp mod: (1-chance)*1 + chance*exp_mod_mult
+        exp_mod_factor = 1 + exp_mod_chance * (exp_mod_multiplier - 1)
         
         total_xp = 0.0
         current_floor = starting_floor
@@ -998,13 +1041,137 @@ class ArchaeologySimulatorWindow:
                 # Weight by spawn chance
                 floor_xp += spawn_chance * block_xp
             
-            # XP for this floor: blocks * avg_xp * xp_mult * exp_mod_factor
-            floor_total_xp = self.BLOCKS_PER_FLOOR * floor_xp * xp_mult * exp_mod_factor
+            # XP for this floor: blocks * avg_xp * xp_mult * arch_xp_mult * exp_mod_factor
+            floor_total_xp = self.BLOCKS_PER_FLOOR * floor_xp * xp_mult * arch_xp_mult * exp_mod_factor
             total_xp += floor_total_xp * floor_mult
             
             current_floor += 1
         
         return total_xp
+    
+    def calculate_fragments_per_run(self, stats, starting_floor: int):
+        """
+        Calculate expected fragments gained per run, broken down by fragment type.
+        
+        Returns:
+            dict with fragment counts per type: {'common': X, 'rare': Y, ...}
+        """
+        floors = self.calculate_floors_per_run(stats, starting_floor)
+        if floors <= 0:
+            return {'common': 0, 'rare': 0, 'epic': 0, 'legendary': 0, 'mythic': 0}
+        
+        fragment_mult = stats['fragment_mult']
+        loot_mod_chance = stats.get('loot_mod_chance', 0)
+        loot_mod_multiplier = stats.get('loot_mod_multiplier', self.MOD_LOOT_MULTIPLIER_AVG)
+        
+        # Loot mod effect: expected multiplier
+        loot_mod_factor = 1 + loot_mod_chance * (loot_mod_multiplier - 1)
+        
+        # Track fragments by type
+        fragments_by_type = {'common': 0.0, 'rare': 0.0, 'epic': 0.0, 'legendary': 0.0, 'mythic': 0.0}
+        
+        current_floor = starting_floor
+        floors_to_process = int(floors)
+        partial_floor = floors - floors_to_process
+        
+        for i in range(floors_to_process + 1):
+            if i == floors_to_process:
+                floor_mult = partial_floor
+                if floor_mult <= 0:
+                    break
+            else:
+                floor_mult = 1.0
+            
+            spawn_rates = get_normalized_spawn_rates(current_floor)
+            block_mix = get_block_mix_for_floor(current_floor)
+            
+            for block_type, spawn_chance in spawn_rates.items():
+                if spawn_chance <= 0 or block_type == 'dirt':
+                    continue  # Dirt doesn't drop fragments
+                block_data = block_mix.get(block_type)
+                if not block_data:
+                    continue
+                
+                # Base fragment per block
+                base_frag = block_data.fragment
+                
+                # Fragments from this block type on this floor
+                # blocks_per_floor * spawn_chance * base_frag * mult * loot_mod
+                frag_gain = self.BLOCKS_PER_FLOOR * spawn_chance * base_frag * fragment_mult * loot_mod_factor * floor_mult
+                
+                # Map block_type to fragment type (they're the same names)
+                if block_type in fragments_by_type:
+                    fragments_by_type[block_type] += frag_gain
+            
+            current_floor += 1
+        
+        return fragments_by_type
+    
+    def calculate_run_duration(self, stats, starting_floor: int):
+        """
+        Calculate expected run duration in seconds.
+        
+        Base: 1 hit = 1 second
+        Speed modifiers:
+        - Speed Mod: 2x speed for avg 60 hits when triggered
+        - Flurry: 2x speed during active (every 120s cooldown)
+        
+        Returns:
+            Run duration in seconds
+        """
+        # Total hits = stamina (since 1 hit costs 1 stamina)
+        total_hits = stats['max_stamina']
+        
+        # Add stamina from Stamina Mod
+        stamina_mod_chance = stats.get('stamina_mod_chance', 0)
+        blocks_per_run = self.calculate_blocks_per_run(stats, starting_floor)
+        stamina_mod_gain = self.MOD_STAMINA_BONUS_AVG
+        # Get bonus from fragment upgrades
+        frag_bonuses = self._get_fragment_upgrade_bonuses()
+        stamina_mod_gain += frag_bonuses.get('stamina_mod_gain', 0)
+        avg_stamina_from_mod = blocks_per_run * stamina_mod_chance * stamina_mod_gain
+        total_hits += avg_stamina_from_mod
+        
+        # Add stamina from Flurry
+        flurry_active = getattr(self, 'flurry_enabled', None)
+        if flurry_active and flurry_active.get():
+            flurry_cooldown = self.FLURRY_COOLDOWN + frag_bonuses.get('flurry_cooldown', 0)
+            flurry_cooldown = max(10, flurry_cooldown)
+            flurry_stamina = self.FLURRY_STAMINA_BONUS + frag_bonuses.get('flurry_stamina', 0)
+            # Estimate run duration first without flurry to see how many activations
+            base_duration = total_hits  # 1 hit = 1 second base
+            flurry_activations = base_duration / flurry_cooldown
+            total_hits += flurry_activations * flurry_stamina
+        
+        # Base duration: 1 hit per second
+        base_duration_seconds = total_hits
+        
+        # Speed Mod effect: 2x speed for avg 60 hits
+        speed_mod_chance = stats.get('speed_mod_chance', 0)
+        speed_mod_hits_avg = self.MOD_SPEED_ATTACKS_AVG  # 60 hits on average
+        # Expected speed mod hits per run
+        speed_mod_hits = blocks_per_run * speed_mod_chance * speed_mod_hits_avg
+        # These hits take half the time (2x speed)
+        time_saved_from_speed_mod = speed_mod_hits * 0.5  # Save 0.5s per hit
+        
+        # Flurry effect: 2x speed while active
+        # Flurry is active for ~5 hits every cooldown period
+        flurry_time_saved = 0
+        if flurry_active and flurry_active.get():
+            # Flurry gives 2x speed, but we already counted the stamina bonus
+            # The 2x speed is active during the enrage-like window (5 charges)
+            # Actually Flurry is +100% attack speed = 2x speed for some period
+            # Let's estimate: during the run, we get multiple flurry activations
+            # Each activation speeds up some hits
+            flurry_cooldown = self.FLURRY_COOLDOWN + frag_bonuses.get('flurry_cooldown', 0)
+            flurry_cooldown = max(10, flurry_cooldown)
+            activations = base_duration_seconds / flurry_cooldown
+            # Assume flurry lasts ~10 seconds at 2x speed = saves 10 seconds per activation
+            # This is an approximation
+            flurry_time_saved = activations * 5  # Save ~5 seconds per activation
+        
+        run_duration = base_duration_seconds - time_saved_from_speed_mod - flurry_time_saved
+        return max(10, run_duration)  # Minimum 10 seconds
     
     def calculate_skill_efficiency(self, skill_name):
         current_stats = self.get_total_stats()
@@ -1027,10 +1194,25 @@ class ArchaeologySimulatorWindow:
         self.level += 1
         self.update_display()
     
+    def add_skill_points(self, skill_name, amount):
+        """Add multiple skill points at once"""
+        self.skill_points[skill_name] += amount
+        self.level += amount
+        self.update_display()
+    
     def remove_skill_point(self, skill_name):
         if self.skill_points[skill_name] > 0:
             self.skill_points[skill_name] -= 1
             self.level = max(1, self.level - 1)
+            self.update_display()
+    
+    def remove_skill_points(self, skill_name, amount):
+        """Remove multiple skill points at once"""
+        current = self.skill_points[skill_name]
+        to_remove = min(amount, current)  # Don't go below 0
+        if to_remove > 0:
+            self.skill_points[skill_name] -= to_remove
+            self.level = max(1, self.level - to_remove)
             self.update_display()
     
     def reset_all_skill_points(self):
@@ -1411,10 +1593,23 @@ class ArchaeologySimulatorWindow:
             variable=self.flurry_enabled,
             command=self.update_display
         )
-        flurry_checkbox.pack(side=tk.LEFT, padx=(0, 10))
+        flurry_checkbox.pack(side=tk.LEFT, padx=(0, 5))
         
-        reset_btn = ttk.Button(controls_frame, text="Reset", command=self.reset_and_update, width=8)
-        reset_btn.pack(side=tk.LEFT)
+        # Crit toggle checkbox - deterministic vs crit-based calculations
+        self.crit_calc_enabled = tk.BooleanVar(value=False)  # Default: deterministic
+        crit_checkbox = ttk.Checkbutton(
+            controls_frame,
+            text="Crit",
+            variable=self.crit_calc_enabled,
+            command=self.update_display
+        )
+        crit_checkbox.pack(side=tk.LEFT, padx=(0, 3))
+        
+        # Help icon for crit toggle
+        crit_help_label = tk.Label(controls_frame, text="?", font=("Arial", 9, "bold"), 
+                                  cursor="hand2", foreground="#1976D2", background="#E3F2FD")
+        crit_help_label.pack(side=tk.LEFT, padx=(0, 10))
+        self._create_crit_toggle_help_tooltip(crit_help_label)
         
         # Center: Level display
         self.level_label = tk.Label(header_frame, text="Level: 1", font=("Arial", 12, "bold"),
@@ -1574,7 +1769,7 @@ class ArchaeologySimulatorWindow:
         skill_info = {
             'strength': "Dmg, Crit Dmg",
             'agility': "Stamina, Crit",
-            'intellect': "XP Bonus",
+            'intellect': "XP, Armor Pen%",
             'perception': "Frags, Armor Pen",
             'luck': "Crit, One-Hit",
         }
@@ -1583,13 +1778,25 @@ class ArchaeologySimulatorWindow:
             row_frame = tk.Frame(skills_frame, background="#E8F5E9")
             row_frame.pack(fill=tk.X, pady=1)
             
+            # -5 button
+            minus5_btn = tk.Button(row_frame, text="-5", width=2, font=("Arial", 7, "bold"),
+                                  command=lambda s=skill: self.remove_skill_points(s, 5))
+            minus5_btn.pack(side=tk.LEFT, padx=(0, 1))
+            
+            # -1 button
             minus_btn = tk.Button(row_frame, text="-", width=2, font=("Arial", 8, "bold"),
                                  command=lambda s=skill: self.remove_skill_point(s))
             minus_btn.pack(side=tk.LEFT, padx=(0, 1))
             
+            # +1 button
             plus_btn = tk.Button(row_frame, text="+", width=2, font=("Arial", 8, "bold"),
                                 command=lambda s=skill: self.add_skill_point(s))
-            plus_btn.pack(side=tk.LEFT, padx=(0, 3))
+            plus_btn.pack(side=tk.LEFT, padx=(0, 1))
+            
+            # +5 button
+            plus5_btn = tk.Button(row_frame, text="+5", width=2, font=("Arial", 7, "bold"),
+                                 command=lambda s=skill: self.add_skill_points(s, 5))
+            plus5_btn.pack(side=tk.LEFT, padx=(0, 3))
             
             tk.Label(row_frame, text=f"{skill.capitalize()}", background="#E8F5E9", 
                     font=("Arial", 9, "bold"), width=9, anchor=tk.W).pack(side=tk.LEFT)
@@ -1651,7 +1858,7 @@ class ArchaeologySimulatorWindow:
         
         # Load gem icon
         try:
-            gem_icon_path = Path(__file__).parent.parent / "sprites" / "common" / "gem.png"
+            gem_icon_path = get_resource_path("sprites/common/gem.png")
             if gem_icon_path.exists():
                 gem_image = Image.open(gem_icon_path)
                 gem_image = gem_image.resize((16, 16), Image.Resampling.LANCZOS)
@@ -1710,6 +1917,128 @@ class ArchaeologySimulatorWindow:
             self._create_gem_upgrade_tooltip(info_label, gem_upgrade, info, max_lvl)
             
             self.gem_upgrade_buttons[gem_upgrade] = (minus_btn, plus_btn)
+        
+        ttk.Separator(col_frame, orient='horizontal').pack(fill=tk.X, pady=5, padx=5)
+        
+        # === CARDS SECTION ===
+        cards_header = tk.Frame(col_frame, background="#E8F5E9")
+        cards_header.pack(fill=tk.X, padx=5, pady=(0, 3))
+        
+        # Load cards icon
+        try:
+            cards_icon_path = get_resource_path("sprites/archaeology/cards.png")
+            if cards_icon_path.exists():
+                cards_icon_image = Image.open(cards_icon_path)
+                cards_icon_image = cards_icon_image.resize((16, 16), Image.Resampling.LANCZOS)
+                self.cards_icon = ImageTk.PhotoImage(cards_icon_image)
+                tk.Label(cards_header, image=self.cards_icon, background="#E8F5E9").pack(side=tk.LEFT, padx=(0, 5))
+        except:
+            pass
+        
+        tk.Label(cards_header, text="Cards", font=("Arial", 10, "bold"), 
+                background="#E8F5E9", foreground="#B8860B").pack(side=tk.LEFT)
+        
+        cards_help = tk.Label(cards_header, text="?", font=("Arial", 9, "bold"), 
+                             cursor="hand2", foreground="#B8860B", background="#E8F5E9")
+        cards_help.pack(side=tk.LEFT, padx=(5, 0))
+        self._create_cards_help_tooltip(cards_help)
+        
+        # Cards container
+        self.cards_container = tk.Frame(col_frame, background="#E8F5E9")
+        self.cards_container.pack(fill=tk.X, padx=5, pady=2)
+        
+        self.card_labels = {}
+        
+        for block_type in BLOCK_TYPES:
+            row_frame = tk.Frame(self.cards_container, background="#E8F5E9")
+            row_frame.pack(fill=tk.X, pady=1)
+            
+            color = self.BLOCK_COLORS.get(block_type, '#888888')
+            
+            # Block name
+            name_label = tk.Label(row_frame, text=f"{block_type.capitalize()}", 
+                                 font=("Arial", 8, "bold"), foreground=color,
+                                 background="#E8F5E9", width=10, anchor=tk.W)
+            name_label.pack(side=tk.LEFT)
+            
+            # Card button (normal card: -10% HP, +10% XP)
+            card_btn = tk.Label(row_frame, text="Card", font=("Arial", 8),
+                               cursor="hand2", foreground="#888888", background="#E8F5E9",
+                               padx=3, relief=tk.RAISED, borderwidth=1)
+            card_btn.pack(side=tk.LEFT, padx=(0, 3))
+            card_btn.bind("<Button-1>", lambda e, bt=block_type: self._toggle_card(bt, 1))
+            
+            # Gilded card button (gilded: -20% HP, +20% XP)
+            gilded_btn = tk.Label(row_frame, text="Gilded", font=("Arial", 8),
+                                 cursor="hand2", foreground="#888888", background="#E8F5E9",
+                                 padx=3, relief=tk.RAISED, borderwidth=1)
+            gilded_btn.pack(side=tk.LEFT, padx=(0, 3))
+            gilded_btn.bind("<Button-1>", lambda e, bt=block_type: self._toggle_card(bt, 2))
+            
+            # Gilded improvement indicator
+            gilded_improve_label = tk.Label(row_frame, text="", font=("Arial", 8),
+                                           foreground="#B8860B", background="#E8F5E9",
+                                           width=7, anchor=tk.W)
+            gilded_improve_label.pack(side=tk.LEFT)
+            
+            self.card_labels[block_type] = {
+                'row': row_frame,
+                'name': name_label,
+                'card_btn': card_btn,
+                'gilded_btn': gilded_btn,
+                'gilded_improve': gilded_improve_label,
+            }
+    
+    def _create_cards_help_tooltip(self, widget):
+        """Creates a tooltip explaining the Cards feature"""
+        def on_enter(event):
+            tooltip = tk.Toplevel()
+            tooltip.wm_overrideredirect(True)
+            
+            x = event.x_root + 15
+            y = event.y_root + 10
+            tooltip.wm_geometry(f"+{x}+{y}")
+            
+            frame = tk.Frame(tooltip, background="#FFFFFF", relief=tk.SOLID, borderwidth=1)
+            frame.pack()
+            
+            content = tk.Frame(frame, background="#FFFFFF", padx=10, pady=8)
+            content.pack()
+            
+            tk.Label(content, text="Block Cards", font=("Arial", 10, "bold"),
+                    background="#FFFFFF", foreground="#B8860B").pack(anchor="w")
+            
+            lines = [
+                "",
+                "Cards reduce block HP and boost XP.",
+                "",
+                "Card (Normal):",
+                "  -10% Block HP",
+                "  +10% XP from block",
+                "",
+                "Gilded Card:",
+                "  -20% Block HP", 
+                "  +20% XP from block",
+                "",
+                "The +X.XX% shows improvement in",
+                "floors/run if you upgrade to Gilded.",
+                "",
+                "Click to toggle. Click same to remove.",
+            ]
+            
+            for line in lines:
+                tk.Label(content, text=line, font=("Arial", 9),
+                        background="#FFFFFF", justify=tk.LEFT).pack(anchor="w")
+            
+            widget.tooltip = tooltip
+        
+        def on_leave(event):
+            if hasattr(widget, 'tooltip'):
+                widget.tooltip.destroy()
+                del widget.tooltip
+        
+        widget.bind("<Enter>", on_enter)
+        widget.bind("<Leave>", on_leave)
     
     def _load_fragment_icons(self):
         """Load fragment icons for each rarity type"""
@@ -1724,7 +2053,7 @@ class ArchaeologySimulatorWindow:
         
         for frag_type, filename in icon_map.items():
             try:
-                icon_path = Path(__file__).parent.parent / "sprites" / "archaeology" / filename
+                icon_path = get_resource_path(f"sprites/archaeology/{filename}")
                 if icon_path.exists():
                     icon_image = Image.open(icon_path)
                     icon_image = icon_image.resize((12, 12), Image.Resampling.LANCZOS)
@@ -1804,11 +2133,11 @@ class ArchaeologySimulatorWindow:
                             command=lambda u=upgrade_key: self._add_fragment_upgrade(u))
         plus_btn.pack(side=tk.LEFT, padx=(0, 3))
         
-        # Level counter
+        # Level counter with max level (e.g. "5/25")
         current_level = self.fragment_upgrade_levels.get(upgrade_key, 0)
         max_level = upgrade_info.get('max_level', 25)
-        level_label = tk.Label(row_frame, text=str(current_level), background="#E8F5E9", 
-                              font=("Arial", 9, "bold"), foreground=color, width=2, anchor=tk.E)
+        level_label = tk.Label(row_frame, text=f"{current_level}/{max_level}", background="#E8F5E9", 
+                              font=("Arial", 8), foreground=color, width=5, anchor=tk.CENTER)
         level_label.pack(side=tk.LEFT, padx=(0, 3))
         self.upgrade_level_labels[upgrade_key] = level_label
         
@@ -1817,29 +2146,24 @@ class ArchaeologySimulatorWindow:
         tk.Label(row_frame, text=display_name, background="#E8F5E9", 
                 font=("Arial", 8), width=15, anchor=tk.W).pack(side=tk.LEFT)
         
-        # Help ? label with tooltip
+        # Help ? label with tooltip (includes stage unlock info)
         help_label = tk.Label(row_frame, text="?", background="#E8F5E9",
                              font=("Arial", 7, "bold"), foreground="#888888", cursor="hand2")
         help_label.pack(side=tk.LEFT, padx=(0, 2))
         self._create_fragment_upgrade_tooltip(help_label, upgrade_key, upgrade_info, color)
         
-        # Efficiency label (+X.XX% floors/run)
-        eff_label = tk.Label(row_frame, text="+0.00%", background="#E8F5E9",
-                            font=("Arial", 8), foreground="#2E7D32", width=8, anchor=tk.E)
-        eff_label.pack(side=tk.LEFT, padx=(2, 0))
-        self.upgrade_efficiency_labels[upgrade_key] = eff_label
-        
-        # Efficiency per fragment label (%/frag)
+        # Efficiency per fragment - MOST IMPORTANT VALUE - prominent display
+        # Shows: "Efficiency: X.XXXX" - gain per cost, higher = better value
         eff_per_frag_label = tk.Label(row_frame, text="", background="#E8F5E9",
-                                     font=("Arial", 7), foreground="#666666", width=10, anchor=tk.E)
-        eff_per_frag_label.pack(side=tk.LEFT, padx=(1, 0))
+                                     font=("Arial", 9, "bold"), foreground="#1976D2", width=18, anchor=tk.E)
+        eff_per_frag_label.pack(side=tk.RIGHT, padx=(0, 3))
         self.upgrade_cost_labels[upgrade_key] = eff_per_frag_label
         
-        # Stage unlock indicator (small text)
-        stage_unlock = upgrade_info.get('stage_unlock', 0)
-        if stage_unlock > 0:
-            tk.Label(row_frame, text=f"S{stage_unlock}", background="#E8F5E9", 
-                    font=("Arial", 7), foreground="#999999", width=3).pack(side=tk.LEFT)
+        # Efficiency label (+X.XX% floors/run) - smaller, secondary info
+        eff_label = tk.Label(row_frame, text="+0.00%", background="#E8F5E9",
+                            font=("Arial", 8), foreground="#2E7D32", width=8, anchor=tk.E)
+        eff_label.pack(side=tk.RIGHT, padx=(2, 0))
+        self.upgrade_efficiency_labels[upgrade_key] = eff_label
         
         self.upgrade_buttons[upgrade_key] = (minus_btn, plus_btn)
     
@@ -1851,10 +2175,10 @@ class ArchaeologySimulatorWindow:
         max_level = self.FRAGMENT_UPGRADES[upgrade_key].get('max_level', 25)
         if self.fragment_upgrade_levels[upgrade_key] < max_level:
             self.fragment_upgrade_levels[upgrade_key] += 1
-            # Update the label directly
+            # Update the label directly with level/max format
             if upgrade_key in self.upgrade_level_labels:
                 self.upgrade_level_labels[upgrade_key].config(
-                    text=str(self.fragment_upgrade_levels[upgrade_key]))
+                    text=f"{self.fragment_upgrade_levels[upgrade_key]}/{max_level}")
             self.update_display()
     
     def _remove_fragment_upgrade(self, upgrade_key):
@@ -1862,12 +2186,13 @@ class ArchaeologySimulatorWindow:
         if upgrade_key not in self.fragment_upgrade_levels:
             self.fragment_upgrade_levels[upgrade_key] = 0
         
+        max_level = self.FRAGMENT_UPGRADES[upgrade_key].get('max_level', 25)
         if self.fragment_upgrade_levels[upgrade_key] > 0:
             self.fragment_upgrade_levels[upgrade_key] -= 1
-            # Update the label directly
+            # Update the label directly with level/max format
             if upgrade_key in self.upgrade_level_labels:
                 self.upgrade_level_labels[upgrade_key].config(
-                    text=str(self.fragment_upgrade_levels[upgrade_key]))
+                    text=f"{self.fragment_upgrade_levels[upgrade_key]}/{max_level}")
             self.update_display()
     
     def _create_fragment_upgrade_tooltip(self, widget, upgrade_key, upgrade_info, color):
@@ -1962,7 +2287,7 @@ class ArchaeologySimulatorWindow:
             # Try to load fragment icon
             try:
                 icon_name = f"fragment{cost_type}.png"
-                icon_path = Path(__file__).parent.parent / "sprites" / "archaeology" / icon_name
+                icon_path = get_resource_path(f"sprites/archaeology/{icon_name}")
                 if icon_path.exists():
                     icon_image = Image.open(icon_path)
                     icon_image = icon_image.resize((16, 16), Image.Resampling.LANCZOS)
@@ -2081,7 +2406,7 @@ class ArchaeologySimulatorWindow:
             
             # Try to load common fragment icon
             try:
-                icon_path = Path(__file__).parent.parent / "sprites" / "archaeology" / "fragmentcommon.png"
+                icon_path = get_resource_path("sprites/archaeology/fragmentcommon.png")
                 if icon_path.exists():
                     icon_image = Image.open(icon_path)
                     icon_image = icon_image.resize((16, 16), Image.Resampling.LANCZOS)
@@ -2385,6 +2710,71 @@ class ArchaeologySimulatorWindow:
         widget.bind("<Enter>", on_enter)
         widget.bind("<Leave>", on_leave)
     
+    def _create_crit_toggle_help_tooltip(self, widget):
+        """Creates a tooltip explaining the Crit toggle for deterministic vs crit-based calculations"""
+        def on_enter(event):
+            tooltip = tk.Toplevel()
+            tooltip.wm_overrideredirect(True)
+            
+            tooltip_width = 360
+            tooltip_height = 280
+            screen_width = tooltip.winfo_screenwidth()
+            screen_height = tooltip.winfo_screenheight()
+            x, y = calculate_tooltip_position(event, tooltip_width, tooltip_height, screen_width, screen_height)
+            tooltip.wm_geometry(f"+{x}+{y}")
+            
+            # Outer frame for shadow effect
+            outer_frame = tk.Frame(tooltip, background="#9932CC", relief=tk.FLAT, borderwidth=0)
+            outer_frame.pack(padx=2, pady=2)
+            
+            # Inner frame
+            inner_frame = tk.Frame(outer_frame, background="#FFFFFF", relief=tk.FLAT, borderwidth=0)
+            inner_frame.pack(padx=1, pady=1)
+            
+            content_frame = tk.Frame(inner_frame, background="#FFFFFF", padx=12, pady=10)
+            content_frame.pack()
+            
+            # Title
+            tk.Label(content_frame, text="Crit Calculation Mode", 
+                    font=("Arial", 11, "bold"), foreground="#9932CC", 
+                    background="#FFFFFF").pack(anchor=tk.W)
+            
+            tk.Label(content_frame, text="", background="#FFFFFF").pack()  # Spacer
+            
+            # Explanation
+            lines = [
+                "OFF (Deterministic):",
+                "  Breakpoints are calculated based on",
+                "  pure damage without critical hits.",
+                "  Best for early game when crit chance",
+                "  is low and unreliable.",
+                "",
+                "ON (Crit-based):",
+                "  Breakpoints include expected crit damage.",
+                "  Average hits account for your crit chance",
+                "  and crit damage multiplier.",
+                "  Better for late game with high crit stats.",
+                "",
+                "Recommendation:",
+                "  Start with OFF. Switch to ON once your",
+                "  crit chance is above ~20-30%.",
+            ]
+            
+            for line in lines:
+                tk.Label(content_frame, text=line, 
+                        font=("Arial", 9), background="#FFFFFF",
+                        anchor=tk.W, justify=tk.LEFT).pack(anchor=tk.W)
+            
+            widget.tooltip = tooltip
+        
+        def on_leave(event):
+            if hasattr(widget, 'tooltip'):
+                widget.tooltip.destroy()
+                del widget.tooltip
+        
+        widget.bind("<Enter>", on_enter)
+        widget.bind("<Leave>", on_leave)
+    
     def _on_unlocked_stage_changed(self, *args):
         """Called when unlocked stage input changes"""
         try:
@@ -2476,7 +2866,7 @@ class ArchaeologySimulatorWindow:
                 "• Stamina: Base 100 + AGI×5 + Gem upgrade×2",
                 "    → Determines blocks you can hit per run",
                 "• Crit %: AGI×1% + LUK×2%",
-                "• Crit Dmg: Base 1.5× + STR×0.03×",
+                "• Crit Dmg: Base 1.5× × (1 + STR×3%)",
                 "• One-Hit %: LUK×0.04% (instant kill chance)",
             ]
             for line in combat_lines:
@@ -2533,7 +2923,7 @@ class ArchaeologySimulatorWindow:
             skill_lines = [
                 "• STR: +1 Flat Dmg, +1% Dmg, +3% Crit Dmg",
                 "• AGI: +5 Stamina, +1% Crit, +0.2% Speed Mod",
-                "• INT: +5% XP Mult, +0.3% Exp Mod",
+                "• INT: +5% XP Mult, +0.3% Exp Mod, +3% Armor Pen",
                 "• PER: +4% Frag Mult, +0.3% Loot Mod, +2 Armor Pen",
                 "• LUK: +2% Crit, +0.2% ALL Mods, +0.04% One-Hit",
             ]
@@ -2561,9 +2951,9 @@ class ArchaeologySimulatorWindow:
                 'bonuses': [
                     ('+1 Flat Damage', 'Added to base damage before % bonus'),
                     ('+1% Damage Bonus', 'Multiplies total flat damage'),
-                    ('+3% Crit Damage', 'Added to crit multiplier (base 1.5×)'),
+                    ('+3% Crit Damage', 'Multiplies base crit (1.5× × 1.03 per STR)'),
                 ],
-                'example': 'At 10 STR: +10 flat dmg, +10% dmg bonus, +30% crit dmg',
+                'example': 'At 10 STR: +10 flat dmg, +10% dmg, 1.5×1.30=1.95× crit',
                 'tip': 'Best for: Raw damage output. Scales well with flat damage upgrades.',
             },
             'agility': {
@@ -2583,9 +2973,10 @@ class ArchaeologySimulatorWindow:
                 'bonuses': [
                     ('+5% XP Multiplier', 'Applied to all XP gained from blocks'),
                     ('+0.3% Exp Mod Chance', 'Per block: 3×-5× XP (avg 4×) when triggered'),
+                    ('+3% Armor Pen', 'Multiplies total armor pen (rounds up)'),
                 ],
-                'example': 'At 10 INT: +50% XP mult, +3% exp mod chance',
-                'tip': 'Best for: Faster leveling. Does NOT improve floors/run directly.',
+                'example': 'At 10 INT: +50% XP, +3% exp mod, 1.30× armor pen',
+                'tip': 'Best for: Leveling + armor pen scaling. Helps floors/run via pen!',
             },
             'perception': {
                 'title': 'Perception (PER)',
@@ -2819,104 +3210,154 @@ class ArchaeologySimulatorWindow:
         
         ttk.Separator(col_frame, orient='horizontal').pack(fill=tk.X, pady=5, padx=5)
         
-        # === DAMAGE BREAKPOINTS SECTION ===
-        breakpoint_header = tk.Frame(col_frame, background="#FFF3E0")
-        breakpoint_header.pack(fill=tk.X, padx=5)
+        # === LEVEL UP TIMER SECTION ===
+        levelup_header = tk.Frame(col_frame, background="#E8F5E9")
+        levelup_header.pack(fill=tk.X, padx=5)
         
-        tk.Label(breakpoint_header, text="Damage Breakpoints", font=("Arial", 10, "bold"), 
-                background="#FFF3E0").pack(side=tk.LEFT)
+        tk.Label(levelup_header, text="Level Up Timer", font=("Arial", 9, "bold"), 
+                background="#E8F5E9").pack(side=tk.LEFT)
         
-        bp_help_label = tk.Label(breakpoint_header, text="?", font=("Arial", 9, "bold"), 
-                                cursor="hand2", foreground="#C73E1D", background="#FFF3E0")
-        bp_help_label.pack(side=tk.LEFT, padx=(5, 0))
-        self._create_breakpoint_help_tooltip(bp_help_label)
+        levelup_help = tk.Label(levelup_header, text="?", font=("Arial", 8, "bold"), 
+                               cursor="hand2", foreground="#2E7D32", background="#E8F5E9")
+        levelup_help.pack(side=tk.LEFT, padx=(5, 0))
+        self._create_levelup_help_tooltip(levelup_help)
         
-        # Best breakpoint recommendation
-        self.best_bp_frame = tk.Frame(col_frame, background="#FFECB3", relief=tk.GROOVE, borderwidth=1)
-        self.best_bp_frame.pack(fill=tk.X, padx=5, pady=(3, 2))
+        levelup_frame = tk.Frame(col_frame, background="#E8F5E9")
+        levelup_frame.pack(fill=tk.X, padx=5, pady=2)
         
-        best_bp_inner = tk.Frame(self.best_bp_frame, background="#FFECB3", padx=5, pady=2)
-        best_bp_inner.pack(fill=tk.X)
+        # Row 1: XP/Run and Run Duration
+        levelup_row1 = tk.Frame(levelup_frame, background="#E8F5E9")
+        levelup_row1.pack(fill=tk.X)
         
-        tk.Label(best_bp_inner, text="★ Best:", font=("Arial", 8, "bold"), 
-                background="#FFECB3", foreground="#FF6F00").pack(side=tk.LEFT)
+        tk.Label(levelup_row1, text="XP/Run:", font=("Arial", 8), 
+                background="#E8F5E9").pack(side=tk.LEFT)
+        self.xp_per_run_label = tk.Label(levelup_row1, text="—", 
+                                        font=("Arial", 8, "bold"), 
+                                        background="#E8F5E9", foreground="#2E7D32")
+        self.xp_per_run_label.pack(side=tk.LEFT, padx=(2, 10))
         
-        self.best_bp_label = tk.Label(best_bp_inner, text="—", font=("Arial", 8), 
-                                     background="#FFECB3", foreground="#333333")
-        self.best_bp_label.pack(side=tk.LEFT, padx=(5, 0))
+        tk.Label(levelup_row1, text="Run:", font=("Arial", 8), 
+                background="#E8F5E9").pack(side=tk.LEFT)
+        self.run_duration_label = tk.Label(levelup_row1, text="—", 
+                                          font=("Arial", 8, "bold"), 
+                                          background="#E8F5E9", foreground="#1976D2")
+        self.run_duration_label.pack(side=tk.LEFT, padx=(2, 10))
         
-        best_bp_help = tk.Label(best_bp_inner, text="?", font=("Arial", 8, "bold"), 
-                               cursor="hand2", foreground="#FF6F00", background="#FFECB3")
-        best_bp_help.pack(side=tk.RIGHT)
-        self._create_best_bp_help_tooltip(best_bp_help)
+        tk.Label(levelup_row1, text="XP/h:", font=("Arial", 8), 
+                background="#E8F5E9").pack(side=tk.LEFT)
+        self.xp_per_hour_label = tk.Label(levelup_row1, text="—", 
+                                         font=("Arial", 8, "bold"), 
+                                         background="#E8F5E9", foreground="#9932CC")
+        self.xp_per_hour_label.pack(side=tk.LEFT, padx=(2, 0))
         
-        # Container for breakpoint rows
-        self.bp_container = tk.Frame(col_frame, background="#FFF3E0")
-        self.bp_container.pack(fill=tk.X, padx=5, pady=3)
+        # Row 2: XP needed input and time to level
+        levelup_row2 = tk.Frame(levelup_frame, background="#E8F5E9")
+        levelup_row2.pack(fill=tk.X, pady=(3, 0))
         
-        self.breakpoint_labels = {}
+        tk.Label(levelup_row2, text="XP needed:", font=("Arial", 8), 
+                background="#E8F5E9").pack(side=tk.LEFT)
         
-        for block_type in BLOCK_TYPES:
-            row_frame = tk.Frame(self.bp_container, background="#FFF3E0")
+        self.xp_needed_var = tk.StringVar(value="")
+        xp_needed_entry = tk.Entry(levelup_row2, textvariable=self.xp_needed_var, 
+                                  width=8, font=("Arial", 8))
+        xp_needed_entry.pack(side=tk.LEFT, padx=(2, 5))
+        xp_needed_entry.bind('<KeyRelease>', lambda e: self.update_levelup_time())
+        
+        tk.Label(levelup_row2, text="→", font=("Arial", 8), 
+                background="#E8F5E9").pack(side=tk.LEFT)
+        
+        self.time_to_level_label = tk.Label(levelup_row2, text="—", 
+                                           font=("Arial", 9, "bold"), 
+                                           background="#E8F5E9", foreground="#C73E1D")
+        self.time_to_level_label.pack(side=tk.LEFT, padx=(5, 0))
+        
+        ttk.Separator(col_frame, orient='horizontal').pack(fill=tk.X, pady=5, padx=5)
+        
+        # === FRAGMENTS PER HOUR SECTION ===
+        frag_hour_header = tk.Frame(col_frame, background="#F3E5F5")
+        frag_hour_header.pack(fill=tk.X, padx=5)
+        
+        tk.Label(frag_hour_header, text="Fragments / Hour", font=("Arial", 10, "bold"), 
+                background="#F3E5F5", foreground="#7B1FA2").pack(side=tk.LEFT)
+        
+        frag_help_label = tk.Label(frag_hour_header, text="?", font=("Arial", 9, "bold"), 
+                                  cursor="hand2", foreground="#7B1FA2", background="#F3E5F5")
+        frag_help_label.pack(side=tk.LEFT, padx=(5, 0))
+        self._create_fragments_hour_help_tooltip(frag_help_label)
+        
+        # Fragments per hour container
+        frag_hour_frame = tk.Frame(col_frame, background="#F3E5F5", relief=tk.GROOVE, borderwidth=1)
+        frag_hour_frame.pack(fill=tk.X, padx=5, pady=(3, 5))
+        
+        frag_hour_inner = tk.Frame(frag_hour_frame, background="#F3E5F5", padx=8, pady=5)
+        frag_hour_inner.pack(fill=tk.X)
+        
+        # Total fragments per run/hour
+        total_row = tk.Frame(frag_hour_inner, background="#F3E5F5")
+        total_row.pack(fill=tk.X, pady=(0, 5))
+        
+        tk.Label(total_row, text="Total Frags/Run:", font=("Arial", 9, "bold"), 
+                background="#F3E5F5").pack(side=tk.LEFT)
+        self.frags_per_run_label = tk.Label(total_row, text="—", font=("Arial", 9, "bold"),
+                                           background="#F3E5F5", foreground="#7B1FA2")
+        self.frags_per_run_label.pack(side=tk.LEFT, padx=(5, 15))
+        
+        tk.Label(total_row, text="Frags/Hour:", font=("Arial", 9, "bold"), 
+                background="#F3E5F5").pack(side=tk.LEFT)
+        self.frags_per_hour_label = tk.Label(total_row, text="—", font=("Arial", 9, "bold"),
+                                            background="#F3E5F5", foreground="#9932CC")
+        self.frags_per_hour_label.pack(side=tk.LEFT, padx=(5, 0))
+        
+        # Fragment breakdown by type
+        self.frag_hour_labels = {}
+        
+        # Header row
+        header_row = tk.Frame(frag_hour_inner, background="#F3E5F5")
+        header_row.pack(fill=tk.X, pady=(3, 2))
+        
+        tk.Label(header_row, text="Type", font=("Arial", 8, "bold"), 
+                background="#F3E5F5", width=10, anchor=tk.W).pack(side=tk.LEFT)
+        tk.Label(header_row, text="/Run", font=("Arial", 8, "bold"), 
+                background="#F3E5F5", width=8, anchor=tk.E).pack(side=tk.LEFT)
+        tk.Label(header_row, text="/Hour", font=("Arial", 8, "bold"), 
+                background="#F3E5F5", width=8, anchor=tk.E).pack(side=tk.LEFT)
+        
+        # Fragment types (common, rare, epic, legendary, mythic - no dirt)
+        frag_types = ['common', 'rare', 'epic', 'legendary', 'mythic']
+        type_colors = {
+            'common': '#808080',    # Gray
+            'rare': '#4169E1',      # Blue  
+            'epic': '#9932CC',      # Purple
+            'legendary': '#FFD700', # Gold
+            'mythic': '#FF4500',    # Orange
+        }
+        
+        for frag_type in frag_types:
+            row = tk.Frame(frag_hour_inner, background="#F3E5F5")
+            row.pack(fill=tk.X, pady=1)
             
-            color = self.BLOCK_COLORS.get(block_type, '#888888')
+            color = type_colors.get(frag_type, '#888888')
             
-            name_label = tk.Label(row_frame, text=f"{block_type.capitalize()[:4]}:", 
-                                 font=("Arial", 8, "bold"), foreground=color,
-                                 background="#FFF3E0", width=5, anchor=tk.W)
-            name_label.pack(side=tk.LEFT)
+            # Fragment icon if available
+            if hasattr(self, 'fragment_icons') and frag_type in self.fragment_icons:
+                tk.Label(row, image=self.fragment_icons[frag_type], 
+                        background="#F3E5F5").pack(side=tk.LEFT, padx=(0, 3))
             
-            impact_label = tk.Label(row_frame, text="", font=("Arial", 8), 
-                                   background="#FFF3E0", foreground="#888888", width=7, anchor=tk.W)
-            impact_label.pack(side=tk.LEFT)
+            tk.Label(row, text=f"{frag_type.capitalize()}", font=("Arial", 8, "bold"),
+                    foreground=color, background="#F3E5F5", width=8, anchor=tk.W).pack(side=tk.LEFT)
             
-            hits_label = tk.Label(row_frame, text="—", font=("Arial", 8), 
-                                 background="#FFF3E0", width=9, anchor=tk.W)
-            hits_label.pack(side=tk.LEFT)
+            per_run_label = tk.Label(row, text="—", font=("Arial", 8),
+                                    background="#F3E5F5", foreground=color, width=8, anchor=tk.E)
+            per_run_label.pack(side=tk.LEFT)
             
-            bp_info_label = tk.Label(row_frame, text="", font=("Arial", 8), 
-                                    background="#FFF3E0", foreground="#555555",
-                                    anchor=tk.W)
-            bp_info_label.pack(side=tk.LEFT, fill=tk.X, expand=True)
+            per_hour_label = tk.Label(row, text="—", font=("Arial", 8, "bold"),
+                                     background="#F3E5F5", foreground=color, width=8, anchor=tk.E)
+            per_hour_label.pack(side=tk.LEFT)
             
-            # Card buttons frame (right side)
-            card_frame = tk.Frame(row_frame, background="#FFF3E0")
-            card_frame.pack(side=tk.RIGHT, padx=(3, 0))
-            
-            # Card button (normal card: -10% HP, +10% XP)
-            card_btn = tk.Label(card_frame, text="Card", font=("Arial", 7),
-                               cursor="hand2", foreground="#888888", background="#FFF3E0",
-                               padx=2)
-            card_btn.pack(side=tk.LEFT)
-            card_btn.bind("<Button-1>", lambda e, bt=block_type: self._toggle_card(bt, 1))
-            
-            # Gilded card button (gilded: -20% HP, +20% XP)
-            gilded_btn = tk.Label(card_frame, text="Gilded", font=("Arial", 7),
-                                 cursor="hand2", foreground="#888888", background="#FFF3E0",
-                                 padx=2)
-            gilded_btn.pack(side=tk.LEFT)
-            gilded_btn.bind("<Button-1>", lambda e, bt=block_type: self._toggle_card(bt, 2))
-            
-            # Help icon for tooltip (instead of hovering on whole row)
-            help_label = tk.Label(card_frame, text="?", font=("Arial", 7, "bold"),
-                                 cursor="hand2", foreground="#1976D2", background="#FFF3E0",
-                                 padx=2)
-            help_label.pack(side=tk.LEFT)
-            
-            self.breakpoint_labels[block_type] = {
-                'row': row_frame,
-                'name': name_label,
-                'impact': impact_label,
-                'hits': hits_label,
-                'bp_info': bp_info_label,
-                'card_btn': card_btn,
-                'gilded_btn': gilded_btn,
-                'help_label': help_label,
-                'tooltip_data': {}
+            self.frag_hour_labels[frag_type] = {
+                'per_run': per_run_label,
+                'per_hour': per_hour_label,
             }
-            
-            # Bind tooltip to help label only, not whole row
-            self._create_block_breakpoint_tooltip(help_label, block_type)
         
         ttk.Separator(col_frame, orient='horizontal').pack(fill=tk.X, pady=5, padx=5)
         
@@ -3380,6 +3821,106 @@ class ArchaeologySimulatorWindow:
         widget.bind("<Enter>", on_enter)
         widget.bind("<Leave>", on_leave)
     
+    def _create_fragments_hour_help_tooltip(self, widget):
+        """Creates a tooltip explaining the Fragments/Hour feature"""
+        def on_enter(event):
+            tooltip = tk.Toplevel()
+            tooltip.wm_overrideredirect(True)
+            
+            x = event.x_root + 15
+            y = event.y_root + 10
+            tooltip.wm_geometry(f"+{x}+{y}")
+            
+            frame = tk.Frame(tooltip, background="#FFFFFF", relief=tk.SOLID, borderwidth=1)
+            frame.pack()
+            
+            content = tk.Frame(frame, background="#FFFFFF", padx=10, pady=8)
+            content.pack()
+            
+            tk.Label(content, text="Fragments / Hour", font=("Arial", 10, "bold"),
+                    background="#FFFFFF", foreground="#7B1FA2").pack(anchor="w")
+            
+            lines = [
+                "",
+                "Estimated fragment income per hour.",
+                "",
+                "Based on:",
+                "  - Floors/Run × Blocks/Floor",
+                "  - Block spawn rates per stage",
+                "  - Fragment drop per block type",
+                "  - Fragment multiplier (PER + upgrades)",
+                "  - Loot Mod chance & bonus",
+                "  - Run duration",
+                "",
+                "Use this to plan upgrade purchases",
+                "and estimate farming time.",
+            ]
+            
+            for line in lines:
+                tk.Label(content, text=line, font=("Arial", 9),
+                        background="#FFFFFF", justify=tk.LEFT).pack(anchor="w")
+            
+            widget.tooltip = tooltip
+        
+        def on_leave(event):
+            if hasattr(widget, 'tooltip'):
+                widget.tooltip.destroy()
+                del widget.tooltip
+        
+        widget.bind("<Enter>", on_enter)
+        widget.bind("<Leave>", on_leave)
+    
+    def _create_levelup_help_tooltip(self, widget):
+        """Creates a tooltip explaining the Level Up Timer feature"""
+        def on_enter(event):
+            tooltip = tk.Toplevel()
+            tooltip.wm_overrideredirect(True)
+            
+            x = event.x_root + 15
+            y = event.y_root + 10
+            tooltip.wm_geometry(f"+{x}+{y}")
+            
+            frame = tk.Frame(tooltip, background="#FFFFFF", relief=tk.SOLID, borderwidth=1)
+            frame.pack()
+            
+            content = tk.Frame(frame, background="#FFFFFF", padx=10, pady=8)
+            content.pack()
+            
+            tk.Label(content, text="Level Up Timer", font=("Arial", 10, "bold"),
+                    background="#FFFFFF", foreground="#2E7D32").pack(anchor="w")
+            
+            lines = [
+                "",
+                "Calculates time to reach next level.",
+                "",
+                "XP/Run: Total XP earned per run",
+                "  (blocks × XP × mults × exp mods)",
+                "",
+                "Run Duration: Time per run",
+                "  Base: 1 hit = 1 second",
+                "  Speed Mod: 2× speed (saves time)",
+                "  Flurry: 2× speed + bonus stamina",
+                "",
+                "XP/h: XP per hour = XP/Run × Runs/h",
+                "",
+                "Enter 'XP needed' to see time estimate.",
+                "Example: Need 61.89 XP → enter '61.89'",
+            ]
+            
+            for line in lines:
+                tk.Label(content, text=line, font=("Arial", 9),
+                        background="#FFFFFF", justify=tk.LEFT).pack(anchor="w")
+            
+            widget.tooltip = tooltip
+        
+        def on_leave(event):
+            if hasattr(widget, 'tooltip'):
+                widget.tooltip.destroy()
+                del widget.tooltip
+        
+        widget.bind("<Enter>", on_enter)
+        widget.bind("<Leave>", on_leave)
+    
     def _create_breakpoint_help_tooltip(self, widget):
         """Creates a tooltip explaining damage breakpoints"""
         def on_enter(event):
@@ -3531,6 +4072,33 @@ class ArchaeologySimulatorWindow:
                 else:
                     gilded_btn.config(foreground="#888888", background="#FFF3E0")  # Inactive
     
+    def _calculate_gilded_improvement(self, block_type, stats, spawn_rate):
+        """
+        Calculate the % improvement in floors/run from upgrading to gilded card.
+        This shows the value of gilding a card (costs gems).
+        
+        Returns: percentage improvement in floors/run
+        """
+        # Get current floors/run
+        current_floors = self.calculate_floors_per_run(stats, self.current_stage)
+        if current_floors <= 0:
+            return 0.0
+        
+        # Temporarily set this block to gilded and recalculate
+        old_card_level = self.block_cards.get(block_type, 0)
+        self.block_cards[block_type] = 2  # Gilded
+        
+        gilded_floors = self.calculate_floors_per_run(stats, self.current_stage)
+        
+        # Restore original card level
+        self.block_cards[block_type] = old_card_level
+        
+        # Calculate percentage improvement
+        if current_floors > 0:
+            improvement = ((gilded_floors - current_floors) / current_floors) * 100
+            return improvement
+        return 0.0
+    
     def _create_block_breakpoint_tooltip(self, widget, block_type):
         """Creates a dynamic tooltip for a block's breakpoint row"""
         def on_enter(event):
@@ -3632,195 +4200,76 @@ class ArchaeologySimulatorWindow:
         widget.bind("<Enter>", on_enter)
         widget.bind("<Leave>", on_leave)
     
-    def update_breakpoints_display(self):
-        """Update the breakpoints display for all block types, sorted by stamina impact"""
-        if not hasattr(self, 'breakpoint_labels'):
+    def update_cards_display(self):
+        """Update the cards display in the middle column"""
+        if not hasattr(self, 'card_labels'):
             return
-        
-        import math
         
         stats = self.get_total_stats()
         spawn_rates = get_normalized_spawn_rates(self.current_stage)
-        block_mix = get_block_mix_for_floor(self.current_stage)
-        
-        # Calculate data for all blocks
-        block_data_list = []
         
         for block_type in BLOCK_TYPES:
-            labels = self.breakpoint_labels[block_type]
+            if block_type not in self.card_labels:
+                continue
+            
+            labels = self.card_labels[block_type]
             spawn_rate = spawn_rates.get(block_type, 0)
-            
-            # Hide rows for blocks that don't spawn in current stage
-            if spawn_rate <= 0:
-                labels['row'].pack_forget()
-                labels['tooltip_data'] = {}
-                continue
-            
-            block_data = block_mix.get(block_type)
-            if not block_data:
-                labels['row'].pack_forget()
-                labels['tooltip_data'] = {}
-                continue
-            
-            bp = self.calculate_damage_breakpoints(
-                block_data.health, block_data.armor, stats, block_type
-            )
-            
-            current_hits = bp['current_hits']
-            avg_hits = bp['avg_hits']
-            if current_hits == float('inf'):
-                current_hits = 9999
-            if avg_hits == float('inf'):
-                avg_hits = 9999
-            
-            # Stamina impact uses avg_hits (accounts for crits) = spawn_rate * avg_hits * blocks_per_floor (15)
-            stamina_impact = spawn_rate * avg_hits * self.BLOCKS_PER_FLOOR
-            
-            # Calculate breakpoint efficiency if there's a next breakpoint
-            bp_efficiency = 0
-            stamina_saved = 0
-            if bp['dmg_needed'] is not None and bp['dmg_needed'] > 0:
-                # Stamina saved per floor if we reach the breakpoint
-                new_hits = bp['next_breakpoint_hits']
-                stamina_saved = spawn_rate * (current_hits - new_hits) * self.BLOCKS_PER_FLOOR
-                # Efficiency = stamina saved per damage point needed
-                bp_efficiency = stamina_saved / bp['dmg_needed'] if bp['dmg_needed'] > 0 else 0
-            
-            block_data_list.append({
-                'block_type': block_type,
-                'spawn_rate': spawn_rate,
-                'current_hits': current_hits,
-                'avg_hits': avg_hits,
-                'stamina_impact': stamina_impact,
-                'bp': bp,
-                'bp_efficiency': bp_efficiency,
-                'stamina_saved': stamina_saved,
-                'block_stats': block_data,
-            })
-        
-        # Sort by stamina impact (highest first)
-        block_data_list.sort(key=lambda x: x['stamina_impact'], reverse=True)
-        
-        # Find best next breakpoint (highest efficiency among those with a reachable breakpoint)
-        best_bp = None
-        best_efficiency = 0
-        for bd in block_data_list:
-            if bd['bp']['dmg_needed'] is not None and bd['bp']['dmg_needed'] > 0:
-                if bd['bp_efficiency'] > best_efficiency:
-                    best_efficiency = bd['bp_efficiency']
-                    best_bp = bd
-        
-        # Update best breakpoint label
-        if best_bp:
-            bt = best_bp['block_type']
-            dmg = best_bp['bp']['dmg_needed']
-            saved = best_bp['stamina_saved']
-            self.best_bp_label.config(
-                text=f"{bt.capitalize()} (+{dmg:.0f} dmg → saves {saved:.1f} stam/floor)"
-            )
-            self.best_bp_frame.pack(fill=tk.X, padx=5, pady=(3, 2))
-        else:
-            self.best_bp_label.config(text="All blocks at breakpoint or one-shot!")
-            self.best_bp_frame.pack(fill=tk.X, padx=5, pady=(3, 2))
-        
-        # Unpack all rows first
-        for labels in self.breakpoint_labels.values():
-            labels['row'].pack_forget()
-        
-        # Pack rows in sorted order and update labels
-        for bd in block_data_list:
-            block_type = bd['block_type']
-            labels = self.breakpoint_labels[block_type]
-            bp = bd['bp']
-            current_hits = bd['current_hits']
-            avg_hits = bd['avg_hits']
-            spawn_rate = bd['spawn_rate']
-            stamina_impact = bd['stamina_impact']
-            block_stats = bd['block_stats']
-            
-            # Pack in sorted order
-            labels['row'].pack(fill=tk.X, pady=1)
-            
-            # Highlight if this is the best breakpoint
-            is_best = (best_bp and block_type == best_bp['block_type'])
-            bg_color = "#FFECB3" if is_best else "#FFF3E0"
-            labels['row'].config(background=bg_color)
-            for child in labels['row'].winfo_children():
-                try:
-                    child.config(background=bg_color)
-                except:
-                    pass
-            
-            # Update card button states (colors based on active state, not row highlight)
             card_level = self.block_cards.get(block_type, 0)
+            
+            # Update card button states
             card_btn = labels.get('card_btn')
             gilded_btn = labels.get('gilded_btn')
             
             if card_btn:
                 if card_level == 1:
-                    card_btn.config(foreground="#FFFFFF", background="#4CAF50")  # Active green
+                    card_btn.config(foreground="#FFFFFF", background="#4CAF50", relief=tk.SUNKEN)
                 else:
-                    card_btn.config(foreground="#888888", background=bg_color)  # Inactive
+                    card_btn.config(foreground="#888888", background="#E8F5E9", relief=tk.RAISED)
             
             if gilded_btn:
                 if card_level == 2:
-                    gilded_btn.config(foreground="#FFFFFF", background="#FFD700")  # Active gold
+                    gilded_btn.config(foreground="#FFFFFF", background="#FFD700", relief=tk.SUNKEN)
                 else:
-                    gilded_btn.config(foreground="#888888", background=bg_color)  # Inactive
+                    gilded_btn.config(foreground="#888888", background="#E8F5E9", relief=tk.RAISED)
             
-            # Update help label background
-            help_label = labels.get('help_label')
-            if help_label:
-                help_label.config(background=bg_color)
-            
-            # Update impact label
-            labels['impact'].config(text=f"({stamina_impact:.1f})")
-            
-            # Format current hits - show both deterministic and avg with crits
-            # Format: "3h (2.4)" where 3 is deterministic, 2.4 is avg with crits
-            if current_hits >= 9999:
-                labels['hits'].config(text="∞ hits", foreground="#C73E1D")
-            elif current_hits == 1:
-                labels['hits'].config(text="1h ✓", foreground="#2E7D32")
-            else:
-                # Show avg_hits in parentheses if different from current_hits
-                if abs(avg_hits - current_hits) > 0.05:
-                    labels['hits'].config(text=f"{current_hits:.0f}h ({avg_hits:.1f})", foreground="#1976D2")
+            # Calculate and display gilded improvement (only if not already gilded)
+            gilded_improve_label = labels.get('gilded_improve')
+            if gilded_improve_label:
+                if card_level < 2 and spawn_rate > 0:
+                    gilded_improvement = self._calculate_gilded_improvement(block_type, stats, spawn_rate)
+                    if gilded_improvement > 0.005:
+                        gilded_improve_label.config(text=f"+{gilded_improvement:.2f}%", foreground="#B8860B")
+                    else:
+                        gilded_improve_label.config(text="~0%", foreground="#AAAAAA")
                 else:
-                    labels['hits'].config(text=f"{current_hits:.0f}h", foreground="#1976D2")
+                    gilded_improve_label.config(text="")
+    
+    def update_fragments_hour_display(self, stats):
+        """Update the Fragments/Hour display"""
+        if not hasattr(self, 'frag_hour_labels'):
+            return
+        
+        # Calculate fragments per run
+        frags_per_run = self.calculate_fragments_per_run(stats, self.current_stage)
+        
+        # Calculate run duration
+        run_duration_sec = self.calculate_run_duration(stats, self.current_stage)
+        runs_per_hour = 3600 / run_duration_sec if run_duration_sec > 0 else 0
+        
+        # Total fragments
+        total_per_run = sum(frags_per_run.values())
+        total_per_hour = total_per_run * runs_per_hour
+        
+        self.frags_per_run_label.config(text=f"{total_per_run:.3f}")
+        self.frags_per_hour_label.config(text=f"{total_per_hour:.2f}")
+        
+        # Update per-type breakdown
+        for frag_type, labels in self.frag_hour_labels.items():
+            per_run = frags_per_run.get(frag_type, 0)
+            per_hour = per_run * runs_per_hour
             
-            # Format breakpoint info
-            if bp['next_breakpoint_dmg'] is not None and bp['dmg_needed'] > 0:
-                prefix = "★ " if is_best else ""
-                labels['bp_info'].config(
-                    text=f"{prefix}+{bp['dmg_needed']:.0f} → {bp['next_breakpoint_hits']}h",
-                    foreground="#FF6F00" if is_best else "#C73E1D"
-                )
-            elif current_hits == 1:
-                labels['bp_info'].config(text="(one-shot)", foreground="#2E7D32")
-            else:
-                labels['bp_info'].config(text="(at bp)", foreground="#2E7D32")
-            
-            # Store tooltip data
-            # Check if card is applied
-            card_level = self.block_cards.get(block_type, 0)
-            effective_hp = bp['block_hp']  # Already has card reduction applied
-            
-            labels['tooltip_data'] = {
-                'hp': block_stats.health,
-                'effective_hp': effective_hp,
-                'card_level': card_level,
-                'armor': block_stats.armor,
-                'eff_dmg': bp['current_eff_dmg'],
-                'hits': current_hits if current_hits < 9999 else "∞",
-                'avg_hits': avg_hits if avg_hits < 9999 else "∞",
-                'spawn_pct': f"{spawn_rate*100:.1f}%",
-                'impact': f"{stamina_impact:.1f}",
-                'has_next_bp': bp['dmg_needed'] is not None and bp['dmg_needed'] > 0,
-                'dmg_needed': bp['dmg_needed'],
-                'stamina_saved': f"{bd['stamina_saved']:.2f}",
-                'efficiency': f"{bd['bp_efficiency']:.3f} stam/dmg",
-            }
+            labels['per_run'].config(text=f"{per_run:.4f}")
+            labels['per_hour'].config(text=f"{per_hour:.3f}")
     
     def update_avg_block_stats(self):
         """Calculate and display weighted average block stats for current stage"""
@@ -4053,16 +4502,16 @@ class ArchaeologySimulatorWindow:
                     self.upgrade_efficiency_labels[upgrade_key].config(
                         text=f"+{improvement:.2f}%", foreground="#2E7D32")
                     
-                    # Calculate efficiency per fragment cost
+                    # Calculate efficiency per fragment cost - THIS IS THE KEY VALUE
                     if hasattr(self, 'upgrade_cost_labels') and upgrade_key in self.upgrade_cost_labels:
                         next_cost = get_upgrade_cost(upgrade_key, current_level)
                         if next_cost and next_cost > 0 and improvement > 0:
                             eff_per_frag = improvement / next_cost
                             self.upgrade_cost_labels[upgrade_key].config(
-                                text=f"({eff_per_frag:.3f}%/f)", foreground="#666666")
+                                text=f"Efficiency: {eff_per_frag:.4f}", foreground="#1976D2")
                         elif next_cost:
                             self.upgrade_cost_labels[upgrade_key].config(
-                                text=f"({next_cost:.1f}f)", foreground="#999999")
+                                text=f"Cost: {next_cost:.0f}", foreground="#999999")
                         else:
                             self.upgrade_cost_labels[upgrade_key].config(text="", foreground="#666666")
         
@@ -4106,11 +4555,82 @@ class ArchaeologySimulatorWindow:
         # Update average block stats
         self.update_avg_block_stats()
         
-        # Update damage breakpoints
-        self.update_breakpoints_display()
+        # Update cards display (middle column)
+        self.update_cards_display()
+        
+        # Update fragments per hour
+        self.update_fragments_hour_display(stats)
+        
+        # Update level up timer
+        self.update_levelup_timer(stats)
         
         # Update skill forecast
         self.update_forecast_display()
+    
+    def update_levelup_timer(self, stats):
+        """Update the Level Up Timer display"""
+        if not hasattr(self, 'xp_per_run_label'):
+            return
+        
+        # Calculate XP per run
+        xp_per_run = self.calculate_xp_per_run(stats, self.current_stage)
+        self.xp_per_run_label.config(text=f"{xp_per_run:.2f}")
+        
+        # Calculate run duration
+        run_duration_sec = self.calculate_run_duration(stats, self.current_stage)
+        run_duration_min = run_duration_sec / 60
+        if run_duration_min >= 1:
+            self.run_duration_label.config(text=f"{run_duration_min:.1f}m")
+        else:
+            self.run_duration_label.config(text=f"{run_duration_sec:.0f}s")
+        
+        # Calculate XP per hour
+        if run_duration_sec > 0:
+            runs_per_hour = 3600 / run_duration_sec
+            xp_per_hour = xp_per_run * runs_per_hour
+            self.xp_per_hour_label.config(text=f"{xp_per_hour:.1f}")
+        else:
+            self.xp_per_hour_label.config(text="—")
+        
+        # Store for time calculation
+        self._cached_xp_per_hour = xp_per_hour if run_duration_sec > 0 else 0
+        
+        # Update time to level
+        self.update_levelup_time()
+    
+    def update_levelup_time(self):
+        """Update the time to level up based on XP needed input"""
+        if not hasattr(self, 'time_to_level_label'):
+            return
+        
+        try:
+            xp_needed_str = self.xp_needed_var.get().strip()
+            if not xp_needed_str:
+                self.time_to_level_label.config(text="—")
+                return
+            
+            xp_needed = float(xp_needed_str)
+            if xp_needed <= 0:
+                self.time_to_level_label.config(text="—")
+                return
+            
+            xp_per_hour = getattr(self, '_cached_xp_per_hour', 0)
+            if xp_per_hour <= 0:
+                self.time_to_level_label.config(text="∞")
+                return
+            
+            hours_to_level = xp_needed / xp_per_hour
+            
+            if hours_to_level < 1:
+                minutes = hours_to_level * 60
+                self.time_to_level_label.config(text=f"{minutes:.0f} min")
+            elif hours_to_level < 24:
+                self.time_to_level_label.config(text=f"{hours_to_level:.1f} h")
+            else:
+                days = hours_to_level / 24
+                self.time_to_level_label.config(text=f"{days:.1f} days")
+        except ValueError:
+            self.time_to_level_label.config(text="—")
     
     def update_forecast_display(self):
         """Update the skill forecast table with optimal distribution (single row)"""
@@ -4231,4 +4751,12 @@ class ArchaeologySimulatorWindow:
             "30-49": 30, "50-75": 50, "75+": 76,
         }
         self.current_stage = stage_map.get(stage_str, 1)
+        
+        # Auto-adjust unlocked stage to at least match the selected stage's minimum
+        # If you're playing stage 3-4, you must have at least stage 3 unlocked
+        current_unlocked = self.get_unlocked_stage()
+        if current_unlocked < self.current_stage:
+            self.unlocked_stage_var.set(str(self.current_stage))
+            # Note: This will trigger _on_unlocked_stage_changed which rebuilds upgrades
+        
         self.update_display()
