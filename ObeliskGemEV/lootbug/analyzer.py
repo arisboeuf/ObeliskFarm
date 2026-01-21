@@ -12,11 +12,24 @@ from PIL import Image, ImageTk
 import json
 
 import sys
+import os
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from ui_utils import create_tooltip as _create_tooltip, calculate_tooltip_position
+from ui_utils import create_tooltip as _create_tooltip, calculate_tooltip_position, get_resource_path
+
+
+def get_user_data_path() -> Path:
+    """Get path for user data (saves) - persists outside of bundle."""
+    if getattr(sys, 'frozen', False):
+        app_data = os.environ.get('APPDATA', os.path.expanduser('~'))
+        save_dir = Path(app_data) / 'ObeliskGemEV' / 'save'
+    else:
+        save_dir = Path(__file__).parent.parent / 'save'
+    save_dir.mkdir(parents=True, exist_ok=True)
+    return save_dir
+
 
 # Save file path
-SAVE_DIR = Path(__file__).parent.parent / "save"
+SAVE_DIR = get_user_data_path()
 SAVE_FILE = SAVE_DIR / "lootbug_save.json"
 
 # Lootbug Reward Data
@@ -185,7 +198,7 @@ class LootbugWindow:
         
         # Set icon (if available)
         try:
-            icon_path = Path(__file__).parent.parent / "sprites" / "lootbug" / "lootbug.png"
+            icon_path = get_resource_path("sprites/lootbug/lootbug.png")
             if icon_path.exists():
                 icon_image = Image.open(icon_path)
                 icon_photo = ImageTk.PhotoImage(icon_image)
@@ -882,7 +895,7 @@ class LootbugWindow:
         
         # Try to load the 2x Speed icon
         try:
-            speed_icon_path = Path(__file__).parent.parent / "sprites" / "lootbug" / "gamespeed2x.png"
+            speed_icon_path = get_resource_path("sprites/lootbug/gamespeed2x.png")
             if speed_icon_path.exists():
                 speed_image = Image.open(speed_icon_path)
                 speed_image = speed_image.resize((32, 32), Image.Resampling.LANCZOS)

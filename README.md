@@ -1,5 +1,7 @@
 # ObeliskGemEV Calculator
 
+> ⚠️ **Data based on Obelisk Level 30** - All calculations and game data are based on Obelisk Level 30. Results may vary for different progression levels.
+
 An interactive GUI tool for calculating the **Expected Value (EV)** for freebies in the Android game **Idle Obelisk Miner**.
 
 ## Overview
@@ -113,7 +115,17 @@ Controls all bomb-related mechanics and their gem generation:
 - **Total-EV**: Total gem-equivalent per hour (bold highlighted)
 - **Gift-EV**: Separate expected value per opened gift
 
-## Installation & Start
+## Download
+
+**For Windows users**: Download the standalone EXE - no Python installation required!
+
+[![Download](https://img.shields.io/github/v/release/YourUsername/Obelisk?label=Download%20EXE&style=for-the-badge)](https://github.com/YourUsername/Obelisk/releases/latest)
+
+> ⚠️ **Note**: Data is based on **Obelisk Level 30**. Check the release notes for compatibility with your game progress.
+
+---
+
+## Installation & Start (From Source)
 
 ### Requirements
 

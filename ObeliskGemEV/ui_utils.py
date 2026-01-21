@@ -3,6 +3,26 @@ Shared UI utilities for ObeliskGemEV
 """
 
 import tkinter as tk
+import sys
+from pathlib import Path
+
+
+def get_resource_path(relative_path: str) -> Path:
+    """Get absolute path to resource, works for dev and for PyInstaller bundle.
+    
+    Args:
+        relative_path: Path relative to ObeliskGemEV folder (e.g., 'sprites/common/gem.png')
+    
+    Returns:
+        Absolute Path to the resource
+    """
+    if getattr(sys, 'frozen', False):
+        # Running as compiled exe - use temp directory where PyInstaller extracts files
+        base_path = Path(sys._MEIPASS)
+    else:
+        # Running as script - use the ObeliskGemEV directory
+        base_path = Path(__file__).parent
+    return base_path / relative_path
 
 
 def calculate_tooltip_position(event, tooltip_width, tooltip_height, screen_width, screen_height, position="auto"):

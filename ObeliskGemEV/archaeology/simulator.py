@@ -1779,7 +1779,7 @@ class ArchaeologySimulatorWindow:
             row_frame.pack(fill=tk.X, pady=1)
             
             # -5 button
-            minus5_btn = tk.Button(row_frame, text="-5", width=2, font=("Arial", 7, "bold"),
+            minus5_btn = tk.Button(row_frame, text="-5", width=2, font=("Arial", 8, "bold"),
                                   command=lambda s=skill: self.remove_skill_points(s, 5))
             minus5_btn.pack(side=tk.LEFT, padx=(0, 1))
             
@@ -1794,7 +1794,7 @@ class ArchaeologySimulatorWindow:
             plus_btn.pack(side=tk.LEFT, padx=(0, 1))
             
             # +5 button
-            plus5_btn = tk.Button(row_frame, text="+5", width=2, font=("Arial", 7, "bold"),
+            plus5_btn = tk.Button(row_frame, text="+5", width=2, font=("Arial", 8, "bold"),
                                  command=lambda s=skill: self.add_skill_points(s, 5))
             plus5_btn.pack(side=tk.LEFT, padx=(0, 3))
             
@@ -1828,6 +1828,9 @@ class ArchaeologySimulatorWindow:
         
         # Load fragment icons for each type
         self._load_fragment_icons()
+        
+        # Load block icons for cards section
+        self._load_block_icons()
         
         # Reset button for upgrades
         tk.Button(upgrade_header_frame, text="Reset", font=("Arial", 7), 
@@ -1955,10 +1958,15 @@ class ArchaeologySimulatorWindow:
             
             color = self.BLOCK_COLORS.get(block_type, '#888888')
             
+            # Block icon if available
+            if hasattr(self, 'block_icons') and block_type in self.block_icons:
+                tk.Label(row_frame, image=self.block_icons[block_type], 
+                        background="#E8F5E9").pack(side=tk.LEFT, padx=(0, 3))
+            
             # Block name
             name_label = tk.Label(row_frame, text=f"{block_type.capitalize()}", 
                                  font=("Arial", 8, "bold"), foreground=color,
-                                 background="#E8F5E9", width=10, anchor=tk.W)
+                                 background="#E8F5E9", width=8, anchor=tk.W)
             name_label.pack(side=tk.LEFT)
             
             # Card button (normal card: -10% HP, +10% XP)
@@ -1995,14 +2003,20 @@ class ArchaeologySimulatorWindow:
             tooltip = tk.Toplevel()
             tooltip.wm_overrideredirect(True)
             
-            x = event.x_root + 15
-            y = event.y_root + 10
+            tooltip_width = 280
+            tooltip_height = 320
+            screen_width = tooltip.winfo_screenwidth()
+            screen_height = tooltip.winfo_screenheight()
+            x, y = calculate_tooltip_position(event, tooltip_width, tooltip_height, screen_width, screen_height)
             tooltip.wm_geometry(f"+{x}+{y}")
             
-            frame = tk.Frame(tooltip, background="#FFFFFF", relief=tk.SOLID, borderwidth=1)
-            frame.pack()
+            outer_frame = tk.Frame(tooltip, background="#B8860B", relief=tk.FLAT)
+            outer_frame.pack(padx=2, pady=2)
             
-            content = tk.Frame(frame, background="#FFFFFF", padx=10, pady=8)
+            inner_frame = tk.Frame(outer_frame, background="#FFFFFF")
+            inner_frame.pack(padx=1, pady=1)
+            
+            content = tk.Frame(inner_frame, background="#FFFFFF", padx=10, pady=8)
             content.pack()
             
             tk.Label(content, text="Block Cards", font=("Arial", 10, "bold"),
@@ -2058,6 +2072,28 @@ class ArchaeologySimulatorWindow:
                     icon_image = Image.open(icon_path)
                     icon_image = icon_image.resize((12, 12), Image.Resampling.LANCZOS)
                     self.fragment_icons[frag_type] = ImageTk.PhotoImage(icon_image)
+            except:
+                pass
+    
+    def _load_block_icons(self):
+        """Load block icons for each block type (Tier 1 icons)"""
+        self.block_icons = {}
+        icon_map = {
+            'dirt': 'block_dirt_t1.png',
+            'common': 'block_common_t1.png',
+            'rare': 'block_rare_t1.png',
+            'epic': 'block_epic_t1.png',
+            'legendary': 'block_legendary_t1.png',
+            'mythic': 'block_mythic_t1.png',
+        }
+        
+        for block_type, filename in icon_map.items():
+            try:
+                icon_path = get_resource_path(f"sprites/archaeology/{filename}")
+                if icon_path.exists():
+                    icon_image = Image.open(icon_path)
+                    icon_image = icon_image.resize((16, 16), Image.Resampling.LANCZOS)
+                    self.block_icons[block_type] = ImageTk.PhotoImage(icon_image)
             except:
                 pass
     
@@ -3344,14 +3380,14 @@ class ArchaeologySimulatorWindow:
                         background="#F3E5F5").pack(side=tk.LEFT, padx=(0, 3))
             
             tk.Label(row, text=f"{frag_type.capitalize()}", font=("Arial", 8, "bold"),
-                    foreground=color, background="#F3E5F5", width=8, anchor=tk.W).pack(side=tk.LEFT)
+                    foreground="#333333", background="#F3E5F5", width=8, anchor=tk.W).pack(side=tk.LEFT)
             
             per_run_label = tk.Label(row, text="—", font=("Arial", 8),
-                                    background="#F3E5F5", foreground=color, width=8, anchor=tk.E)
+                                    background="#F3E5F5", foreground="#555555", width=8, anchor=tk.E)
             per_run_label.pack(side=tk.LEFT)
             
             per_hour_label = tk.Label(row, text="—", font=("Arial", 8, "bold"),
-                                     background="#F3E5F5", foreground=color, width=8, anchor=tk.E)
+                                     background="#F3E5F5", foreground="#333333", width=8, anchor=tk.E)
             per_hour_label.pack(side=tk.LEFT)
             
             self.frag_hour_labels[frag_type] = {
@@ -3361,11 +3397,11 @@ class ArchaeologySimulatorWindow:
         
         ttk.Separator(col_frame, orient='horizontal').pack(fill=tk.X, pady=5, padx=5)
         
-        # === SKILL FORECAST SECTION ===
+        # === STAGE RUSHING PLANNER ===
         forecast_header = tk.Frame(col_frame, background="#FFF3E0")
         forecast_header.pack(fill=tk.X, padx=5)
         
-        tk.Label(forecast_header, text="Skill Forecast", font=("Arial", 10, "bold"), 
+        tk.Label(forecast_header, text="Stage Rushing Planner", font=("Arial", 10, "bold"), 
                 background="#FFF3E0").pack(side=tk.LEFT)
         
         forecast_help_label = tk.Label(forecast_header, text="?", font=("Arial", 9, "bold"), 
@@ -3485,13 +3521,13 @@ class ArchaeologySimulatorWindow:
                  command=lambda: self._adjust_budget(5)).pack(side=tk.LEFT)
         
         # Header row for results
-        header_row = tk.Frame(budget_inner, background="#F3E5F5")
+        header_row = tk.Frame(budget_inner, background="#F3E5F5", padx=5)
         header_row.pack(fill=tk.X, pady=(5, 0))
         
         tk.Label(header_row, text="Distribution", font=("Arial", 8, "bold"), 
                 background="#F3E5F5", width=14, anchor=tk.W).pack(side=tk.LEFT)
         tk.Label(header_row, text="Floors", font=("Arial", 8, "bold"), 
-                background="#F3E5F5", width=5, anchor=tk.E).pack(side=tk.LEFT)
+                background="#F3E5F5", width=6, anchor=tk.E).pack(side=tk.LEFT)
         tk.Label(header_row, text="XP/Run", font=("Arial", 8, "bold"), 
                 background="#F3E5F5", width=7, anchor=tk.E).pack(side=tk.LEFT)
         tk.Label(header_row, text="Gain", font=("Arial", 8, "bold"), 
@@ -3505,20 +3541,33 @@ class ArchaeologySimulatorWindow:
         result_inner.pack(fill=tk.X)
         
         self.budget_dist_label = tk.Label(result_inner, text="—", font=("Arial", 10, "bold"), 
-                                         background="#E1BEE7", foreground="#4A148C", 
+                                         background="#E1BEE7", foreground="#333333", 
                                          width=14, anchor=tk.W)
         self.budget_dist_label.pack(side=tk.LEFT)
         self.budget_floors_label = tk.Label(result_inner, text="—", font=("Arial", 10, "bold"), 
-                                           background="#E1BEE7", foreground="#2E7D32", 
-                                           width=5, anchor=tk.E)
+                                           background="#E1BEE7", foreground="#333333", 
+                                           width=6, anchor=tk.E)
         self.budget_floors_label.pack(side=tk.LEFT)
         self.budget_xp_label = tk.Label(result_inner, text="—", font=("Arial", 10, "bold"), 
-                                       background="#E1BEE7", foreground="#00838F", 
+                                       background="#E1BEE7", foreground="#333333", 
                                        width=7, anchor=tk.E)
         self.budget_xp_label.pack(side=tk.LEFT)
         self.budget_gain_label = tk.Label(result_inner, text="—", font=("Arial", 10, "bold"), 
                                          background="#E1BEE7", foreground="#2E7D32", anchor=tk.E)
         self.budget_gain_label.pack(side=tk.RIGHT)
+        
+        # Frags/h row (shows selected fragment type from Fragment Farm Planner)
+        budget_frag_row = tk.Frame(budget_inner, background="#F3E5F5")
+        budget_frag_row.pack(fill=tk.X, pady=(3, 0))
+        
+        self.budget_frag_icon_label = tk.Label(budget_frag_row, background="#F3E5F5")
+        self.budget_frag_icon_label.pack(side=tk.LEFT, padx=(0, 3))
+        self.budget_frag_type_label = tk.Label(budget_frag_row, text="Frags/h:", font=("Arial", 8, "bold"), 
+                                              background="#F3E5F5", foreground="#7B1FA2")
+        self.budget_frag_type_label.pack(side=tk.LEFT)
+        self.budget_frag_value_label = tk.Label(budget_frag_row, text="—", font=("Arial", 9, "bold"), 
+                                               background="#F3E5F5", foreground="#7B1FA2")
+        self.budget_frag_value_label.pack(side=tk.LEFT, padx=(5, 0))
         
         # Detailed breakdown row
         breakdown_row = tk.Frame(budget_inner, background="#F3E5F5")
@@ -3578,13 +3627,13 @@ class ArchaeologySimulatorWindow:
                  command=lambda: self._adjust_xp_budget(5)).pack(side=tk.LEFT)
         
         # Header row for results
-        xp_header_row = tk.Frame(xp_budget_inner, background="#B2EBF2")
+        xp_header_row = tk.Frame(xp_budget_inner, background="#B2EBF2", padx=5)
         xp_header_row.pack(fill=tk.X, pady=(5, 0))
         
         tk.Label(xp_header_row, text="Distribution", font=("Arial", 8, "bold"), 
                 background="#B2EBF2", width=14, anchor=tk.W).pack(side=tk.LEFT)
         tk.Label(xp_header_row, text="Floors", font=("Arial", 8, "bold"), 
-                background="#B2EBF2", width=5, anchor=tk.E).pack(side=tk.LEFT)
+                background="#B2EBF2", width=6, anchor=tk.E).pack(side=tk.LEFT)
         tk.Label(xp_header_row, text="XP/Run", font=("Arial", 8, "bold"), 
                 background="#B2EBF2", width=7, anchor=tk.E).pack(side=tk.LEFT)
         tk.Label(xp_header_row, text="Gain", font=("Arial", 8, "bold"), 
@@ -3598,20 +3647,33 @@ class ArchaeologySimulatorWindow:
         xp_result_inner.pack(fill=tk.X)
         
         self.xp_budget_dist_label = tk.Label(xp_result_inner, text="—", font=("Arial", 10, "bold"), 
-                                            background="#80DEEA", foreground="#006064", 
+                                            background="#80DEEA", foreground="#333333", 
                                             width=14, anchor=tk.W)
         self.xp_budget_dist_label.pack(side=tk.LEFT)
         self.xp_budget_floors_label = tk.Label(xp_result_inner, text="—", font=("Arial", 10, "bold"), 
-                                              background="#80DEEA", foreground="#7B1FA2", 
-                                              width=5, anchor=tk.E)
+                                              background="#80DEEA", foreground="#333333", 
+                                              width=6, anchor=tk.E)
         self.xp_budget_floors_label.pack(side=tk.LEFT)
         self.xp_budget_xp_label = tk.Label(xp_result_inner, text="—", font=("Arial", 10, "bold"), 
-                                          background="#80DEEA", foreground="#2E7D32", 
+                                          background="#80DEEA", foreground="#333333", 
                                           width=7, anchor=tk.E)
         self.xp_budget_xp_label.pack(side=tk.LEFT)
         self.xp_budget_gain_label = tk.Label(xp_result_inner, text="—", font=("Arial", 10, "bold"), 
                                             background="#80DEEA", foreground="#2E7D32", anchor=tk.E)
         self.xp_budget_gain_label.pack(side=tk.RIGHT)
+        
+        # Frags/h row (shows selected fragment type from Fragment Farm Planner)
+        xp_budget_frag_row = tk.Frame(xp_budget_inner, background="#B2EBF2")
+        xp_budget_frag_row.pack(fill=tk.X, pady=(3, 0))
+        
+        self.xp_budget_frag_icon_label = tk.Label(xp_budget_frag_row, background="#B2EBF2")
+        self.xp_budget_frag_icon_label.pack(side=tk.LEFT, padx=(0, 3))
+        self.xp_budget_frag_type_label = tk.Label(xp_budget_frag_row, text="Frags/h:", font=("Arial", 8, "bold"), 
+                                                 background="#B2EBF2", foreground="#7B1FA2")
+        self.xp_budget_frag_type_label.pack(side=tk.LEFT)
+        self.xp_budget_frag_value_label = tk.Label(xp_budget_frag_row, text="—", font=("Arial", 9, "bold"), 
+                                                  background="#B2EBF2", foreground="#7B1FA2")
+        self.xp_budget_frag_value_label.pack(side=tk.LEFT, padx=(5, 0))
         
         # Detailed breakdown row
         xp_breakdown_row = tk.Frame(xp_budget_inner, background="#B2EBF2")
@@ -3622,6 +3684,142 @@ class ArchaeologySimulatorWindow:
         self.xp_budget_breakdown_label = tk.Label(xp_breakdown_row, text="—", font=("Arial", 8), 
                                                  background="#B2EBF2", foreground="#333333")
         self.xp_budget_breakdown_label.pack(side=tk.LEFT, padx=(3, 0))
+        
+        ttk.Separator(col_frame, orient='horizontal').pack(fill=tk.X, pady=5, padx=5)
+        
+        # === FRAGMENT FARM PLANNER ===
+        frag_planner_header = tk.Frame(col_frame, background="#F3E5F5")
+        frag_planner_header.pack(fill=tk.X, padx=5)
+        
+        tk.Label(frag_planner_header, text="Fragment Farm Planner", font=("Arial", 10, "bold"), 
+                background="#F3E5F5", foreground="#7B1FA2").pack(side=tk.LEFT)
+        
+        frag_planner_help = tk.Label(frag_planner_header, text="?", font=("Arial", 9, "bold"), 
+                                    cursor="hand2", foreground="#7B1FA2", background="#F3E5F5")
+        frag_planner_help.pack(side=tk.LEFT, padx=(5, 0))
+        self._create_frag_planner_help_tooltip(frag_planner_help)
+        
+        # Fragment planner frame
+        frag_planner_frame = tk.Frame(col_frame, background="#EDE7F6", relief=tk.GROOVE, borderwidth=1)
+        frag_planner_frame.pack(fill=tk.X, padx=5, pady=(3, 5))
+        
+        frag_planner_inner = tk.Frame(frag_planner_frame, background="#EDE7F6", padx=8, pady=5)
+        frag_planner_inner.pack(fill=tk.X)
+        
+        # Target fragment type selection
+        target_row = tk.Frame(frag_planner_inner, background="#EDE7F6")
+        target_row.pack(fill=tk.X, pady=(0, 5))
+        
+        tk.Label(target_row, text="Target:", font=("Arial", 9, "bold"), 
+                background="#EDE7F6").pack(side=tk.LEFT)
+        
+        self.frag_target_var = tk.StringVar(value="common")
+        frag_types = ['common', 'rare', 'epic', 'legendary', 'mythic']
+        type_colors = {
+            'common': '#808080', 'rare': '#4169E1', 'epic': '#9932CC',
+            'legendary': '#FFD700', 'mythic': '#FF4500'
+        }
+        
+        self.frag_target_buttons = {}
+        for frag_type in frag_types:
+            color = type_colors.get(frag_type, '#888888')
+            btn = tk.Label(target_row, text=frag_type[:3].upper(), font=("Arial", 8, "bold"),
+                          foreground=color, background="#EDE7F6", cursor="hand2",
+                          padx=4, relief=tk.RAISED, borderwidth=1)
+            btn.pack(side=tk.LEFT, padx=2)
+            btn.bind("<Button-1>", lambda e, ft=frag_type: self._set_frag_target(ft))
+            self.frag_target_buttons[frag_type] = btn
+        
+        # Budget row
+        budget_row = tk.Frame(frag_planner_inner, background="#EDE7F6")
+        budget_row.pack(fill=tk.X, pady=3)
+        
+        tk.Label(budget_row, text="Points:", font=("Arial", 9), 
+                background="#EDE7F6").pack(side=tk.LEFT)
+        
+        self.frag_budget_points = tk.IntVar(value=20)
+        
+        tk.Button(budget_row, text="-5", width=2, font=("Arial", 7),
+                 command=lambda: self._adjust_frag_budget(-5)).pack(side=tk.LEFT, padx=1)
+        tk.Button(budget_row, text="-", width=2, font=("Arial", 7),
+                 command=lambda: self._adjust_frag_budget(-1)).pack(side=tk.LEFT, padx=1)
+        
+        self.frag_budget_points_label = tk.Label(budget_row, text="20", font=("Arial", 9, "bold"),
+                                                 background="#EDE7F6", width=3)
+        self.frag_budget_points_label.pack(side=tk.LEFT, padx=3)
+        
+        tk.Button(budget_row, text="+", width=2, font=("Arial", 7),
+                 command=lambda: self._adjust_frag_budget(1)).pack(side=tk.LEFT, padx=1)
+        tk.Button(budget_row, text="+5", width=2, font=("Arial", 7),
+                 command=lambda: self._adjust_frag_budget(5)).pack(side=tk.LEFT, padx=1)
+        
+        # Result row 1: Best distribution
+        result_row1 = tk.Frame(frag_planner_inner, background="#EDE7F6")
+        result_row1.pack(fill=tk.X, pady=2)
+        
+        tk.Label(result_row1, text="Best:", font=("Arial", 9), 
+                background="#EDE7F6").pack(side=tk.LEFT)
+        self.frag_planner_dist_label = tk.Label(result_row1, text="—", font=("Arial", 9, "bold"),
+                                               background="#EDE7F6", foreground="#7B1FA2")
+        self.frag_planner_dist_label.pack(side=tk.LEFT, padx=(5, 0))
+        
+        # Result row 2: Frags/h and Stages/Run
+        result_row2 = tk.Frame(frag_planner_inner, background="#EDE7F6")
+        result_row2.pack(fill=tk.X, pady=2)
+        
+        tk.Label(result_row2, text="Frags/h:", font=("Arial", 9), 
+                background="#EDE7F6").pack(side=tk.LEFT)
+        self.frag_planner_result_label = tk.Label(result_row2, text="—", font=("Arial", 9, "bold"),
+                                                  background="#EDE7F6", foreground="#2E7D32")
+        self.frag_planner_result_label.pack(side=tk.LEFT, padx=(3, 10))
+        
+        tk.Label(result_row2, text="Stages:", font=("Arial", 9), 
+                background="#EDE7F6").pack(side=tk.LEFT)
+        self.frag_planner_stages_label = tk.Label(result_row2, text="—", font=("Arial", 9, "bold"),
+                                                  background="#EDE7F6", foreground="#1976D2")
+        self.frag_planner_stages_label.pack(side=tk.LEFT, padx=(3, 0))
+        
+        # Result row 3: XP/h and Gain
+        result_row3 = tk.Frame(frag_planner_inner, background="#EDE7F6")
+        result_row3.pack(fill=tk.X, pady=2)
+        
+        tk.Label(result_row3, text="XP/h:", font=("Arial", 9), 
+                background="#EDE7F6").pack(side=tk.LEFT)
+        self.frag_planner_xp_label = tk.Label(result_row3, text="—", font=("Arial", 9, "bold"),
+                                             background="#EDE7F6", foreground="#FF6F00")
+        self.frag_planner_xp_label.pack(side=tk.LEFT, padx=(3, 10))
+        
+        tk.Label(result_row3, text="Gain:", font=("Arial", 9), 
+                background="#EDE7F6", foreground="#555555").pack(side=tk.LEFT)
+        self.frag_planner_gain_label = tk.Label(result_row3, text="—", font=("Arial", 9, "bold"),
+                                               background="#EDE7F6", foreground="#2E7D32")
+        self.frag_planner_gain_label.pack(side=tk.LEFT, padx=(3, 0))
+        
+        # Initialize target button highlight
+        self._update_frag_target_buttons()
+    
+    def _set_frag_target(self, frag_type):
+        """Set the target fragment type and recalculate all planners"""
+        self.frag_target_var.set(frag_type)
+        self._update_frag_target_buttons()
+        # Update all planners since they show this fragment type
+        self.update_budget_display()
+    
+    def _update_frag_target_buttons(self):
+        """Update visual state of fragment target buttons"""
+        current = self.frag_target_var.get()
+        for frag_type, btn in self.frag_target_buttons.items():
+            if frag_type == current:
+                btn.config(relief=tk.SUNKEN, background="#D1C4E9")
+            else:
+                btn.config(relief=tk.RAISED, background="#EDE7F6")
+    
+    def _adjust_frag_budget(self, delta: int):
+        """Adjust the fragment budget points and recalculate"""
+        new_val = max(1, min(100, self.frag_budget_points.get() + delta))
+        self.frag_budget_points.set(new_val)
+        self.frag_budget_points_label.config(text=str(new_val))
+        self.update_frag_planner_display()
     
     def _adjust_xp_budget(self, delta: int):
         """Adjust the XP budget points and recalculate"""
@@ -3629,6 +3827,63 @@ class ArchaeologySimulatorWindow:
         self.xp_budget_points.set(new_val)
         self.xp_budget_points_label.config(text=str(new_val))
         self.update_xp_budget_display()
+    
+    def _create_frag_planner_help_tooltip(self, widget):
+        """Creates a tooltip explaining the Fragment Farm Planner feature"""
+        def on_enter(event):
+            tooltip = tk.Toplevel()
+            tooltip.wm_overrideredirect(True)
+            
+            tooltip_width = 320
+            tooltip_height = 340
+            screen_width = tooltip.winfo_screenwidth()
+            screen_height = tooltip.winfo_screenheight()
+            x, y = calculate_tooltip_position(event, tooltip_width, tooltip_height, screen_width, screen_height)
+            tooltip.wm_geometry(f"+{x}+{y}")
+            
+            outer_frame = tk.Frame(tooltip, background="#7B1FA2", relief=tk.FLAT)
+            outer_frame.pack(padx=2, pady=2)
+            
+            inner_frame = tk.Frame(outer_frame, background="#FFFFFF")
+            inner_frame.pack(padx=1, pady=1)
+            
+            content = tk.Frame(inner_frame, background="#FFFFFF", padx=10, pady=8)
+            content.pack()
+            
+            tk.Label(content, text="Fragment Farm Planner", font=("Arial", 10, "bold"),
+                    background="#FFFFFF", foreground="#7B1FA2").pack(anchor="w")
+            
+            lines = [
+                "",
+                "Optimize skill points for fragment farming.",
+                "",
+                "Select your target fragment type, then see",
+                "the optimal skill distribution to maximize",
+                "that specific fragment's income per hour.",
+                "",
+                "Key stats for fragment farming:",
+                "  - PER: +4% Fragment Multiplier",
+                "  - PER: +0.3% Loot Mod Chance",
+                "  - LUK: +0.2% Loot Mod Chance",
+                "  - AGI/STR: More floors = more drops",
+                "",
+                "Different fragments may favor different",
+                "builds depending on which blocks drop them.",
+            ]
+            
+            for line in lines:
+                tk.Label(content, text=line, font=("Arial", 9),
+                        background="#FFFFFF", justify=tk.LEFT).pack(anchor="w")
+            
+            widget.tooltip = tooltip
+        
+        def on_leave(event):
+            if hasattr(widget, 'tooltip'):
+                widget.tooltip.destroy()
+                del widget.tooltip
+        
+        widget.bind("<Enter>", on_enter)
+        widget.bind("<Leave>", on_leave)
     
     def _create_xp_budget_help_tooltip(self, widget):
         """Creates a tooltip explaining the XP Budget Planner feature"""
@@ -3761,7 +4016,7 @@ class ArchaeologySimulatorWindow:
         self.update_forecast_display()
     
     def _create_forecast_help_tooltip(self, widget):
-        """Creates a tooltip explaining the Skill Forecast feature"""
+        """Creates a tooltip explaining the Stage Rushing Planner feature"""
         def on_enter(event):
             tooltip = tk.Toplevel()
             tooltip.wm_overrideredirect(True)
@@ -3782,7 +4037,7 @@ class ArchaeologySimulatorWindow:
             content_frame = tk.Frame(inner_frame, background="#FFFFFF", padx=10, pady=8)
             content_frame.pack()
             
-            tk.Label(content_frame, text="Skill Forecast", 
+            tk.Label(content_frame, text="Stage Rushing Planner", 
                     font=("Arial", 10, "bold"), foreground="#1976D2", 
                     background="#FFFFFF").pack(anchor=tk.W)
             
@@ -3827,14 +4082,20 @@ class ArchaeologySimulatorWindow:
             tooltip = tk.Toplevel()
             tooltip.wm_overrideredirect(True)
             
-            x = event.x_root + 15
-            y = event.y_root + 10
+            tooltip_width = 300
+            tooltip_height = 280
+            screen_width = tooltip.winfo_screenwidth()
+            screen_height = tooltip.winfo_screenheight()
+            x, y = calculate_tooltip_position(event, tooltip_width, tooltip_height, screen_width, screen_height)
             tooltip.wm_geometry(f"+{x}+{y}")
             
-            frame = tk.Frame(tooltip, background="#FFFFFF", relief=tk.SOLID, borderwidth=1)
-            frame.pack()
+            outer_frame = tk.Frame(tooltip, background="#7B1FA2", relief=tk.FLAT)
+            outer_frame.pack(padx=2, pady=2)
             
-            content = tk.Frame(frame, background="#FFFFFF", padx=10, pady=8)
+            inner_frame = tk.Frame(outer_frame, background="#FFFFFF")
+            inner_frame.pack(padx=1, pady=1)
+            
+            content = tk.Frame(inner_frame, background="#FFFFFF", padx=10, pady=8)
             content.pack()
             
             tk.Label(content, text="Fragments / Hour", font=("Arial", 10, "bold"),
@@ -3876,14 +4137,20 @@ class ArchaeologySimulatorWindow:
             tooltip = tk.Toplevel()
             tooltip.wm_overrideredirect(True)
             
-            x = event.x_root + 15
-            y = event.y_root + 10
+            tooltip_width = 300
+            tooltip_height = 320
+            screen_width = tooltip.winfo_screenwidth()
+            screen_height = tooltip.winfo_screenheight()
+            x, y = calculate_tooltip_position(event, tooltip_width, tooltip_height, screen_width, screen_height)
             tooltip.wm_geometry(f"+{x}+{y}")
             
-            frame = tk.Frame(tooltip, background="#FFFFFF", relief=tk.SOLID, borderwidth=1)
-            frame.pack()
+            outer_frame = tk.Frame(tooltip, background="#2E7D32", relief=tk.FLAT)
+            outer_frame.pack(padx=2, pady=2)
             
-            content = tk.Frame(frame, background="#FFFFFF", padx=10, pady=8)
+            inner_frame = tk.Frame(outer_frame, background="#FFFFFF")
+            inner_frame.pack(padx=1, pady=1)
+            
+            content = tk.Frame(inner_frame, background="#FFFFFF", padx=10, pady=8)
             content.pack()
             
             tk.Label(content, text="Level Up Timer", font=("Arial", 10, "bold"),
@@ -4055,22 +4322,25 @@ class ArchaeologySimulatorWindow:
     
     def _update_card_buttons(self):
         """Update the visual state of all card buttons based on current card levels"""
-        for block_type, labels in self.breakpoint_labels.items():
+        if not hasattr(self, 'card_labels'):
+            return
+        
+        for block_type, labels in self.card_labels.items():
             card_level = self.block_cards.get(block_type, 0)
             card_btn = labels.get('card_btn')
             gilded_btn = labels.get('gilded_btn')
             
             if card_btn:
                 if card_level == 1:
-                    card_btn.config(foreground="#FFFFFF", background="#4CAF50")  # Active green
+                    card_btn.config(foreground="#FFFFFF", background="#4CAF50", relief=tk.SUNKEN)
                 else:
-                    card_btn.config(foreground="#888888", background="#FFF3E0")  # Inactive
+                    card_btn.config(foreground="#888888", background="#E8F5E9", relief=tk.RAISED)
             
             if gilded_btn:
                 if card_level == 2:
-                    gilded_btn.config(foreground="#FFFFFF", background="#FFD700")  # Active gold
+                    gilded_btn.config(foreground="#FFFFFF", background="#FFD700", relief=tk.SUNKEN)
                 else:
-                    gilded_btn.config(foreground="#888888", background="#FFF3E0")  # Inactive
+                    gilded_btn.config(foreground="#888888", background="#E8F5E9", relief=tk.RAISED)
     
     def _calculate_gilded_improvement(self, block_type, stats, spawn_rate):
         """
@@ -4670,11 +4940,17 @@ class ArchaeologySimulatorWindow:
         # This uses the same algorithm as forecast
         result = self.calculate_forecast(budget)
         
-        # Also calculate XP for this distribution for comparison
-        # Temporarily apply the distribution to calculate XP
+        # Also calculate XP and frags for this distribution for comparison
+        # Temporarily apply the distribution
         for skill, points in result['distribution'].items():
             self.skill_points[skill] += points
-        xp_with_floors_build = self.calculate_xp_per_run(self.get_total_stats(), self.current_stage)
+        
+        new_stats = self.get_total_stats()
+        xp_with_floors_build = self.calculate_xp_per_run(new_stats, self.current_stage)
+        frags_with_build = self.calculate_fragments_per_run(new_stats, self.current_stage)
+        run_duration = self.calculate_run_duration(new_stats, self.current_stage)
+        runs_per_hour = 3600 / run_duration if run_duration > 0 else 0
+        
         for skill, points in result['distribution'].items():
             self.skill_points[skill] -= points
         
@@ -4684,6 +4960,21 @@ class ArchaeologySimulatorWindow:
         self.budget_floors_label.config(text=f"{result['floors_per_run']:.2f}")
         self.budget_xp_label.config(text=f"{xp_with_floors_build:.2f}")
         self.budget_gain_label.config(text=f"+{result['improvement_pct']:.1f}%")
+        
+        # Update frags/h display based on selected fragment type from Fragment Farm Planner
+        if hasattr(self, 'frag_target_var'):
+            target_frag = self.frag_target_var.get()
+            frag_per_hour = frags_with_build.get(target_frag, 0) * runs_per_hour
+            
+            # Update icon
+            if hasattr(self, 'fragment_icons') and target_frag in self.fragment_icons:
+                self.budget_frag_icon_label.config(image=self.fragment_icons[target_frag])
+            else:
+                self.budget_frag_icon_label.config(image='')
+            
+            # Update label text with fragment type (neutral colors since icon distinguishes)
+            self.budget_frag_type_label.config(text=f"{target_frag.capitalize()}/h:", foreground="#555555")
+            self.budget_frag_value_label.config(text=f"{frag_per_hour:.3f}", foreground="#333333")
         
         # Detailed breakdown showing exact values
         abbrev = {'strength': 'STR', 'agility': 'AGI', 'intellect': 'INT', 'perception': 'PER', 'luck': 'LUK'}
@@ -4710,11 +5001,17 @@ class ArchaeologySimulatorWindow:
         # Calculate optimal distribution for XP (not floors)
         result = self.calculate_xp_forecast(budget)
         
-        # Also calculate floors for this distribution for comparison
-        # Temporarily apply the distribution to calculate floors
+        # Also calculate floors and frags for this distribution for comparison
+        # Temporarily apply the distribution
         for skill, points in result['distribution'].items():
             self.skill_points[skill] += points
-        floors_with_xp_build = self.calculate_floors_per_run(self.get_total_stats(), self.current_stage)
+        
+        new_stats = self.get_total_stats()
+        floors_with_xp_build = self.calculate_floors_per_run(new_stats, self.current_stage)
+        frags_with_build = self.calculate_fragments_per_run(new_stats, self.current_stage)
+        run_duration = self.calculate_run_duration(new_stats, self.current_stage)
+        runs_per_hour = 3600 / run_duration if run_duration > 0 else 0
+        
         for skill, points in result['distribution'].items():
             self.skill_points[skill] -= points
         
@@ -4724,6 +5021,21 @@ class ArchaeologySimulatorWindow:
         self.xp_budget_floors_label.config(text=f"{floors_with_xp_build:.2f}")
         self.xp_budget_xp_label.config(text=f"{result['xp_per_run']:.2f}")
         self.xp_budget_gain_label.config(text=f"+{result['improvement_pct']:.1f}%")
+        
+        # Update frags/h display based on selected fragment type from Fragment Farm Planner
+        if hasattr(self, 'frag_target_var'):
+            target_frag = self.frag_target_var.get()
+            frag_per_hour = frags_with_build.get(target_frag, 0) * runs_per_hour
+            
+            # Update icon
+            if hasattr(self, 'fragment_icons') and target_frag in self.fragment_icons:
+                self.xp_budget_frag_icon_label.config(image=self.fragment_icons[target_frag])
+            else:
+                self.xp_budget_frag_icon_label.config(image='')
+            
+            # Update label text with fragment type (neutral colors since icon distinguishes)
+            self.xp_budget_frag_type_label.config(text=f"{target_frag.capitalize()}/h:", foreground="#555555")
+            self.xp_budget_frag_value_label.config(text=f"{frag_per_hour:.3f}", foreground="#333333")
         
         # Detailed breakdown showing exact values
         abbrev = {'strength': 'STR', 'agility': 'AGI', 'intellect': 'INT', 'perception': 'PER', 'luck': 'LUK'}
@@ -4736,6 +5048,107 @@ class ArchaeologySimulatorWindow:
         
         breakdown = ', '.join(parts) if parts else "No changes"
         self.xp_budget_breakdown_label.config(text=breakdown)
+        
+        # Update fragment planner too
+        self.update_frag_planner_display()
+    
+    def update_frag_planner_display(self):
+        """Update the Fragment Farm Planner with optimal distribution"""
+        if not hasattr(self, 'frag_planner_dist_label'):
+            return
+        
+        budget = self.frag_budget_points.get()
+        target_frag = self.frag_target_var.get()
+        
+        # Calculate optimal distribution for target fragment
+        result = self.calculate_frag_forecast(budget, target_frag)
+        
+        # Format and display
+        dist_str = self.format_distribution(result['distribution'])
+        self.frag_planner_dist_label.config(text=dist_str)
+        self.frag_planner_result_label.config(text=f"{result['frags_per_hour']:.3f}")
+        self.frag_planner_stages_label.config(text=f"{result['stages_per_run']:.2f}")
+        self.frag_planner_xp_label.config(text=f"{result['xp_per_hour']:.2f}")
+        self.frag_planner_gain_label.config(text=f"+{result['improvement_pct']:.1f}%")
+    
+    def calculate_frag_forecast(self, levels_ahead: int, target_frag_type: str):
+        """
+        Calculate the optimal skill point distribution for maximum fragment income of a specific type.
+        
+        Args:
+            levels_ahead: Number of skill points to allocate
+            target_frag_type: 'common', 'rare', 'epic', 'legendary', or 'mythic'
+        
+        Returns:
+            dict with:
+                - 'distribution': dict of skill -> points to add
+                - 'frags_per_hour': resulting frags/hour for target type
+                - 'stages_per_run': floors cleared per run with this build
+                - 'xp_per_hour': XP earned per hour with this build
+                - 'improvement_pct': percentage improvement
+        """
+        skills = ['strength', 'agility', 'intellect', 'perception', 'luck']
+        
+        # Calculate current frags per hour for target type
+        stats = self.get_total_stats()
+        current_frags = self.calculate_fragments_per_run(stats, self.current_stage)
+        current_floors = self.calculate_floors_per_run(stats, self.current_stage)
+        current_xp = self.calculate_xp_per_run(stats, self.current_stage)
+        run_duration = self.calculate_run_duration(stats, self.current_stage)
+        runs_per_hour = 3600 / run_duration if run_duration > 0 else 0
+        current_frag_per_hour = current_frags.get(target_frag_type, 0) * runs_per_hour
+        current_xp_per_hour = current_xp * runs_per_hour
+        
+        best_result = {
+            'distribution': {s: 0 for s in skills},
+            'frags_per_hour': current_frag_per_hour,
+            'stages_per_run': current_floors,
+            'xp_per_hour': current_xp_per_hour,
+            'improvement_pct': 0.0,
+        }
+        
+        # Generate all possible distributions
+        def generate_distributions(n_points, n_skills):
+            if n_skills == 1:
+                yield (n_points,)
+                return
+            for i in range(n_points + 1):
+                for rest in generate_distributions(n_points - i, n_skills - 1):
+                    yield (i,) + rest
+        
+        best_frag_per_hour = current_frag_per_hour
+        
+        for dist_tuple in generate_distributions(levels_ahead, len(skills)):
+            # Apply distribution temporarily
+            for skill, points in zip(skills, dist_tuple):
+                self.skill_points[skill] += points
+            
+            # Calculate frags with this distribution
+            new_stats = self.get_total_stats()
+            new_frags = self.calculate_fragments_per_run(new_stats, self.current_stage)
+            new_floors = self.calculate_floors_per_run(new_stats, self.current_stage)
+            new_xp = self.calculate_xp_per_run(new_stats, self.current_stage)
+            new_run_duration = self.calculate_run_duration(new_stats, self.current_stage)
+            new_runs_per_hour = 3600 / new_run_duration if new_run_duration > 0 else 0
+            new_frag_per_hour = new_frags.get(target_frag_type, 0) * new_runs_per_hour
+            new_xp_per_hour = new_xp * new_runs_per_hour
+            
+            if new_frag_per_hour > best_frag_per_hour:
+                best_frag_per_hour = new_frag_per_hour
+                best_result['distribution'] = {s: p for s, p in zip(skills, dist_tuple)}
+                best_result['frags_per_hour'] = new_frag_per_hour
+                best_result['stages_per_run'] = new_floors
+                best_result['xp_per_hour'] = new_xp_per_hour
+            
+            # Revert changes
+            for skill, points in zip(skills, dist_tuple):
+                self.skill_points[skill] -= points
+        
+        # Calculate improvement percentage
+        if current_frag_per_hour > 0:
+            best_result['improvement_pct'] = ((best_frag_per_hour - current_frag_per_hour) / current_frag_per_hour) * 100
+        
+        return best_result
     
     def reset_and_update(self):
         self.reset_to_level1()

@@ -21,11 +21,24 @@ from .calculator import (
 )
 
 import sys
+import os
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from ui_utils import calculate_tooltip_position
+from ui_utils import calculate_tooltip_position, get_resource_path
+
+
+def get_user_data_path() -> Path:
+    """Get path for user data (saves) - persists outside of bundle."""
+    if getattr(sys, 'frozen', False):
+        app_data = os.environ.get('APPDATA', os.path.expanduser('~'))
+        save_dir = Path(app_data) / 'ObeliskGemEV' / 'save'
+    else:
+        save_dir = Path(__file__).parent.parent / 'save'
+    save_dir.mkdir(parents=True, exist_ok=True)
+    return save_dir
+
 
 # Save file path
-SAVE_DIR = Path(__file__).parent.parent / "save"
+SAVE_DIR = get_user_data_path()
 SAVE_FILE = SAVE_DIR / "stargazing_save.json"
 
 # Section colors
@@ -50,7 +63,7 @@ class StargazingWindow:
         
         # Set icon
         try:
-            icon_path = Path(__file__).parent.parent / "sprites" / "stargazing" / "stargazing.png"
+            icon_path = get_resource_path("sprites/stargazing/stargazing.png")
             if icon_path.exists():
                 icon_image = Image.open(icon_path)
                 icon_photo = ImageTk.PhotoImage(icon_image)
@@ -64,6 +77,9 @@ class StargazingWindow:
         
         # Initialize state
         self.reset_to_defaults()
+        
+        # Initialize update debouncing
+        self._update_pending = None
         
         # Create widgets
         self.create_widgets()
@@ -126,7 +142,7 @@ class StargazingWindow:
             'super_star_generic': 'super_star.png',
         }
         
-        sprites_dir = Path(__file__).parent.parent / "sprites" / "stargazing"
+        sprites_dir = get_resource_path("sprites/stargazing")
         
         # Load upgrade sprites (18x18)
         for key, filename in sprite_files.items():
@@ -326,7 +342,7 @@ class StargazingWindow:
         title_frame.pack(fill=tk.X, pady=(0, 5))
         
         try:
-            icon_path = Path(__file__).parent.parent / "sprites" / "stargazing" / "stargazing.png"
+            icon_path = get_resource_path("sprites/stargazing/stargazing.png")
             if icon_path.exists():
                 icon_image = Image.open(icon_path)
                 icon_image = icon_image.resize((24, 24), Image.Resampling.LANCZOS)
@@ -443,8 +459,8 @@ class StargazingWindow:
             self.stat_vars[key] = var
             entry = ttk.Entry(row_frame, textvariable=var, width=8, font=("Arial", 10))
             entry.pack(side=tk.LEFT, padx=3)
-            entry.bind('<Return>', lambda e: self.on_stat_changed())
-            entry.bind('<FocusOut>', lambda e: self.on_stat_changed())
+            # Live calculation on any change
+            var.trace_add('write', lambda *args: self._schedule_update())
             self.stat_entries[key] = entry
             
             # Suffix
@@ -473,8 +489,8 @@ class StargazingWindow:
         self.floors_var = tk.StringVar(value=str(self.floors_cleared))
         floors_entry = ttk.Entry(floor_frame, textvariable=self.floors_var, width=8, font=("Arial", 10))
         floors_entry.pack(side=tk.LEFT, padx=3)
-        floors_entry.bind('<Return>', lambda e: self.on_floor_time_changed())
-        floors_entry.bind('<FocusOut>', lambda e: self.on_floor_time_changed())
+        # Live calculation on any change
+        self.floors_var.trace_add('write', lambda *args: self._schedule_update())
         
         # Time input (h m s)
         time_frame = tk.Frame(stats_frame, background=COLOR_STATS)
@@ -486,24 +502,21 @@ class StargazingWindow:
         self.time_h_var = tk.StringVar(value=str(self.time_hours))
         h_entry = ttk.Entry(time_frame, textvariable=self.time_h_var, width=3, font=("Arial", 10))
         h_entry.pack(side=tk.LEFT)
-        h_entry.bind('<Return>', lambda e: self.on_floor_time_changed())
-        h_entry.bind('<FocusOut>', lambda e: self.on_floor_time_changed())
+        self.time_h_var.trace_add('write', lambda *args: self._schedule_update())
         tk.Label(time_frame, text="h", background=COLOR_STATS, font=("Arial", 9)).pack(side=tk.LEFT, padx=(1, 5))
         
         # Minutes
         self.time_m_var = tk.StringVar(value=str(self.time_minutes))
         m_entry = ttk.Entry(time_frame, textvariable=self.time_m_var, width=3, font=("Arial", 10))
         m_entry.pack(side=tk.LEFT)
-        m_entry.bind('<Return>', lambda e: self.on_floor_time_changed())
-        m_entry.bind('<FocusOut>', lambda e: self.on_floor_time_changed())
+        self.time_m_var.trace_add('write', lambda *args: self._schedule_update())
         tk.Label(time_frame, text="m", background=COLOR_STATS, font=("Arial", 9)).pack(side=tk.LEFT, padx=(1, 5))
         
         # Seconds
         self.time_s_var = tk.StringVar(value=str(self.time_seconds))
         s_entry = ttk.Entry(time_frame, textvariable=self.time_s_var, width=3, font=("Arial", 10))
         s_entry.pack(side=tk.LEFT)
-        s_entry.bind('<Return>', lambda e: self.on_floor_time_changed())
-        s_entry.bind('<FocusOut>', lambda e: self.on_floor_time_changed())
+        self.time_s_var.trace_add('write', lambda *args: self._schedule_update())
         tk.Label(time_frame, text="s", background=COLOR_STATS, font=("Arial", 9)).pack(side=tk.LEFT, padx=(1, 0))
         
         # Calculated floors/hour display
@@ -857,6 +870,54 @@ class StargazingWindow:
     def on_star_owned_changed(self, key):
         """Handle star owned toggle"""
         self.stars_owned[key] = self.star_owned_vars[key].get()
+        self.update_calculations()
+    
+    def _schedule_update(self):
+        """Schedule an update with debouncing to avoid excessive recalculations"""
+        # Cancel any pending update
+        if hasattr(self, '_update_pending') and self._update_pending:
+            self.window.after_cancel(self._update_pending)
+        
+        # Schedule new update after 50ms delay (debounce)
+        self._update_pending = self.window.after(50, self._do_live_update)
+    
+    def _do_live_update(self):
+        """Perform the actual live update"""
+        self._update_pending = None
+        
+        # Update stats from all inputs
+        try:
+            for key, var in self.stat_vars.items():
+                val = var.get().strip()
+                if val:
+                    self.manual_stats[key] = float(val)
+        except (ValueError, AttributeError):
+            pass
+        
+        # Update floor/time values
+        try:
+            floors_str = self.floors_var.get().strip()
+            if floors_str:
+                self.floors_cleared = int(float(floors_str))
+            
+            h_str = self.time_h_var.get().strip()
+            self.time_hours = int(h_str) if h_str else 0
+            
+            m_str = self.time_m_var.get().strip()
+            self.time_minutes = int(m_str) if m_str else 0
+            
+            s_str = self.time_s_var.get().strip()
+            self.time_seconds = int(s_str) if s_str else 0
+            
+            # Calculate floors per hour
+            self._calculate_floors_per_hour()
+            
+            # Update display
+            if hasattr(self, 'floors_per_hour_label'):
+                self.floors_per_hour_label.config(text=f"{self.floor_clears_per_hour:.2f}")
+        except (ValueError, AttributeError):
+            pass
+        
         self.update_calculations()
     
     def on_stat_changed(self):

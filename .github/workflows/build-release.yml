@@ -1,0 +1,61 @@
+# Build and Release ObeliskGemEV executable
+# Triggers on version tags (v*)
+
+name: Build Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r ObeliskGemEV/requirements.txt
+          pip install pyinstaller
+      
+      - name: Extract version from tag
+        id: version
+        shell: bash
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+      
+      - name: Build executable
+        run: python -m PyInstaller ObeliskGemEV.spec --clean
+      
+      - name: List output
+        run: dir dist
+      
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.exe
+          generate_release_notes: true
+          body: |
+            ## ObeliskGemEV v${{ steps.version.outputs.VERSION }}
+            
+            > ⚠️ **Data based on Obelisk Level 30**
+            
+            ### Download
+            Download `ObeliskGemEV_v${{ steps.version.outputs.VERSION }}.exe` below and run it - no installation required!
+            
+            ### What's included
+            - Freebie EV Calculator
+            - Archaeology Simulator
+            - Event Budget Optimizer
+            - Stargazing Optimizer
+            - Lootbug Analyzer
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

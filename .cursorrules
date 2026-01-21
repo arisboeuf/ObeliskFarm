@@ -33,6 +33,7 @@ Before making ANY changes to this project, you MUST:
 - Structure with clear sections
 - Always show value + percentage for contributions
 - Format: `{value:.1f} Gems ({percentage:.1f}%)`
+- **CRITICAL: Screen boundary protection** - All tooltips MUST use `calculate_tooltip_position()` to prevent flying off-screen
 
 **Sprites:**
 - Load from `sprites/` folder
