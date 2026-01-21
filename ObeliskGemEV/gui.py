@@ -31,6 +31,7 @@ from freebie_ev_calculator import FreebieEVCalculator, GameParameters
 from archaeology import ArchaeologySimulatorWindow
 from lootbug import LootbugWindow
 from event import EventSimulatorWindow
+from stargazing import StargazingWindow
 from ui_utils import create_tooltip as _create_tooltip
 
 
@@ -46,7 +47,7 @@ class ObeliskGemEVGUI:
         
         # Icon setzen (gem.png)
         try:
-            icon_path = Path(__file__).parent / "sprites" / "gem.png"
+            icon_path = Path(__file__).parent / "sprites" / "common" / "gem.png"
             if icon_path.exists():
                 icon_image = Image.open(icon_path)
                 icon_photo = ImageTk.PhotoImage(icon_image)
@@ -173,6 +174,9 @@ class ObeliskGemEVGUI:
         # Event-Button daneben
         self.create_event_button(title_frame)
         
+        # Stargazing-Button daneben
+        self.create_stargazing_button(title_frame)
+        
         # Linke Spalte: Parameter
         self.create_parameter_section(main_frame)
         
@@ -276,7 +280,7 @@ class ObeliskGemEVGUI:
         
         # Versuche, das Skill Shard Icon zu laden
         try:
-            skill_shard_icon_path = Path(__file__).parent / "sprites" / "skill_shard.png"
+            skill_shard_icon_path = Path(__file__).parent / "sprites" / "common" / "skill_shard.png"
             if skill_shard_icon_path.exists():
                 skill_shard_image = Image.open(skill_shard_icon_path)
                 skill_shard_image = skill_shard_image.resize((16, 16), Image.Resampling.LANCZOS)
@@ -306,7 +310,7 @@ class ObeliskGemEVGUI:
         
         # Versuche, das Stonks Icon zu laden
         try:
-            stonks_icon_path = Path(__file__).parent / "sprites" / "stonks_tree.png"
+            stonks_icon_path = Path(__file__).parent / "sprites" / "common" / "stonks_tree.png"
             if stonks_icon_path.exists():
                 stonks_image = Image.open(stonks_icon_path)
                 stonks_image = stonks_image.resize((20, 20), Image.Resampling.LANCZOS)
@@ -503,7 +507,7 @@ class ObeliskGemEVGUI:
         
         # Versuche, das Bomb Icon zu laden
         try:
-            bomb_icon_path = Path(__file__).parent / "sprites" / "founderbomb.png"
+            bomb_icon_path = Path(__file__).parent / "sprites" / "event" / "founderbomb.png"
             if bomb_icon_path.exists():
                 bomb_image = Image.open(bomb_icon_path)
                 bomb_image = bomb_image.resize((16, 16), Image.Resampling.LANCZOS)
@@ -542,7 +546,7 @@ class ObeliskGemEVGUI:
         
         # Versuche, das Lootbug-Logo zu laden
         try:
-            lootbug_path = Path(__file__).parent / "sprites" / "lootbug.png"
+            lootbug_path = Path(__file__).parent / "sprites" / "lootbug" / "lootbug.png"
             if lootbug_path.exists():
                 # Lade und skaliere das Bild
                 lootbug_image = Image.open(lootbug_path)
@@ -587,7 +591,7 @@ class ObeliskGemEVGUI:
         
         # Try to load archaeology icon
         try:
-            icon_path = Path(__file__).parent / "sprites" / "archaeology.png"
+            icon_path = Path(__file__).parent / "sprites" / "archaeology" / "archaeology.png"
             if icon_path.exists():
                 # Load and scale the image
                 icon_image = Image.open(icon_path)
@@ -641,9 +645,9 @@ class ObeliskGemEVGUI:
     def create_event_button(self, parent):
         """Creates the Event button for the Event Simulator"""
         
-        # Try to load event icon (use gem.png as fallback since no specific event icon exists)
+        # Try to load event icon (valentines event button from wiki)
         try:
-            icon_path = Path(__file__).parent / "sprites" / "gem.png"
+            icon_path = Path(__file__).parent / "sprites" / "event" / "event_button.png"
             if icon_path.exists():
                 # Load and scale the image
                 icon_image = Image.open(icon_path)
@@ -664,7 +668,7 @@ class ObeliskGemEVGUI:
                 # Tooltip for the button
                 self.create_tooltip(
                     event_button,
-                    "Event Simulator\nSimulate bimonthly event runs\nand optimize upgrade paths!"
+                    "Event Simulator\nBudget optimizer for bimonthly events\nwith damage breakpoint analysis!"
                 )
             else:
                 # Fallback: Button with text
@@ -694,6 +698,62 @@ class ObeliskGemEVGUI:
                 f"Error opening Event Simulator:\n{str(e)}"
             )
     
+    def create_stargazing_button(self, parent):
+        """Creates the Stargazing button for the Stargazing Optimizer"""
+        
+        # Try to load stargazing icon
+        try:
+            icon_path = Path(__file__).parent / "sprites" / "stargazing" / "stargazing.png"
+            if icon_path.exists():
+                # Load and scale the image
+                icon_image = Image.open(icon_path)
+                icon_image = icon_image.resize((32, 32), Image.Resampling.LANCZOS)
+                self.stargazing_photo = ImageTk.PhotoImage(icon_image)
+                
+                # Button with image
+                stargazing_button = tk.Button(
+                    parent,
+                    image=self.stargazing_photo,
+                    command=self.open_stargazing,
+                    cursor="hand2",
+                    relief=tk.RAISED,
+                    borderwidth=2
+                )
+                stargazing_button.pack(side=tk.LEFT, padx=(10, 0))
+                
+                # Tooltip for the button
+                self.create_tooltip(
+                    stargazing_button,
+                    "Stargazing Optimizer\nTrack star upgrades and optimize\nyour star/super star income!"
+                )
+            else:
+                # Fallback: Button with text
+                stargazing_button = ttk.Button(
+                    parent,
+                    text="Stargazing",
+                    command=self.open_stargazing
+                )
+                stargazing_button.pack(side=tk.LEFT, padx=(10, 0))
+        except Exception as e:
+            # Fallback: Button with text
+            stargazing_button = ttk.Button(
+                parent,
+                text="Stargazing",
+                command=self.open_stargazing
+            )
+            stargazing_button.pack(side=tk.LEFT, padx=(10, 0))
+    
+    def open_stargazing(self):
+        """Opens the Stargazing Optimizer window"""
+        try:
+            # Open the Stargazing window
+            StargazingWindow(self.root)
+        except Exception as e:
+            messagebox.showerror(
+                "Error",
+                f"Error opening Stargazing Optimizer:\n{str(e)}"
+            )
+
     def open_option_analyzer(self):
         """Öffnet das Option Analyzer Fenster"""
         # Hole aktuelle Parameter und erstelle Calculator

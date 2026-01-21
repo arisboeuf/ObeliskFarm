@@ -30,7 +30,7 @@ class LootbugWindow:
         
         # Set icon (if available)
         try:
-            icon_path = Path(__file__).parent.parent / "sprites" / "lootbug.png"
+            icon_path = Path(__file__).parent.parent / "sprites" / "lootbug" / "lootbug.png"
             if icon_path.exists():
                 icon_image = Image.open(icon_path)
                 icon_photo = ImageTk.PhotoImage(icon_image)
@@ -89,7 +89,7 @@ class LootbugWindow:
         
         # Try to load the 2x Speed icon
         try:
-            speed_icon_path = Path(__file__).parent.parent / "sprites" / "gamespeed2x.png"
+            speed_icon_path = Path(__file__).parent.parent / "sprites" / "lootbug" / "gamespeed2x.png"
             if speed_icon_path.exists():
                 speed_image = Image.open(speed_icon_path)
                 speed_image = speed_image.resize((32, 32), Image.Resampling.LANCZOS)

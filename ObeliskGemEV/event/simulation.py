@@ -40,7 +40,7 @@ def apply_upgrades(upgrades: Dict[int, List[int]], player: PlayerStats,
         p.health += 2 * u[1]  # +2 Max Hp
         p.atk_speed += 0.02 * u[2]  # +0.02 Atk Spd
         p.walk_speed += 0.03 * u[3]  # +0.03 Move Spd
-        p.game_speed += 0.02 * u[4]  # +2% Event Game Spd
+        p.game_speed += 0.03 * u[4]  # +3% Event Game Spd (wiki verified)
         p.crit += u[5]  # +1% Crit Chance
         p.crit_dmg += 0.1 * u[5]  # +0.10 Crit Dmg
         p.atk += u[6]  # +1 Atk Dmg
@@ -69,7 +69,7 @@ def apply_upgrades(upgrades: Dict[int, List[int]], player: PlayerStats,
         p.atk += 2 * u[0]  # +2 Atk Dmg
         p.atk_speed += 0.02 * u[1]  # +0.02 Atk Spd
         p.crit += u[2]  # +1% Crit Chance
-        p.game_speed += 0.03 * u[3]  # +3% Event Game Spd
+        p.game_speed += 0.05 * u[3]  # +5% Event Game Spd (wiki verified)
         p.atk += 3 * u[4]  # +3 Atk Dmg
         p.health += 3 * u[4]  # +3 Max Hp
         # u[5] is cap upgrade (no direct stat effect)
@@ -242,6 +242,231 @@ def calculate_materials(wave: int, player: PlayerStats) -> Tuple[float, float, f
 def get_highest_wave_killed_in_x_hits(player: PlayerStats, enemy: EnemyStats, hits: int) -> int:
     """Calculate the highest wave where enemies can be killed in x hits"""
     return int((hits * player.atk - enemy.base_health) / enemy.health_scaling)
+
+
+def calculate_hits_to_kill(player_atk: float, enemy_hp: float) -> int:
+    """Calculate how many hits needed to kill an enemy (without crits)
+    
+    Args:
+        player_atk: Player attack damage
+        enemy_hp: Enemy health points
+    
+    Returns:
+        Number of hits needed (minimum 1)
+    """
+    import math
+    return max(1, math.ceil(enemy_hp / player_atk))
+
+
+def get_enemy_hp_at_wave(enemy: EnemyStats, wave: int) -> int:
+    """Get enemy HP at a specific wave"""
+    return enemy.base_health + enemy.health_scaling * wave
+
+
+def calculate_damage_breakpoints(player: PlayerStats, enemy: EnemyStats, 
+                                  target_wave: int = None, max_breakpoints: int = 10) -> List[Dict]:
+    """
+    Calculate damage breakpoints for event enemies.
+    
+    A breakpoint is the minimum ATK needed to kill enemies in fewer hits.
+    Unlike archaeology, reaching a breakpoint does NOT save HP because
+    the next enemy inherits the attack progress of the previous one.
+    
+    However, breakpoints DO affect:
+    - Total time (fewer hits = faster kills = more waves per second)
+    - Required HP (fewer total enemy attacks over time)
+    
+    Args:
+        player: Player stats (uses player.atk for current damage)
+        enemy: Enemy stats (base_health, health_scaling)
+        target_wave: Optional specific wave to calculate for (default: use player stats)
+        max_breakpoints: Maximum number of breakpoints to return
+    
+    Returns:
+        List of breakpoint dicts with:
+        - wave: The wave number this breakpoint applies to
+        - current_hits: Hits needed with current ATK
+        - target_hits: Hits needed after breakpoint
+        - current_atk: Current player ATK
+        - required_atk: ATK needed for the breakpoint
+        - atk_increase: How much more ATK needed
+        - enemy_hp: Enemy HP at that wave
+        - time_saved_per_enemy: Seconds saved per enemy killed
+    """
+    import math
+    
+    results = []
+    current_atk = player.atk
+    
+    # If no target wave specified, use a reasonable range
+    if target_wave is None:
+        # Calculate wave range based on current stats
+        # Start from wave 1 and go up to where we need many hits
+        start_wave = 1
+        end_wave = 100  # Look ahead a bit
+    else:
+        start_wave = max(1, target_wave - 5)
+        end_wave = target_wave + 5
+    
+    seen_breakpoints = set()  # Track unique (wave, target_hits) pairs
+    
+    for wave in range(start_wave, end_wave + 1):
+        enemy_hp = get_enemy_hp_at_wave(enemy, wave)
+        current_hits = calculate_hits_to_kill(current_atk, enemy_hp)
+        
+        if current_hits <= 1:
+            continue  # Already one-shotting, no breakpoint possible
+        
+        # Calculate the next breakpoint: ATK needed for one fewer hit
+        target_hits = current_hits - 1
+        
+        # Required ATK to kill in target_hits: ceil(enemy_hp / atk) = target_hits
+        # => enemy_hp / atk <= target_hits
+        # => atk >= enemy_hp / target_hits
+        required_atk = math.ceil(enemy_hp / target_hits)
+        atk_increase = required_atk - current_atk
+        
+        if atk_increase <= 0:
+            continue  # Already at or past this breakpoint
+        
+        # Calculate time saved per enemy
+        # Time per hit = default_atk_time / atk_speed
+        time_per_hit = player.default_atk_time / player.atk_speed
+        time_saved = time_per_hit  # Save one hit worth of time
+        
+        # Create unique key
+        bp_key = (wave, target_hits, required_atk)
+        if bp_key in seen_breakpoints:
+            continue
+        seen_breakpoints.add(bp_key)
+        
+        results.append({
+            'wave': wave,
+            'enemy_hp': enemy_hp,
+            'current_hits': current_hits,
+            'target_hits': target_hits,
+            'current_atk': current_atk,
+            'required_atk': required_atk,
+            'atk_increase': atk_increase,
+            'time_saved_per_enemy': time_saved,
+            # Time saved per wave (5 enemies per wave)
+            'time_saved_per_wave': time_saved * 5,
+        })
+        
+        if len(results) >= max_breakpoints:
+            break
+    
+    # Sort by ATK increase (easiest breakpoints first)
+    results.sort(key=lambda x: x['atk_increase'])
+    
+    return results[:max_breakpoints]
+
+
+def calculate_breakpoint_efficiency(breakpoints: List[Dict], player: PlayerStats, 
+                                     enemy: EnemyStats, target_wave: int) -> List[Dict]:
+    """
+    Calculate efficiency of each breakpoint.
+    
+    Efficiency = cumulative time saved from current wave to target wave
+    divided by the ATK investment needed.
+    
+    Args:
+        breakpoints: List of breakpoint dicts from calculate_damage_breakpoints
+        player: Player stats
+        enemy: Enemy stats
+        target_wave: The wave the player is trying to reach
+    
+    Returns:
+        Breakpoints with added efficiency metrics
+    """
+    results = []
+    
+    for bp in breakpoints:
+        # Calculate cumulative time saved from bp['wave'] to target_wave
+        # For each wave at or above bp['wave'] where we'd benefit from fewer hits
+        total_time_saved = 0.0
+        waves_affected = 0
+        
+        for wave in range(bp['wave'], target_wave + 1):
+            enemy_hp = get_enemy_hp_at_wave(enemy, wave)
+            current_hits = calculate_hits_to_kill(bp['current_atk'], enemy_hp)
+            new_hits = calculate_hits_to_kill(bp['required_atk'], enemy_hp)
+            
+            if new_hits < current_hits:
+                hits_saved = current_hits - new_hits
+                time_per_hit = player.default_atk_time / player.atk_speed
+                total_time_saved += hits_saved * time_per_hit * 5  # 5 enemies per wave
+                waves_affected += 1
+        
+        # Efficiency = time saved per ATK point invested
+        efficiency = total_time_saved / bp['atk_increase'] if bp['atk_increase'] > 0 else 0
+        
+        bp_with_eff = bp.copy()
+        bp_with_eff['total_time_saved'] = total_time_saved
+        bp_with_eff['waves_affected'] = waves_affected
+        bp_with_eff['efficiency'] = efficiency
+        bp_with_eff['target_wave'] = target_wave
+        
+        results.append(bp_with_eff)
+    
+    # Sort by efficiency (best first)
+    results.sort(key=lambda x: -x['efficiency'])
+    
+    return results
+
+
+def get_atk_breakpoint_table(enemy: EnemyStats, max_wave: int = 50, max_hits: int = 10) -> Dict[int, List[int]]:
+    """
+    Generate a table showing ATK required to kill enemies in X hits at each wave.
+    
+    Args:
+        enemy: Enemy stats
+        max_wave: Maximum wave to calculate for
+        max_hits: Maximum number of hits to show
+    
+    Returns:
+        Dict mapping hits -> list of (wave, required_atk) tuples
+        Example: {1: [(1, 11), (2, 18), ...], 2: [(1, 6), (2, 9), ...]}
+    """
+    import math
+    
+    result = {}
+    
+    for hits in range(1, max_hits + 1):
+        result[hits] = []
+        for wave in range(1, max_wave + 1):
+            enemy_hp = get_enemy_hp_at_wave(enemy, wave)
+            required_atk = math.ceil(enemy_hp / hits)
+            result[hits].append((wave, required_atk))
+    
+    return result
+
+
+def find_best_breakpoint_for_budget(player: PlayerStats, enemy: EnemyStats,
+                                     available_atk_increase: int, target_wave: int) -> Dict:
+    """
+    Find the best breakpoint that can be reached with a given ATK budget.
+    
+    Args:
+        player: Current player stats
+        enemy: Enemy stats
+        available_atk_increase: How much ATK can be added
+        target_wave: The wave trying to reach
+    
+    Returns:
+        Best breakpoint dict, or None if no breakpoint reachable
+    """
+    breakpoints = calculate_damage_breakpoints(player, enemy, target_wave, max_breakpoints=20)
+    breakpoints_with_eff = calculate_breakpoint_efficiency(breakpoints, player, enemy, target_wave)
+    
+    # Filter to only reachable breakpoints
+    reachable = [bp for bp in breakpoints_with_eff if bp['atk_increase'] <= available_atk_increase]
+    
+    if not reachable:
+        return None
+    
+    # Return the one with highest efficiency
+    return reachable[0]
 
 
 def calculate_upgrade_cost(base_price: float, levels: int) -> float:

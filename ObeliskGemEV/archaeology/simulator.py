@@ -163,7 +163,7 @@ class ArchaeologySimulatorWindow:
         
         # Set icon
         try:
-            icon_path = Path(__file__).parent.parent / "sprites" / "gem.png"
+            icon_path = Path(__file__).parent.parent / "sprites" / "common" / "gem.png"
             if icon_path.exists():
                 icon_image = Image.open(icon_path)
                 icon_photo = ImageTk.PhotoImage(icon_image)
@@ -197,6 +197,7 @@ class ArchaeologySimulatorWindow:
             'enrage_enabled': self.enrage_enabled.get() if hasattr(self, 'enrage_enabled') else True,
             'forecast_levels_1': self.forecast_levels_1.get() if hasattr(self, 'forecast_levels_1') else 5,
             'budget_points': self.budget_points.get() if hasattr(self, 'budget_points') else 20,
+            'xp_budget_points': self.xp_budget_points.get() if hasattr(self, 'xp_budget_points') else 20,
         }
         try:
             SAVE_DIR.mkdir(parents=True, exist_ok=True)
@@ -258,6 +259,11 @@ class ArchaeologySimulatorWindow:
             if hasattr(self, 'budget_points'):
                 self.budget_points.set(state.get('budget_points', 20))
                 self.budget_points_label.config(text=str(self.budget_points.get()))
+            
+            # Update XP budget points
+            if hasattr(self, 'xp_budget_points'):
+                self.xp_budget_points.set(state.get('xp_budget_points', 20))
+                self.xp_budget_points_label.config(text=str(self.xp_budget_points.get()))
         except Exception as e:
             print(f"Warning: Could not load state: {e}")
     
@@ -584,6 +590,71 @@ class ArchaeologySimulatorWindow:
         
         return floors_cleared
     
+    def calculate_xp_per_run(self, stats, starting_floor: int):
+        """
+        Calculate expected XP gained per run, accounting for:
+        - XP from each block based on spawn rates and block XP values
+        - XP multiplier from Intellect and Gem upgrades
+        - Exp Mod chance (avg 4x XP when triggered)
+        - Card XP bonuses per block type
+        
+        Returns:
+            Expected total XP for one full run
+        """
+        floors = self.calculate_floors_per_run(stats, starting_floor)
+        if floors <= 0:
+            return 0.0
+        
+        xp_mult = stats['xp_mult']
+        exp_mod_chance = stats.get('exp_mod_chance', 0)
+        
+        # Exp mod gives 3x-5x XP (avg 4x), so expected multiplier from mod is:
+        # (1 - exp_mod_chance) * 1.0 + exp_mod_chance * 4.0 = 1 + exp_mod_chance * 3
+        exp_mod_factor = 1 + exp_mod_chance * (self.MOD_EXP_MULTIPLIER_AVG - 1)
+        
+        total_xp = 0.0
+        current_floor = starting_floor
+        floors_to_process = int(floors)  # Full floors
+        partial_floor = floors - floors_to_process  # Partial floor fraction
+        
+        for i in range(floors_to_process + 1):  # +1 for partial floor
+            if i == floors_to_process:
+                # Partial floor - scale by remaining fraction
+                floor_mult = partial_floor
+                if floor_mult <= 0:
+                    break
+            else:
+                floor_mult = 1.0
+            
+            spawn_rates = get_normalized_spawn_rates(current_floor)
+            block_mix = get_block_mix_for_floor(current_floor)
+            
+            floor_xp = 0.0
+            for block_type, spawn_chance in spawn_rates.items():
+                if spawn_chance <= 0:
+                    continue
+                block_data = block_mix.get(block_type)
+                if not block_data:
+                    continue
+                
+                # Block base XP
+                block_xp = block_data.xp
+                
+                # Apply card XP bonus
+                card_mult = self.get_block_xp_multiplier(block_type)
+                block_xp *= card_mult
+                
+                # Weight by spawn chance
+                floor_xp += spawn_chance * block_xp
+            
+            # XP for this floor: blocks * avg_xp * xp_mult * exp_mod_factor
+            floor_total_xp = self.BLOCKS_PER_FLOOR * floor_xp * xp_mult * exp_mod_factor
+            total_xp += floor_total_xp * floor_mult
+            
+            current_floor += 1
+        
+        return total_xp
+    
     def calculate_skill_efficiency(self, skill_name):
         current_stats = self.get_total_stats()
         current_floors = self.calculate_floors_per_run(current_stats, self.current_stage)
@@ -825,6 +896,98 @@ class ArchaeologySimulatorWindow:
         
         return best_result
     
+    def calculate_xp_forecast(self, levels_ahead: int):
+        """
+        Calculate the optimal skill point distribution for maximum XP/run.
+        
+        Similar to calculate_forecast() but optimizes for XP instead of floors.
+        This will value Intellect much more highly since it directly boosts XP.
+        
+        Args:
+            levels_ahead: Number of skill points to allocate
+        
+        Returns:
+            dict with:
+                - 'distribution': dict of skill -> points to add
+                - 'xp_per_run': resulting XP/run
+                - 'improvement_pct': percentage improvement
+                - 'path': list of skills in order of allocation
+        """
+        skills = ['strength', 'agility', 'intellect', 'perception', 'luck']
+        current_xp = self.calculate_xp_per_run(self.get_total_stats(), self.current_stage)
+        
+        best_result = {
+            'distribution': {s: 0 for s in skills},
+            'xp_per_run': current_xp,
+            'improvement_pct': 0.0,
+            'path': [],
+        }
+        
+        def generate_distributions(n_points, n_skills):
+            """Generate all ways to distribute n_points among n_skills"""
+            if n_skills == 1:
+                yield (n_points,)
+                return
+            for i in range(n_points + 1):
+                for rest in generate_distributions(n_points - i, n_skills - 1):
+                    yield (i,) + rest
+        
+        best_xp = current_xp
+        best_dist_tuple = tuple(0 for _ in skills)
+        
+        for dist_tuple in generate_distributions(levels_ahead, len(skills)):
+            # Apply distribution temporarily
+            for skill, points in zip(skills, dist_tuple):
+                self.skill_points[skill] += points
+            
+            # Calculate XP with this distribution
+            new_xp = self.calculate_xp_per_run(self.get_total_stats(), self.current_stage)
+            
+            if new_xp > best_xp:
+                best_xp = new_xp
+                best_dist_tuple = dist_tuple
+                best_result['distribution'] = {s: p for s, p in zip(skills, dist_tuple)}
+                best_result['xp_per_run'] = new_xp
+            
+            # Revert changes
+            for skill, points in zip(skills, dist_tuple):
+                self.skill_points[skill] -= points
+        
+        # Calculate improvement percentage
+        if current_xp > 0:
+            best_result['improvement_pct'] = ((best_xp - current_xp) / current_xp) * 100
+        
+        # Build the optimal allocation path using greedy within the optimal endpoint
+        remaining = {s: p for s, p in zip(skills, best_dist_tuple)}
+        path = []
+        
+        for _ in range(levels_ahead):
+            best_next = None
+            best_next_xp = -1
+            
+            for skill in skills:
+                if remaining[skill] > 0:
+                    self.skill_points[skill] += 1
+                    test_xp = self.calculate_xp_per_run(self.get_total_stats(), self.current_stage)
+                    self.skill_points[skill] -= 1
+                    
+                    if test_xp > best_next_xp:
+                        best_next_xp = test_xp
+                        best_next = skill
+            
+            if best_next:
+                path.append(best_next)
+                remaining[best_next] -= 1
+                self.skill_points[best_next] += 1
+        
+        # Revert all path changes
+        for skill in path:
+            self.skill_points[skill] -= 1
+        
+        best_result['path'] = path
+        
+        return best_result
+    
     def format_distribution(self, distribution: dict) -> str:
         """Format a skill distribution as a compact string like '3S 2A 1L'"""
         abbrev = {'strength': 'S', 'agility': 'A', 'intellect': 'I', 'perception': 'P', 'luck': 'L'}
@@ -982,7 +1145,7 @@ class ArchaeologySimulatorWindow:
         
         # Load common fragment icon for stats column
         try:
-            stats_frag_icon_path = Path(__file__).parent.parent / "sprites" / "fragmentcommon.png"
+            stats_frag_icon_path = Path(__file__).parent.parent / "sprites" / "archaeology" / "fragmentcommon.png"
             if stats_frag_icon_path.exists():
                 stats_frag_image = Image.open(stats_frag_icon_path)
                 stats_frag_image = stats_frag_image.resize((12, 12), Image.Resampling.LANCZOS)
@@ -1153,7 +1316,7 @@ class ArchaeologySimulatorWindow:
         
         # Load common fragment icon for header
         try:
-            common_frag_icon_path = Path(__file__).parent.parent / "sprites" / "fragmentcommon.png"
+            common_frag_icon_path = Path(__file__).parent.parent / "sprites" / "archaeology" / "fragmentcommon.png"
             if common_frag_icon_path.exists():
                 common_frag_image = Image.open(common_frag_icon_path)
                 common_frag_image = common_frag_image.resize((14, 14), Image.Resampling.LANCZOS)
@@ -1268,7 +1431,7 @@ class ArchaeologySimulatorWindow:
         
         # Load gem icon
         try:
-            gem_icon_path = Path(__file__).parent.parent / "sprites" / "gem.png"
+            gem_icon_path = Path(__file__).parent.parent / "sprites" / "common" / "gem.png"
             if gem_icon_path.exists():
                 gem_image = Image.open(gem_icon_path)
                 gem_image = gem_image.resize((16, 16), Image.Resampling.LANCZOS)
@@ -1424,7 +1587,7 @@ class ArchaeologySimulatorWindow:
             
             # Try to load common fragment icon
             try:
-                icon_path = Path(__file__).parent.parent / "sprites" / "fragmentcommon.png"
+                icon_path = Path(__file__).parent.parent / "sprites" / "archaeology" / "fragmentcommon.png"
                 if icon_path.exists():
                     icon_image = Image.open(icon_path)
                     icon_image = icon_image.resize((16, 16), Image.Resampling.LANCZOS)
@@ -1523,7 +1686,7 @@ class ArchaeologySimulatorWindow:
             
             # Try to load common fragment icon
             try:
-                icon_path = Path(__file__).parent.parent / "sprites" / "fragmentcommon.png"
+                icon_path = Path(__file__).parent.parent / "sprites" / "archaeology" / "fragmentcommon.png"
                 if icon_path.exists():
                     icon_image = Image.open(icon_path)
                     icon_image = icon_image.resize((16, 16), Image.Resampling.LANCZOS)
@@ -2404,10 +2567,12 @@ class ArchaeologySimulatorWindow:
         header_row = tk.Frame(budget_inner, background="#F3E5F5")
         header_row.pack(fill=tk.X, pady=(5, 0))
         
-        tk.Label(header_row, text="Optimal Distribution", font=("Arial", 8, "bold"), 
-                background="#F3E5F5", width=18, anchor=tk.W).pack(side=tk.LEFT)
+        tk.Label(header_row, text="Distribution", font=("Arial", 8, "bold"), 
+                background="#F3E5F5", width=14, anchor=tk.W).pack(side=tk.LEFT)
         tk.Label(header_row, text="Floors", font=("Arial", 8, "bold"), 
-                background="#F3E5F5", width=6, anchor=tk.E).pack(side=tk.LEFT)
+                background="#F3E5F5", width=5, anchor=tk.E).pack(side=tk.LEFT)
+        tk.Label(header_row, text="XP/Run", font=("Arial", 8, "bold"), 
+                background="#F3E5F5", width=7, anchor=tk.E).pack(side=tk.LEFT)
         tk.Label(header_row, text="Gain", font=("Arial", 8, "bold"), 
                 background="#F3E5F5", anchor=tk.E).pack(side=tk.RIGHT)
         
@@ -2420,12 +2585,16 @@ class ArchaeologySimulatorWindow:
         
         self.budget_dist_label = tk.Label(result_inner, text="—", font=("Arial", 10, "bold"), 
                                          background="#E1BEE7", foreground="#4A148C", 
-                                         width=18, anchor=tk.W)
+                                         width=14, anchor=tk.W)
         self.budget_dist_label.pack(side=tk.LEFT)
         self.budget_floors_label = tk.Label(result_inner, text="—", font=("Arial", 10, "bold"), 
                                            background="#E1BEE7", foreground="#2E7D32", 
-                                           width=6, anchor=tk.E)
+                                           width=5, anchor=tk.E)
         self.budget_floors_label.pack(side=tk.LEFT)
+        self.budget_xp_label = tk.Label(result_inner, text="—", font=("Arial", 10, "bold"), 
+                                       background="#E1BEE7", foreground="#00838F", 
+                                       width=7, anchor=tk.E)
+        self.budget_xp_label.pack(side=tk.LEFT)
         self.budget_gain_label = tk.Label(result_inner, text="—", font=("Arial", 10, "bold"), 
                                          background="#E1BEE7", foreground="#2E7D32", anchor=tk.E)
         self.budget_gain_label.pack(side=tk.RIGHT)
@@ -2439,6 +2608,165 @@ class ArchaeologySimulatorWindow:
         self.budget_breakdown_label = tk.Label(breakdown_row, text="—", font=("Arial", 8), 
                                               background="#F3E5F5", foreground="#333333")
         self.budget_breakdown_label.pack(side=tk.LEFT, padx=(3, 0))
+        
+        ttk.Separator(col_frame, orient='horizontal').pack(fill=tk.X, pady=5, padx=5)
+        
+        # === XP BUDGET PLANNER SECTION ===
+        xp_budget_header = tk.Frame(col_frame, background="#E0F7FA")
+        xp_budget_header.pack(fill=tk.X, padx=5)
+        
+        tk.Label(xp_budget_header, text="XP/h Budget Planner", font=("Arial", 10, "bold"), 
+                background="#E0F7FA").pack(side=tk.LEFT)
+        
+        xp_budget_help_label = tk.Label(xp_budget_header, text="?", font=("Arial", 9, "bold"), 
+                                       cursor="hand2", foreground="#00838F", background="#E0F7FA")
+        xp_budget_help_label.pack(side=tk.LEFT, padx=(5, 0))
+        self._create_xp_budget_help_tooltip(xp_budget_help_label)
+        
+        # XP Budget frame with cyan/teal theme
+        xp_budget_frame = tk.Frame(col_frame, background="#B2EBF2", relief=tk.GROOVE, borderwidth=1)
+        xp_budget_frame.pack(fill=tk.X, padx=5, pady=(3, 5))
+        
+        xp_budget_inner = tk.Frame(xp_budget_frame, background="#B2EBF2", padx=8, pady=5)
+        xp_budget_inner.pack(fill=tk.X)
+        
+        # Initialize XP budget variable
+        self.xp_budget_points = tk.IntVar(value=20)
+        
+        # Input row: Points selector
+        xp_input_row = tk.Frame(xp_budget_inner, background="#B2EBF2")
+        xp_input_row.pack(fill=tk.X)
+        
+        tk.Label(xp_input_row, text="Available Points:", font=("Arial", 9, "bold"), 
+                background="#B2EBF2", foreground="#00695C").pack(side=tk.LEFT)
+        
+        # Points adjuster with +/- buttons
+        xp_points_frame = tk.Frame(xp_input_row, background="#B2EBF2")
+        xp_points_frame.pack(side=tk.LEFT, padx=(8, 0))
+        
+        tk.Button(xp_points_frame, text="-5", width=2, font=("Arial", 7, "bold"),
+                 command=lambda: self._adjust_xp_budget(-5)).pack(side=tk.LEFT)
+        tk.Button(xp_points_frame, text="-", width=1, font=("Arial", 7, "bold"),
+                 command=lambda: self._adjust_xp_budget(-1)).pack(side=tk.LEFT)
+        self.xp_budget_points_label = tk.Label(xp_points_frame, text="20", font=("Arial", 11, "bold"), 
+                                              background="#B2EBF2", foreground="#00695C", width=4)
+        self.xp_budget_points_label.pack(side=tk.LEFT)
+        tk.Button(xp_points_frame, text="+", width=1, font=("Arial", 7, "bold"),
+                 command=lambda: self._adjust_xp_budget(1)).pack(side=tk.LEFT)
+        tk.Button(xp_points_frame, text="+5", width=2, font=("Arial", 7, "bold"),
+                 command=lambda: self._adjust_xp_budget(5)).pack(side=tk.LEFT)
+        
+        # Header row for results
+        xp_header_row = tk.Frame(xp_budget_inner, background="#B2EBF2")
+        xp_header_row.pack(fill=tk.X, pady=(5, 0))
+        
+        tk.Label(xp_header_row, text="Distribution", font=("Arial", 8, "bold"), 
+                background="#B2EBF2", width=14, anchor=tk.W).pack(side=tk.LEFT)
+        tk.Label(xp_header_row, text="Floors", font=("Arial", 8, "bold"), 
+                background="#B2EBF2", width=5, anchor=tk.E).pack(side=tk.LEFT)
+        tk.Label(xp_header_row, text="XP/Run", font=("Arial", 8, "bold"), 
+                background="#B2EBF2", width=7, anchor=tk.E).pack(side=tk.LEFT)
+        tk.Label(xp_header_row, text="Gain", font=("Arial", 8, "bold"), 
+                background="#B2EBF2", anchor=tk.E).pack(side=tk.RIGHT)
+        
+        # Result row
+        xp_result_row = tk.Frame(xp_budget_inner, background="#80DEEA")
+        xp_result_row.pack(fill=tk.X, pady=(3, 0))
+        
+        xp_result_inner = tk.Frame(xp_result_row, background="#80DEEA", padx=5, pady=4)
+        xp_result_inner.pack(fill=tk.X)
+        
+        self.xp_budget_dist_label = tk.Label(xp_result_inner, text="—", font=("Arial", 10, "bold"), 
+                                            background="#80DEEA", foreground="#006064", 
+                                            width=14, anchor=tk.W)
+        self.xp_budget_dist_label.pack(side=tk.LEFT)
+        self.xp_budget_floors_label = tk.Label(xp_result_inner, text="—", font=("Arial", 10, "bold"), 
+                                              background="#80DEEA", foreground="#7B1FA2", 
+                                              width=5, anchor=tk.E)
+        self.xp_budget_floors_label.pack(side=tk.LEFT)
+        self.xp_budget_xp_label = tk.Label(xp_result_inner, text="—", font=("Arial", 10, "bold"), 
+                                          background="#80DEEA", foreground="#2E7D32", 
+                                          width=7, anchor=tk.E)
+        self.xp_budget_xp_label.pack(side=tk.LEFT)
+        self.xp_budget_gain_label = tk.Label(xp_result_inner, text="—", font=("Arial", 10, "bold"), 
+                                            background="#80DEEA", foreground="#2E7D32", anchor=tk.E)
+        self.xp_budget_gain_label.pack(side=tk.RIGHT)
+        
+        # Detailed breakdown row
+        xp_breakdown_row = tk.Frame(xp_budget_inner, background="#B2EBF2")
+        xp_breakdown_row.pack(fill=tk.X, pady=(3, 0))
+        
+        tk.Label(xp_breakdown_row, text="Details:", font=("Arial", 7), 
+                background="#B2EBF2", foreground="#555555").pack(side=tk.LEFT)
+        self.xp_budget_breakdown_label = tk.Label(xp_breakdown_row, text="—", font=("Arial", 8), 
+                                                 background="#B2EBF2", foreground="#333333")
+        self.xp_budget_breakdown_label.pack(side=tk.LEFT, padx=(3, 0))
+    
+    def _adjust_xp_budget(self, delta: int):
+        """Adjust the XP budget points and recalculate"""
+        new_val = max(1, min(100, self.xp_budget_points.get() + delta))
+        self.xp_budget_points.set(new_val)
+        self.xp_budget_points_label.config(text=str(new_val))
+        self.update_xp_budget_display()
+    
+    def _create_xp_budget_help_tooltip(self, widget):
+        """Creates a tooltip explaining the XP Budget Planner feature"""
+        def on_enter(event):
+            tooltip = tk.Toplevel()
+            tooltip.wm_overrideredirect(True)
+            
+            tooltip_width = 340
+            x = event.x_root - tooltip_width - 10
+            if x < 10:
+                x = event.x_root + 20
+            y = event.y_root - 20
+            
+            tooltip.wm_geometry(f"+{x}+{y}")
+            
+            outer_frame = tk.Frame(tooltip, background="#00838F", relief=tk.FLAT)
+            outer_frame.pack(padx=2, pady=2)
+            
+            inner_frame = tk.Frame(outer_frame, background="#FFFFFF")
+            inner_frame.pack(padx=1, pady=1)
+            
+            content_frame = tk.Frame(inner_frame, background="#FFFFFF", padx=10, pady=8)
+            content_frame.pack()
+            
+            tk.Label(content_frame, text="XP/h Budget Planner", 
+                    font=("Arial", 10, "bold"), foreground="#00838F", 
+                    background="#FFFFFF").pack(anchor=tk.W)
+            
+            lines = [
+                "",
+                "Optimize for MAXIMUM XP per hour.",
+                "",
+                "Unlike the Floors/Run planner (above), this",
+                "values Intellect highly because:",
+                "  - +5% XP multiplier per point",
+                "  - +0.3% Exp Mod chance (avg 4x XP)",
+                "",
+                "Use this when your goal is to level up",
+                "as fast as possible, even if you clear",
+                "fewer floors per run.",
+                "",
+                "XP/h = Floors/Run x XP/Floor x XP Mults",
+                "",
+                "Legend: S=Str, A=Agi, I=Int, P=Per, L=Luck",
+            ]
+            
+            for line in lines:
+                tk.Label(content_frame, text=line, font=("Arial", 9), 
+                        background="#FFFFFF", anchor=tk.W).pack(anchor=tk.W)
+            
+            widget.tooltip = tooltip
+        
+        def on_leave(event):
+            if hasattr(widget, 'tooltip'):
+                widget.tooltip.destroy()
+                del widget.tooltip
+        
+        widget.bind("<Enter>", on_enter)
+        widget.bind("<Leave>", on_leave)
     
     def _adjust_budget(self, delta: int):
         """Adjust the budget points and recalculate"""
@@ -3363,10 +3691,19 @@ class ArchaeologySimulatorWindow:
         # This uses the same algorithm as forecast
         result = self.calculate_forecast(budget)
         
+        # Also calculate XP for this distribution for comparison
+        # Temporarily apply the distribution to calculate XP
+        for skill, points in result['distribution'].items():
+            self.skill_points[skill] += points
+        xp_with_floors_build = self.calculate_xp_per_run(self.get_total_stats(), self.current_stage)
+        for skill, points in result['distribution'].items():
+            self.skill_points[skill] -= points
+        
         # Format and display
         dist_str = self.format_distribution(result['distribution'])
         self.budget_dist_label.config(text=dist_str)
         self.budget_floors_label.config(text=f"{result['floors_per_run']:.2f}")
+        self.budget_xp_label.config(text=f"{xp_with_floors_build:.2f}")
         self.budget_gain_label.config(text=f"+{result['improvement_pct']:.1f}%")
         
         # Detailed breakdown showing exact values
@@ -3380,6 +3717,46 @@ class ArchaeologySimulatorWindow:
         
         breakdown = ', '.join(parts) if parts else "No changes"
         self.budget_breakdown_label.config(text=breakdown)
+        
+        # Update XP budget planner too
+        self.update_xp_budget_display()
+    
+    def update_xp_budget_display(self):
+        """Update the XP budget planner with optimal distribution for maximum XP"""
+        if not hasattr(self, 'xp_budget_dist_label'):
+            return
+        
+        budget = self.xp_budget_points.get()
+        
+        # Calculate optimal distribution for XP (not floors)
+        result = self.calculate_xp_forecast(budget)
+        
+        # Also calculate floors for this distribution for comparison
+        # Temporarily apply the distribution to calculate floors
+        for skill, points in result['distribution'].items():
+            self.skill_points[skill] += points
+        floors_with_xp_build = self.calculate_floors_per_run(self.get_total_stats(), self.current_stage)
+        for skill, points in result['distribution'].items():
+            self.skill_points[skill] -= points
+        
+        # Format and display
+        dist_str = self.format_distribution(result['distribution'])
+        self.xp_budget_dist_label.config(text=dist_str)
+        self.xp_budget_floors_label.config(text=f"{floors_with_xp_build:.2f}")
+        self.xp_budget_xp_label.config(text=f"{result['xp_per_run']:.2f}")
+        self.xp_budget_gain_label.config(text=f"+{result['improvement_pct']:.1f}%")
+        
+        # Detailed breakdown showing exact values
+        abbrev = {'strength': 'STR', 'agility': 'AGI', 'intellect': 'INT', 'perception': 'PER', 'luck': 'LUK'}
+        parts = []
+        for skill in ['strength', 'agility', 'intellect', 'perception', 'luck']:
+            points = result['distribution'].get(skill, 0)
+            if points > 0:
+                current = self.skill_points[skill]
+                parts.append(f"{abbrev[skill]}: {current} → {current + points}")
+        
+        breakdown = ', '.join(parts) if parts else "No changes"
+        self.xp_budget_breakdown_label.config(text=breakdown)
     
     def reset_and_update(self):
         self.reset_to_level1()

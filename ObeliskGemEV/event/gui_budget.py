@@ -5,9 +5,25 @@ Helps players optimize upgrade paths with limited materials.
 
 import tkinter as tk
 from tkinter import ttk
+from pathlib import Path
 
-from .constants import get_prestige_wave_requirement
+try:
+    from PIL import Image, ImageTk
+    PIL_AVAILABLE = True
+except ImportError:
+    PIL_AVAILABLE = False
+
+from .constants import (
+    get_prestige_wave_requirement, TIER_COLORS, UPGRADE_SHORT_NAMES,
+    CURRENCY_ICONS, WAVE_REWARDS
+)
 from .utils import format_number
+from .stats import PlayerStats, EnemyStats
+from .simulation import (
+    apply_upgrades, calculate_damage_breakpoints, calculate_breakpoint_efficiency,
+    get_atk_breakpoint_table, get_enemy_hp_at_wave, calculate_hits_to_kill
+)
+from .optimizer import greedy_optimize, format_upgrade_summary, UpgradeState
 
 
 class BudgetOptimizerPanel:
@@ -21,7 +37,27 @@ class BudgetOptimizerPanel:
         self.material_budget = {1: 0, 2: 0, 3: 0, 4: 0}
         self.material_vars = {}
         
+        # Load currency icons
+        self.currency_icons = {}
+        self._load_currency_icons()
+        
         self.build_ui()
+    
+    def _load_currency_icons(self):
+        """Load currency icons from sprites folder"""
+        if not PIL_AVAILABLE:
+            return
+        
+        try:
+            sprites_dir = Path(__file__).parent.parent / "sprites"
+            for tier in range(1, 5):
+                icon_path = sprites_dir / "event" / f"currency_{tier}.png"
+                if icon_path.exists():
+                    icon_image = Image.open(icon_path)
+                    icon_image = icon_image.resize((24, 24), Image.Resampling.LANCZOS)
+                    self.currency_icons[tier] = ImageTk.PhotoImage(icon_image)
+        except Exception:
+            pass  # Graceful fallback if icons can't be loaded
     
     def build_ui(self):
         """Build the Budget Optimizer UI"""
@@ -67,22 +103,32 @@ class BudgetOptimizerPanel:
         mat_inner = tk.Frame(input_frame, background="#E8F5E9")
         mat_inner.pack(fill=tk.X, padx=10, pady=10)
         
-        mat_names = ["Coins (Mat 1)", "Mat 2", "Mat 3", "Mat 4"]
+        mat_names = ["Coins", "Mat 2", "Mat 3", "Mat 4"]
         mat_colors = ["#FFC107", "#9C27B0", "#00BCD4", "#E91E63"]
         
         for i in range(4):
             col_frame = tk.Frame(mat_inner, background="#E8F5E9")
             col_frame.pack(side=tk.LEFT, padx=20, pady=5)
             
-            tk.Label(col_frame, text=mat_names[i], font=("Arial", 9, "bold"),
-                    background="#E8F5E9", foreground=mat_colors[i]).pack()
+            # Header with icon if available
+            header_frame = tk.Frame(col_frame, background="#E8F5E9")
+            header_frame.pack()
+            
+            tier = i + 1
+            if tier in self.currency_icons:
+                icon_label = tk.Label(header_frame, image=self.currency_icons[tier],
+                                     background="#E8F5E9")
+                icon_label.pack(side=tk.LEFT, padx=(0, 3))
+            
+            tk.Label(header_frame, text=mat_names[i], font=("Arial", 9, "bold"),
+                    background="#E8F5E9", foreground=mat_colors[i]).pack(side=tk.LEFT)
             
             var = tk.StringVar(value="0")
             entry = ttk.Entry(col_frame, textvariable=var, width=12, font=("Arial", 10))
             entry.pack(pady=5)
             entry.bind('<Return>', lambda e: self.calculate_optimal_upgrades())
             
-            self.material_vars[i + 1] = var
+            self.material_vars[tier] = var
         
         # Prestige input
         prestige_frame = tk.Frame(mat_inner, background="#E8F5E9")
@@ -102,15 +148,94 @@ class BudgetOptimizerPanel:
                             command=self.calculate_optimal_upgrades)
         calc_btn.pack(pady=10)
         
+        # === DAMAGE BREAKPOINTS SECTION ===
+        breakpoint_frame = tk.Frame(scrollable_frame, background="#E3F2FD", relief=tk.RIDGE, borderwidth=2)
+        breakpoint_frame.pack(fill=tk.X, padx=10, pady=5)
+        
+        # Header with help
+        bp_header = tk.Frame(breakpoint_frame, background="#E3F2FD")
+        bp_header.pack(fill=tk.X, padx=10, pady=(10, 5))
+        
+        tk.Label(bp_header, text="Damage Breakpoints", font=("Arial", 11, "bold"),
+                background="#E3F2FD").pack(side=tk.LEFT)
+        
+        bp_help_btn = tk.Label(bp_header, text="?", font=("Arial", 9, "bold"),
+                               background="#1976D2", foreground="white", width=2, relief=tk.RAISED)
+        bp_help_btn.pack(side=tk.LEFT, padx=5)
+        self._create_breakpoint_help_tooltip(bp_help_btn)
+        
+        # ATK input for breakpoint calculation
+        bp_input_frame = tk.Frame(breakpoint_frame, background="#E3F2FD")
+        bp_input_frame.pack(fill=tk.X, padx=10, pady=5)
+        
+        tk.Label(bp_input_frame, text="Current ATK:", font=("Arial", 9),
+                background="#E3F2FD").pack(side=tk.LEFT)
+        
+        self.bp_atk_var = tk.StringVar(value="10")
+        bp_atk_entry = ttk.Entry(bp_input_frame, textvariable=self.bp_atk_var, width=8)
+        bp_atk_entry.pack(side=tk.LEFT, padx=5)
+        bp_atk_entry.bind('<Return>', lambda e: self.update_breakpoints_display())
+        
+        tk.Label(bp_input_frame, text="Target Wave:", font=("Arial", 9),
+                background="#E3F2FD").pack(side=tk.LEFT, padx=(20, 0))
+        
+        self.bp_target_wave_var = tk.StringVar(value="10")
+        bp_wave_entry = ttk.Entry(bp_input_frame, textvariable=self.bp_target_wave_var, width=8)
+        bp_wave_entry.pack(side=tk.LEFT, padx=5)
+        bp_wave_entry.bind('<Return>', lambda e: self.update_breakpoints_display())
+        
+        bp_calc_btn = tk.Button(bp_input_frame, text="Calculate", font=("Arial", 9),
+                                command=self.update_breakpoints_display, bg="#1976D2", fg="white")
+        bp_calc_btn.pack(side=tk.LEFT, padx=10)
+        
+        # Breakpoint results area
+        self.bp_results_frame = tk.Frame(breakpoint_frame, background="#E3F2FD")
+        self.bp_results_frame.pack(fill=tk.X, padx=10, pady=10)
+        
+        # Breakpoint table header
+        bp_table_header = tk.Frame(self.bp_results_frame, background="#E3F2FD")
+        bp_table_header.pack(fill=tk.X)
+        
+        headers = ["Wave", "Enemy HP", "Hits Now", "Target", "ATK Needed", "+ATK", "Time/Wave"]
+        widths = [6, 10, 8, 8, 10, 8, 10]
+        
+        for i, (header, width) in enumerate(zip(headers, widths)):
+            tk.Label(bp_table_header, text=header, font=("Arial", 8, "bold"),
+                    background="#E3F2FD", width=width, anchor="center").pack(side=tk.LEFT, padx=1)
+        
+        # Container for breakpoint rows
+        self.bp_rows_frame = tk.Frame(self.bp_results_frame, background="#E3F2FD")
+        self.bp_rows_frame.pack(fill=tk.X, pady=5)
+        
+        # Info label at bottom
+        self.bp_info_label = tk.Label(breakpoint_frame, text="Enter your ATK and target wave to see breakpoints",
+                                      font=("Arial", 8, "italic"), background="#E3F2FD", foreground="#666666")
+        self.bp_info_label.pack(pady=(0, 10))
+        
+        # === ATK BREAKPOINT TABLE ===
+        atk_table_frame = tk.Frame(scrollable_frame, background="#FFF3E0", relief=tk.RIDGE, borderwidth=2)
+        atk_table_frame.pack(fill=tk.X, padx=10, pady=5)
+        
+        tk.Label(atk_table_frame, text="ATK Requirements by Wave & Hits", font=("Arial", 11, "bold"),
+                background="#FFF3E0").pack(anchor="w", padx=10, pady=(10, 5))
+        
+        # Quick reference table
+        self.atk_table_text = tk.Text(atk_table_frame, height=12, font=("Consolas", 9),
+                                      background="#FFF3E0", relief=tk.FLAT, wrap=tk.NONE)
+        self.atk_table_text.pack(fill=tk.X, padx=10, pady=10)
+        
+        # Generate initial ATK table
+        self._generate_atk_table()
+        
         # === RESULTS ===
-        results_frame = tk.Frame(scrollable_frame, background="#FFF3E0", relief=tk.RIDGE, borderwidth=2)
+        results_frame = tk.Frame(scrollable_frame, background="#E8F5E9", relief=tk.RIDGE, borderwidth=2)
         results_frame.pack(fill=tk.X, padx=10, pady=5)
         
         tk.Label(results_frame, text="Recommended Upgrades", font=("Arial", 11, "bold"),
-                background="#FFF3E0").pack(anchor="w", padx=10, pady=(10, 5))
+                background="#E8F5E9").pack(anchor="w", padx=10, pady=(10, 5))
         
         self.budget_results_text = tk.Text(results_frame, height=20, font=("Consolas", 10),
-                                           background="#FFF3E0", relief=tk.FLAT, wrap=tk.WORD)
+                                           background="#E8F5E9", relief=tk.FLAT, wrap=tk.WORD)
         self.budget_results_text.pack(fill=tk.X, padx=10, pady=10)
         
         # Initial placeholder text
@@ -143,7 +268,7 @@ class BudgetOptimizerPanel:
         try:
             for i in range(1, 5):
                 val = self.material_vars[i].get().replace(",", "").replace(".", "")
-                self.material_budget[i] = int(val) if val else 0
+                self.material_budget[i] = float(val) if val else 0
         except ValueError:
             self.budget_results_text.config(state=tk.NORMAL)
             self.budget_results_text.delete(1.0, tk.END)
@@ -154,31 +279,271 @@ class BudgetOptimizerPanel:
         prestige = self.budget_prestige_var.get()
         next_prestige_wave = get_prestige_wave_requirement(prestige + 1)
         
-        # TODO: Implement actual optimization algorithm
-        # For now, show a placeholder with the parsed values
-        
         self.budget_results_text.config(state=tk.NORMAL)
         self.budget_results_text.delete(1.0, tk.END)
         
-        self.budget_results_text.insert(tk.END, "=== Budget Analysis ===\n\n")
-        self.budget_results_text.insert(tk.END, f"Available Materials:\n")
-        self.budget_results_text.insert(tk.END, f"  Coins (T1): {format_number(self.material_budget[1])}\n")
-        self.budget_results_text.insert(tk.END, f"  Mat 2 (T2): {format_number(self.material_budget[2])}\n")
-        self.budget_results_text.insert(tk.END, f"  Mat 3 (T3): {format_number(self.material_budget[3])}\n")
-        self.budget_results_text.insert(tk.END, f"  Mat 4 (T4): {format_number(self.material_budget[4])}\n\n")
+        self.budget_results_text.insert(tk.END, "=== Optimizing... ===\n\n")
+        self.budget_results_text.update()
         
-        self.budget_results_text.insert(tk.END, f"Current Prestige: {prestige}\n")
-        self.budget_results_text.insert(tk.END, f"Next Prestige: {prestige + 1} (requires Wave {next_prestige_wave})\n\n")
+        # Run optimizer
+        try:
+            result = greedy_optimize(
+                budget=self.material_budget,
+                prestige=prestige,
+                target_wave=next_prestige_wave
+            )
+        except Exception as e:
+            self.budget_results_text.delete(1.0, tk.END)
+            self.budget_results_text.insert(tk.END, f"Error during optimization: {str(e)}")
+            self.budget_results_text.config(state=tk.DISABLED)
+            return
         
-        self.budget_results_text.insert(tk.END, "=== Optimization Coming Soon ===\n\n")
-        self.budget_results_text.insert(tk.END, "This feature is under development.\n\n")
-        self.budget_results_text.insert(tk.END, "Planned features:\n")
-        self.budget_results_text.insert(tk.END, "  - Greedy algorithm to maximize wave reached\n")
-        self.budget_results_text.insert(tk.END, "  - Time-to-prestige optimization (including speed upgrades)\n")
-        self.budget_results_text.insert(tk.END, "  - Show recommended upgrade levels per tier\n")
-        self.budget_results_text.insert(tk.END, "  - Show expected wave with those upgrades\n")
-        self.budget_results_text.insert(tk.END, "  - Show leftover materials\n\n")
-        self.budget_results_text.insert(tk.END, "For now, use the 'Love2D Simulator' mode to\n")
-        self.budget_results_text.insert(tk.END, "manually test different upgrade combinations.\n")
+        # Display results
+        self.budget_results_text.delete(1.0, tk.END)
+        
+        # Header
+        self.budget_results_text.insert(tk.END, "═══════════════════════════════════════\n")
+        self.budget_results_text.insert(tk.END, "        BUDGET OPTIMIZATION RESULTS\n")
+        self.budget_results_text.insert(tk.END, "═══════════════════════════════════════\n\n")
+        
+        # Budget summary
+        self.budget_results_text.insert(tk.END, "MATERIALS:\n")
+        self.budget_results_text.insert(tk.END, f"  Budget      Spent       Remaining\n")
+        for tier in range(1, 5):
+            mat_name = f"Mat {tier}" if tier > 1 else "Coins"
+            budget = self.material_budget[tier]
+            spent = result.materials_spent[tier]
+            remaining = result.materials_remaining[tier]
+            self.budget_results_text.insert(
+                tk.END, 
+                f"  {mat_name:6} {budget:10,.0f} {spent:10,.0f} {remaining:10,.0f}\n"
+            )
+        
+        self.budget_results_text.insert(tk.END, "\n")
+        
+        # Stats summary
+        self.budget_results_text.insert(tk.END, "STATS:\n")
+        self.budget_results_text.insert(tk.END, f"  ATK:        {result.player_stats.atk}\n")
+        self.budget_results_text.insert(tk.END, f"  HP:         {result.player_stats.health}\n")
+        self.budget_results_text.insert(tk.END, f"  Atk Speed:  {result.player_stats.atk_speed:.2f}\n")
+        self.budget_results_text.insert(tk.END, f"  Move Speed: {result.player_stats.walk_speed:.2f}\n")
+        self.budget_results_text.insert(tk.END, f"  Game Speed: {result.player_stats.game_speed:.2f}x\n")
+        self.budget_results_text.insert(tk.END, f"  Crit:       {result.player_stats.crit}% @ {result.player_stats.crit_dmg:.1f}x\n")
+        self.budget_results_text.insert(tk.END, f"  Block:      {result.player_stats.block_chance*100:.1f}%\n")
+        
+        self.budget_results_text.insert(tk.END, "\n")
+        
+        # Expected results
+        self.budget_results_text.insert(tk.END, "EXPECTED RESULTS:\n")
+        self.budget_results_text.insert(tk.END, f"  Wave:       ~{result.expected_wave:.1f}\n")
+        self.budget_results_text.insert(tk.END, f"  Time/Run:   ~{result.expected_time:.1f}s\n")
+        self.budget_results_text.insert(tk.END, f"  Target:     Wave {next_prestige_wave} (Prestige {prestige+1})\n")
+        
+        if result.expected_wave >= next_prestige_wave:
+            self.budget_results_text.insert(tk.END, f"  Status:     ✓ Can reach next prestige!\n")
+        else:
+            deficit = next_prestige_wave - result.expected_wave
+            self.budget_results_text.insert(tk.END, f"  Status:     ✗ ~{deficit:.1f} waves short\n")
+        
+        self.budget_results_text.insert(tk.END, "\n")
+        
+        # Upgrade recommendations
+        self.budget_results_text.insert(tk.END, "RECOMMENDED UPGRADES:\n")
+        self.budget_results_text.insert(tk.END, "─────────────────────────────────────\n")
+        
+        for tier in range(1, 5):
+            upgrades_in_tier = []
+            for idx, level in enumerate(result.upgrades.levels[tier]):
+                if level > 0:
+                    name = UPGRADE_SHORT_NAMES[tier][idx]
+                    upgrades_in_tier.append(f"{name}: {level}")
+            
+            if upgrades_in_tier:
+                self.budget_results_text.insert(tk.END, f"\nTier {tier}:\n")
+                for upgrade in upgrades_in_tier:
+                    self.budget_results_text.insert(tk.END, f"  • {upgrade}\n")
+        
+        self.budget_results_text.insert(tk.END, "\n")
+        
+        # Recommendations
+        if result.recommendations:
+            self.budget_results_text.insert(tk.END, "NOTES:\n")
+            for rec in result.recommendations:
+                self.budget_results_text.insert(tk.END, f"  • {rec}\n")
+        
+        # Breakpoint info
+        self.budget_results_text.insert(tk.END, "\n")
+        self.budget_results_text.insert(tk.END, "BREAKPOINT ANALYSIS:\n")
+        enemy = EnemyStats()
+        for wave in [next_prestige_wave - 5, next_prestige_wave, next_prestige_wave + 5]:
+            if wave > 0:
+                enemy_hp = get_enemy_hp_at_wave(enemy, wave)
+                hits = calculate_hits_to_kill(result.player_stats.atk, enemy_hp)
+                self.budget_results_text.insert(
+                    tk.END, 
+                    f"  Wave {wave:3}: {enemy_hp:3} HP → {hits} hit{'s' if hits > 1 else ''}\n"
+                )
+        
+        # Rewards at target wave
+        self.budget_results_text.insert(tk.END, "\n")
+        self.budget_results_text.insert(tk.END, "WAVE REWARDS (up to target):\n")
+        for wave, reward in sorted(WAVE_REWARDS.items()):
+            if wave <= next_prestige_wave:
+                self.budget_results_text.insert(tk.END, f"  Wave {wave:3}: {reward}\n")
         
         self.budget_results_text.config(state=tk.DISABLED)
+    
+    def _create_breakpoint_help_tooltip(self, widget):
+        """Create tooltip explaining damage breakpoints for events"""
+        tooltip = None
+        
+        def show_tooltip(event):
+            nonlocal tooltip
+            if tooltip:
+                return
+            
+            x = widget.winfo_rootx() + 20
+            y = widget.winfo_rooty() + 20
+            
+            tooltip = tk.Toplevel(widget)
+            tooltip.wm_overrideredirect(True)
+            tooltip.wm_geometry(f"+{x}+{y}")
+            
+            frame = tk.Frame(tooltip, background="#FFFFFF", relief=tk.SOLID, borderwidth=1)
+            frame.pack()
+            
+            content = tk.Frame(frame, background="#FFFFFF", padx=10, pady=8)
+            content.pack()
+            
+            tk.Label(content, text="Damage Breakpoints", font=("Arial", 10, "bold"),
+                    background="#FFFFFF", foreground="#1976D2").pack(anchor="w")
+            
+            explanation = (
+                "A breakpoint is the ATK where you need one fewer hit to kill enemies.\n\n"
+                "Example (Wave 5, Enemy HP = 39):\n"
+                "  13 ATK → 3 hits (ceil(39/13) = 3)\n"
+                "  20 ATK → 2 hits (ceil(39/20) = 2) ← BREAKPOINT\n"
+                "  39 ATK → 1 hit  (ceil(39/39) = 1) ← BREAKPOINT\n\n"
+                "IMPORTANT: Unlike Archaeology, reaching a breakpoint\n"
+                "does NOT save HP, because the next enemy inherits\n"
+                "the attack progress of the previous one.\n\n"
+                "However, breakpoints still save TIME:\n"
+                "  - Fewer hits = faster kills\n"
+                "  - Faster kills = more waves completed\n"
+                "  - More waves = more materials per run"
+            )
+            
+            tk.Label(content, text=explanation, font=("Arial", 9),
+                    background="#FFFFFF", justify=tk.LEFT).pack(anchor="w", pady=5)
+        
+        def hide_tooltip(event):
+            nonlocal tooltip
+            if tooltip:
+                tooltip.destroy()
+                tooltip = None
+        
+        widget.bind("<Enter>", show_tooltip)
+        widget.bind("<Leave>", hide_tooltip)
+    
+    def update_breakpoints_display(self):
+        """Update the breakpoints display based on current ATK and target wave"""
+        # Clear existing rows
+        for widget in self.bp_rows_frame.winfo_children():
+            widget.destroy()
+        
+        try:
+            current_atk = int(self.bp_atk_var.get())
+            target_wave = int(self.bp_target_wave_var.get())
+        except ValueError:
+            self.bp_info_label.config(text="Please enter valid numbers for ATK and Target Wave")
+            return
+        
+        if current_atk < 1:
+            self.bp_info_label.config(text="ATK must be at least 1")
+            return
+        
+        if target_wave < 1:
+            self.bp_info_label.config(text="Target wave must be at least 1")
+            return
+        
+        # Create player and enemy stats
+        player = PlayerStats(atk=current_atk)
+        enemy = EnemyStats()
+        
+        # Calculate breakpoints
+        breakpoints = calculate_damage_breakpoints(player, enemy, target_wave, max_breakpoints=8)
+        breakpoints_with_eff = calculate_breakpoint_efficiency(breakpoints, player, enemy, target_wave)
+        
+        if not breakpoints_with_eff:
+            self.bp_info_label.config(text=f"Already one-shotting all enemies up to wave {target_wave}!")
+            return
+        
+        # Display breakpoints
+        widths = [6, 10, 8, 8, 10, 8, 10]
+        
+        for i, bp in enumerate(breakpoints_with_eff[:8]):
+            row_bg = "#BBDEFB" if i == 0 else "#E3F2FD"  # Highlight best
+            row_frame = tk.Frame(self.bp_rows_frame, background=row_bg)
+            row_frame.pack(fill=tk.X, pady=1)
+            
+            # Best indicator
+            prefix = "★ " if i == 0 else "  "
+            
+            values = [
+                f"{prefix}{bp['wave']}",
+                f"{bp['enemy_hp']}",
+                f"{bp['current_hits']}",
+                f"{bp['target_hits']}",
+                f"{bp['required_atk']}",
+                f"+{bp['atk_increase']}",
+                f"-{bp['time_saved_per_wave']:.1f}s"
+            ]
+            
+            for val, width in zip(values, widths):
+                fg_color = "#1976D2" if i == 0 else "#333333"
+                tk.Label(row_frame, text=val, font=("Arial", 8),
+                        background=row_bg, foreground=fg_color, 
+                        width=width, anchor="center").pack(side=tk.LEFT, padx=1)
+        
+        # Update info label
+        best = breakpoints_with_eff[0]
+        total_time = best.get('total_time_saved', 0)
+        waves_affected = best.get('waves_affected', 0)
+        
+        info_text = (f"★ Best: +{best['atk_increase']} ATK → {best['target_hits']}-hit kills "
+                     f"(saves {total_time:.1f}s over {waves_affected} waves)")
+        self.bp_info_label.config(text=info_text, foreground="#1976D2")
+    
+    def _generate_atk_table(self):
+        """Generate the ATK requirement table"""
+        enemy = EnemyStats()
+        
+        self.atk_table_text.config(state=tk.NORMAL)
+        self.atk_table_text.delete(1.0, tk.END)
+        
+        # Header
+        header = "Wave │ Enemy HP │  1-hit │  2-hit │  3-hit │  4-hit │  5-hit\n"
+        separator = "─────┼──────────┼────────┼────────┼────────┼────────┼────────\n"
+        
+        self.atk_table_text.insert(tk.END, header)
+        self.atk_table_text.insert(tk.END, separator)
+        
+        import math
+        
+        # Generate rows for waves 1-30
+        for wave in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 15, 18, 20, 25, 30, 35, 40, 50]:
+            enemy_hp = get_enemy_hp_at_wave(enemy, wave)
+            
+            atk_values = []
+            for hits in range(1, 6):
+                required_atk = math.ceil(enemy_hp / hits)
+                atk_values.append(required_atk)
+            
+            row = f" {wave:3} │   {enemy_hp:4}   │  {atk_values[0]:4}  │  {atk_values[1]:4}  │  {atk_values[2]:4}  │  {atk_values[3]:4}  │  {atk_values[4]:4}\n"
+            self.atk_table_text.insert(tk.END, row)
+        
+        self.atk_table_text.insert(tk.END, "\n")
+        self.atk_table_text.insert(tk.END, "Enemy HP formula: 4 + 7 × wave\n")
+        self.atk_table_text.insert(tk.END, "ATK needed for X hits: ceil(Enemy HP / X)\n")
+        
+        self.atk_table_text.config(state=tk.DISABLED)
