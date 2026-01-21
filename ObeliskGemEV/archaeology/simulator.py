@@ -193,9 +193,9 @@ class ArchaeologySimulatorWindow:
             'upgrade_flat_damage': self.upgrade_flat_damage,
             'upgrade_armor_pen': self.upgrade_armor_pen,
             'gem_upgrades': self.gem_upgrades,
+            'block_cards': self.block_cards,
             'enrage_enabled': self.enrage_enabled.get() if hasattr(self, 'enrage_enabled') else True,
             'forecast_levels_1': self.forecast_levels_1.get() if hasattr(self, 'forecast_levels_1') else 5,
-            'forecast_levels_2': self.forecast_levels_2.get() if hasattr(self, 'forecast_levels_2') else 10,
             'budget_points': self.budget_points.get() if hasattr(self, 'budget_points') else 20,
         }
         try:
@@ -227,6 +227,15 @@ class ArchaeologySimulatorWindow:
             if 'arch_xp' not in self.gem_upgrades:
                 self.gem_upgrades['arch_xp'] = 0
             
+            # Load block cards
+            self.block_cards = state.get('block_cards', {
+                'dirt': 0, 'common': 0, 'rare': 0, 'epic': 0, 'legendary': 0, 'mythic': 0
+            })
+            # Ensure all block types are present
+            for bt in ['dirt', 'common', 'rare', 'epic', 'legendary', 'mythic']:
+                if bt not in self.block_cards:
+                    self.block_cards[bt] = 0
+            
             # Update enrage checkbox
             if hasattr(self, 'enrage_enabled'):
                 self.enrage_enabled.set(state.get('enrage_enabled', True))
@@ -240,13 +249,10 @@ class ArchaeologySimulatorWindow:
             if hasattr(self, 'stage_var'):
                 self.stage_var.set(stage_map_reverse.get(self.current_stage, "1-2"))
             
-            # Update forecast levels
+            # Update forecast level
             if hasattr(self, 'forecast_levels_1'):
                 self.forecast_levels_1.set(state.get('forecast_levels_1', 5))
                 self.forecast_1_level_label.config(text=f"+{self.forecast_levels_1.get()}")
-            if hasattr(self, 'forecast_levels_2'):
-                self.forecast_levels_2.set(state.get('forecast_levels_2', 10))
-                self.forecast_2_level_label.config(text=f"+{self.forecast_levels_2.get()}")
             
             # Update budget points
             if hasattr(self, 'budget_points'):
@@ -276,6 +282,15 @@ class ArchaeologySimulatorWindow:
             'xp': 0,
             'fragment': 0,
             'arch_xp': 0,
+        }
+        # Block cards
+        self.block_cards = {
+            'dirt': 0, 'common': 0, 'rare': 0, 'epic': 0, 'legendary': 0, 'mythic': 0
+        }
+        # Block cards: 0 = none, 1 = normal card, 2 = gilded card
+        # Card: -10% HP, +10% XP; Gilded: -20% HP, +20% XP
+        self.block_cards = {
+            'dirt': 0, 'common': 0, 'rare': 0, 'epic': 0, 'legendary': 0, 'mythic': 0
         }
     
     def get_total_stats(self):
@@ -365,22 +380,49 @@ class ArchaeologySimulatorWindow:
         effective = max(1, int(stats['total_damage'] - effective_armor))
         return effective
     
-    def calculate_damage_breakpoints(self, block_hp, block_armor, stats):
+    def get_block_hp_with_card(self, block_hp, block_type):
+        """Apply card HP reduction: Card = -10%, Gilded = -20%"""
+        card_level = self.block_cards.get(block_type, 0)
+        if card_level == 1:
+            return int(block_hp * 0.90)
+        elif card_level == 2:
+            return int(block_hp * 0.80)
+        return block_hp
+    
+    def get_block_xp_multiplier(self, block_type):
+        """Get XP multiplier from card: Card = +10%, Gilded = +20%"""
+        card_level = self.block_cards.get(block_type, 0)
+        if card_level == 1:
+            return 1.10
+        elif card_level == 2:
+            return 1.20
+        return 1.0
+    
+    def calculate_damage_breakpoints(self, block_hp, block_armor, stats, block_type=None):
         """
         Calculate damage breakpoints for a specific block.
-        Returns info about current hits and next breakpoint.
+        Returns info about current hits, avg hits with crits, and next breakpoint.
         
         A breakpoint is where you need one less hit to kill the block.
         Example: 20 HP block
           - At 10 dmg: 2 hits (ceil(20/10) = 2)
           - At 11 dmg: 2 hits (ceil(20/11) = 2) 
           - At 20 dmg: 1 hit (ceil(20/20) = 1) <-- breakpoint at 20
+        
+        If block_type is provided, card HP reduction is applied.
         """
         import math
+        
+        # Apply card HP reduction if block_type is provided
+        if block_type:
+            block_hp = self.get_block_hp_with_card(block_hp, block_type)
         
         effective_armor = max(0, block_armor - stats['armor_pen'])
         current_eff_dmg = self.calculate_effective_damage(stats, block_armor)
         current_hits = math.ceil(block_hp / current_eff_dmg) if current_eff_dmg > 0 else float('inf')
+        
+        # Calculate average hits with crits (using calculate_hits_to_kill logic)
+        avg_hits = self.calculate_hits_to_kill(stats, block_hp, block_armor)
         
         # Find next breakpoint: the minimum damage that results in one fewer hit
         # If current_hits = n, we need dmg such that ceil(hp/dmg) = n-1
@@ -409,19 +451,25 @@ class ArchaeologySimulatorWindow:
             'effective_armor': effective_armor,
             'current_eff_dmg': current_eff_dmg,
             'current_hits': current_hits,
+            'avg_hits': avg_hits,
             'next_breakpoint_dmg': next_breakpoint_dmg,
             'next_breakpoint_hits': next_breakpoint_hits,
             'dmg_needed': dmg_needed,
         }
     
-    def calculate_hits_to_kill(self, stats, block_hp, block_armor):
+    def calculate_hits_to_kill(self, stats, block_hp, block_armor, block_type=None):
         """
         Calculate expected hits to kill a block, accounting for:
         - Base damage with armor penetration
         - Critical hits
         - One-hit chance
         - Enrage ability (5 charges every 60s with +20% dmg, +100% crit dmg) - if enabled
+        - Card HP reduction (if block_type provided)
         """
+        # Apply card HP reduction if block_type is provided
+        if block_type:
+            block_hp = self.get_block_hp_with_card(block_hp, block_type)
+        
         crit_chance = stats['crit_chance']
         crit_damage = stats['crit_damage']
         one_hit_chance = stats['one_hit_chance']
@@ -483,7 +531,8 @@ class ArchaeologySimulatorWindow:
             block_data = block_mix.get(block_type)
             if not block_data:
                 continue
-            hits = self.calculate_hits_to_kill(stats, block_data.health, block_data.armor)
+            # Pass block_type to apply card HP reduction
+            hits = self.calculate_hits_to_kill(stats, block_data.health, block_data.armor, block_type)
             weighted_hits += spawn_chance * hits
         
         if weighted_hits > 0:
@@ -515,7 +564,8 @@ class ArchaeologySimulatorWindow:
                 block_data = block_mix.get(block_type)
                 if not block_data:
                     continue
-                hits = self.calculate_hits_to_kill(stats, block_data.health, block_data.armor)
+                # Pass block_type to apply card HP reduction
+                hits = self.calculate_hits_to_kill(stats, block_data.health, block_data.armor, block_type)
                 avg_hits_per_block += spawn_chance * hits
             
             # Net stamina cost per block = hits - stamina gained from mod
@@ -585,11 +635,27 @@ class ArchaeologySimulatorWindow:
             self.level = max(1, self.level - 1)
             self.update_display()
     
+    def reset_all_skill_points(self):
+        """Reset all skill points to 0"""
+        total_points = sum(self.skill_points.values())
+        self.skill_points = {
+            'strength': 0, 'agility': 0, 'intellect': 0, 'perception': 0, 'luck': 0,
+        }
+        self.level = max(1, self.level - total_points)
+        self.update_display()
+    
     def add_upgrade(self, upgrade_name):
         if upgrade_name == 'flat_damage':
             self.upgrade_flat_damage += 1
         elif upgrade_name == 'armor_pen':
             self.upgrade_armor_pen += 1
+        self.update_display()
+    
+    def reset_all_upgrades(self):
+        """Reset all common fragment upgrades to 0"""
+        self.upgrade_flat_damage = 0
+        self.upgrade_armor_pen = 0
+        self.gem_upgrades['arch_xp'] = 0
         self.update_display()
     
     def add_gem_upgrade(self, upgrade_name):
@@ -1017,8 +1083,15 @@ class ArchaeologySimulatorWindow:
         col_frame = tk.Frame(parent, background="#E8F5E9", relief=tk.RIDGE, borderwidth=2)
         col_frame.grid(row=0, column=1, sticky="nsew", padx=2, pady=0)
         
-        tk.Label(col_frame, text="Add Points", font=("Arial", 11, "bold"), 
-                background="#E8F5E9").pack(pady=(5, 3))
+        # Header with Reset button
+        skill_header = tk.Frame(col_frame, background="#E8F5E9")
+        skill_header.pack(fill=tk.X, padx=5, pady=(5, 3))
+        
+        tk.Label(skill_header, text="Add Points", font=("Arial", 11, "bold"), 
+                background="#E8F5E9").pack(side=tk.LEFT)
+        
+        tk.Button(skill_header, text="Reset", font=("Arial", 7), 
+                 command=self.reset_all_skill_points).pack(side=tk.RIGHT)
         
         tk.Label(col_frame, text="% = improvement in floors/run", 
                 font=("Arial", 9), foreground="#555555", background="#E8F5E9").pack(pady=(0, 5))
@@ -1071,7 +1144,7 @@ class ArchaeologySimulatorWindow:
         
         ttk.Separator(col_frame, orient='horizontal').pack(fill=tk.X, pady=5, padx=5)
         
-        # Upgrades (Common Fragment cost)
+        # Upgrades (Common Fragment cost) with Reset button
         upgrade_header_frame = tk.Frame(col_frame, background="#E8F5E9")
         upgrade_header_frame.pack(fill=tk.X, padx=5, pady=(0, 3))
         
@@ -1093,9 +1166,14 @@ class ArchaeologySimulatorWindow:
             tk.Label(upgrade_header_frame, text="(Common)", font=("Arial", 8), 
                     foreground="#808080", background="#E8F5E9").pack(side=tk.LEFT, padx=(3, 0))
         
+        # Reset button for upgrades
+        tk.Button(upgrade_header_frame, text="Reset", font=("Arial", 7), 
+                 command=self.reset_all_upgrades).pack(side=tk.RIGHT)
+        
         self.upgrade_buttons = {}
         self.upgrade_efficiency_labels = {}
         self.upgrade_cost_labels = {}
+        self.upgrade_level_labels = {}
         
         upgrades_frame = tk.Frame(col_frame, background="#E8F5E9")
         upgrades_frame.pack(fill=tk.X, padx=5, pady=2)
@@ -1112,9 +1190,15 @@ class ArchaeologySimulatorWindow:
                                 command=lambda u=upgrade: self.add_upgrade(u))
             plus_btn.pack(side=tk.LEFT, padx=(0, 3))
             
-            label_text = "Flat Damage" if upgrade == 'flat_damage' else "Armor Pen"
+            # Level counter (like arch_xp)
+            level_label = tk.Label(row_frame, text="0", background="#E8F5E9", 
+                                  font=("Arial", 9, "bold"), foreground="#808080", width=2, anchor=tk.E)
+            level_label.pack(side=tk.LEFT, padx=(0, 3))
+            self.upgrade_level_labels[upgrade] = level_label
+            
+            label_text = "Flat Dmg" if upgrade == 'flat_damage' else "Armor Pen"
             tk.Label(row_frame, text=label_text, background="#E8F5E9", 
-                    font=("Arial", 9, "bold"), width=11, anchor=tk.W).pack(side=tk.LEFT)
+                    font=("Arial", 9, "bold"), width=8, anchor=tk.W).pack(side=tk.LEFT)
             
             # Efficiency label (% improvement)
             eff_label = tk.Label(row_frame, text="—", background="#E8F5E9", 
@@ -2144,7 +2228,7 @@ class ArchaeologySimulatorWindow:
             impact_label.pack(side=tk.LEFT)
             
             hits_label = tk.Label(row_frame, text="—", font=("Arial", 8), 
-                                 background="#FFF3E0", width=5, anchor=tk.W)
+                                 background="#FFF3E0", width=9, anchor=tk.W)
             hits_label.pack(side=tk.LEFT)
             
             bp_info_label = tk.Label(row_frame, text="", font=("Arial", 8), 
@@ -2152,16 +2236,44 @@ class ArchaeologySimulatorWindow:
                                     anchor=tk.W)
             bp_info_label.pack(side=tk.LEFT, fill=tk.X, expand=True)
             
+            # Card buttons frame (right side)
+            card_frame = tk.Frame(row_frame, background="#FFF3E0")
+            card_frame.pack(side=tk.RIGHT, padx=(3, 0))
+            
+            # Card button (normal card: -10% HP, +10% XP)
+            card_btn = tk.Label(card_frame, text="Card", font=("Arial", 7),
+                               cursor="hand2", foreground="#888888", background="#FFF3E0",
+                               padx=2)
+            card_btn.pack(side=tk.LEFT)
+            card_btn.bind("<Button-1>", lambda e, bt=block_type: self._toggle_card(bt, 1))
+            
+            # Gilded card button (gilded: -20% HP, +20% XP)
+            gilded_btn = tk.Label(card_frame, text="Gilded", font=("Arial", 7),
+                                 cursor="hand2", foreground="#888888", background="#FFF3E0",
+                                 padx=2)
+            gilded_btn.pack(side=tk.LEFT)
+            gilded_btn.bind("<Button-1>", lambda e, bt=block_type: self._toggle_card(bt, 2))
+            
+            # Help icon for tooltip (instead of hovering on whole row)
+            help_label = tk.Label(card_frame, text="?", font=("Arial", 7, "bold"),
+                                 cursor="hand2", foreground="#1976D2", background="#FFF3E0",
+                                 padx=2)
+            help_label.pack(side=tk.LEFT)
+            
             self.breakpoint_labels[block_type] = {
                 'row': row_frame,
                 'name': name_label,
                 'impact': impact_label,
                 'hits': hits_label,
                 'bp_info': bp_info_label,
+                'card_btn': card_btn,
+                'gilded_btn': gilded_btn,
+                'help_label': help_label,
                 'tooltip_data': {}
             }
             
-            self._create_block_breakpoint_tooltip(row_frame, block_type)
+            # Bind tooltip to help label only, not whole row
+            self._create_block_breakpoint_tooltip(help_label, block_type)
         
         ttk.Separator(col_frame, orient='horizontal').pack(fill=tk.X, pady=5, padx=5)
         
@@ -2184,9 +2296,8 @@ class ArchaeologySimulatorWindow:
         forecast_inner = tk.Frame(forecast_frame, background="#E3F2FD", padx=8, pady=5)
         forecast_inner.pack(fill=tk.X)
         
-        # Initialize forecast level variables
+        # Initialize forecast level variable (single row now)
         self.forecast_levels_1 = tk.IntVar(value=5)
-        self.forecast_levels_2 = tk.IntVar(value=10)
         
         # Header row
         header_frame = tk.Frame(forecast_inner, background="#E3F2FD")
@@ -2201,7 +2312,7 @@ class ArchaeologySimulatorWindow:
         tk.Label(header_frame, text="Gain", font=("Arial", 8, "bold"), 
                 background="#E3F2FD", anchor=tk.E).pack(side=tk.RIGHT)
         
-        # === Row 1: Adjustable forecast ===
+        # === Single forecast row ===
         row_1_frame = tk.Frame(forecast_inner, background="#E3F2FD")
         row_1_frame.pack(fill=tk.X, pady=(3, 0))
         
@@ -2241,47 +2352,6 @@ class ArchaeologySimulatorWindow:
         self.forecast_1_path_label = tk.Label(row_1_path, text="—", font=("Arial", 8), 
                                              background="#E8F5E9", foreground="#333333")
         self.forecast_1_path_label.pack(side=tk.LEFT, padx=(3, 0))
-        
-        # === Row 2: Adjustable forecast ===
-        row_2_frame = tk.Frame(forecast_inner, background="#E3F2FD")
-        row_2_frame.pack(fill=tk.X, pady=(5, 0))
-        
-        # Top: Level selector + build and stats
-        row_2_top = tk.Frame(row_2_frame, background="#E3F2FD")
-        row_2_top.pack(fill=tk.X)
-        
-        # Level adjuster with +/- buttons
-        level_2_frame = tk.Frame(row_2_top, background="#E3F2FD")
-        level_2_frame.pack(side=tk.LEFT)
-        
-        tk.Button(level_2_frame, text="-", width=1, font=("Arial", 7, "bold"),
-                 command=lambda: self._adjust_forecast_level(2, -1)).pack(side=tk.LEFT)
-        self.forecast_2_level_label = tk.Label(level_2_frame, text="+10", font=("Arial", 9, "bold"), 
-                                              background="#E3F2FD", foreground="#1976D2", width=3)
-        self.forecast_2_level_label.pack(side=tk.LEFT)
-        tk.Button(level_2_frame, text="+", width=1, font=("Arial", 7, "bold"),
-                 command=lambda: self._adjust_forecast_level(2, 1)).pack(side=tk.LEFT)
-        
-        self.forecast_2_dist_label = tk.Label(row_2_top, text="—", font=("Arial", 9), 
-                                              background="#E3F2FD", width=10, anchor=tk.W)
-        self.forecast_2_dist_label.pack(side=tk.LEFT, padx=(5, 0))
-        self.forecast_2_floors_label = tk.Label(row_2_top, text="—", font=("Arial", 9, "bold"), 
-                                                background="#E3F2FD", foreground="#2E7D32", 
-                                                width=5, anchor=tk.E)
-        self.forecast_2_floors_label.pack(side=tk.LEFT, padx=(3, 0))
-        self.forecast_2_gain_label = tk.Label(row_2_top, text="—", font=("Arial", 9, "bold"), 
-                                              background="#E3F2FD", foreground="#2E7D32", anchor=tk.E)
-        self.forecast_2_gain_label.pack(side=tk.RIGHT)
-        
-        # Path for row 2
-        row_2_path = tk.Frame(row_2_frame, background="#E8F5E9")
-        row_2_path.pack(fill=tk.X, pady=(1, 0))
-        
-        tk.Label(row_2_path, text="    Path:", font=("Arial", 7), 
-                background="#E8F5E9", foreground="#555555").pack(side=tk.LEFT)
-        self.forecast_2_path_label = tk.Label(row_2_path, text="—", font=("Arial", 8), 
-                                              background="#E8F5E9", foreground="#333333")
-        self.forecast_2_path_label.pack(side=tk.LEFT, padx=(3, 0))
         
         ttk.Separator(col_frame, orient='horizontal').pack(fill=tk.X, pady=5, padx=5)
         
@@ -2437,16 +2507,10 @@ class ArchaeologySimulatorWindow:
         widget.bind("<Leave>", on_leave)
     
     def _adjust_forecast_level(self, row: int, delta: int):
-        """Adjust the forecast level for a row and recalculate"""
-        if row == 1:
-            new_val = max(1, min(20, self.forecast_levels_1.get() + delta))
-            self.forecast_levels_1.set(new_val)
-            self.forecast_1_level_label.config(text=f"+{new_val}")
-        else:
-            new_val = max(1, min(20, self.forecast_levels_2.get() + delta))
-            self.forecast_levels_2.set(new_val)
-            self.forecast_2_level_label.config(text=f"+{new_val}")
-        
+        """Adjust the forecast level and recalculate"""
+        new_val = max(1, min(20, self.forecast_levels_1.get() + delta))
+        self.forecast_levels_1.set(new_val)
+        self.forecast_1_level_label.config(text=f"+{new_val}")
         self.update_forecast_display()
     
     def _create_forecast_help_tooltip(self, widget):
@@ -2627,6 +2691,44 @@ class ArchaeologySimulatorWindow:
         widget.bind("<Enter>", on_enter)
         widget.bind("<Leave>", on_leave)
     
+    def _toggle_card(self, block_type, card_level):
+        """Toggle card status for a block type. 
+        card_level: 1 = normal card, 2 = gilded card
+        Clicking the same card again removes it.
+        """
+        current = self.block_cards.get(block_type, 0)
+        if current == card_level:
+            # Toggle off
+            self.block_cards[block_type] = 0
+        else:
+            # Set to this card level
+            self.block_cards[block_type] = card_level
+        
+        # Update card button visuals
+        self._update_card_buttons()
+        
+        # Recalculate everything
+        self.update_display()
+    
+    def _update_card_buttons(self):
+        """Update the visual state of all card buttons based on current card levels"""
+        for block_type, labels in self.breakpoint_labels.items():
+            card_level = self.block_cards.get(block_type, 0)
+            card_btn = labels.get('card_btn')
+            gilded_btn = labels.get('gilded_btn')
+            
+            if card_btn:
+                if card_level == 1:
+                    card_btn.config(foreground="#FFFFFF", background="#4CAF50")  # Active green
+                else:
+                    card_btn.config(foreground="#888888", background="#FFF3E0")  # Inactive
+            
+            if gilded_btn:
+                if card_level == 2:
+                    gilded_btn.config(foreground="#FFFFFF", background="#FFD700")  # Active gold
+                else:
+                    gilded_btn.config(foreground="#888888", background="#FFF3E0")  # Inactive
+    
     def _create_block_breakpoint_tooltip(self, widget, block_type):
         """Creates a dynamic tooltip for a block's breakpoint row"""
         def on_enter(event):
@@ -2657,20 +2759,45 @@ class ArchaeologySimulatorWindow:
             content_frame = tk.Frame(inner_frame, background="#FFFFFF", padx=10, pady=8)
             content_frame.pack()
             
-            tk.Label(content_frame, text=f"{block_type.capitalize()} Block", 
+            # Title with card indicator
+            card_level = data.get('card_level', 0)
+            card_text = ""
+            if card_level == 1:
+                card_text = " [Card]"
+            elif card_level == 2:
+                card_text = " [Gilded]"
+            
+            tk.Label(content_frame, text=f"{block_type.capitalize()} Block{card_text}", 
                     font=("Arial", 10, "bold"), foreground=color, 
                     background="#FFFFFF").pack(anchor=tk.W)
             
-            # Block stats
-            tk.Label(content_frame, text=f"HP: {data.get('hp', '?')}  |  Armor: {data.get('armor', '?')}", 
+            # Block stats (show original and effective HP if card is active)
+            base_hp = data.get('hp', '?')
+            effective_hp = data.get('effective_hp', base_hp)
+            
+            if card_level > 0 and base_hp != effective_hp:
+                hp_text = f"HP: {base_hp} → {effective_hp}  |  Armor: {data.get('armor', '?')}"
+            else:
+                hp_text = f"HP: {base_hp}  |  Armor: {data.get('armor', '?')}"
+            
+            tk.Label(content_frame, text=hp_text, 
                     font=("Arial", 9), foreground="#555555",
                     background="#FFFFFF").pack(anchor=tk.W, pady=(2, 5))
             
             # Current status
             tk.Label(content_frame, text=f"Your effective damage: {data.get('eff_dmg', '?')}", 
                     font=("Arial", 9), background="#FFFFFF").pack(anchor=tk.W)
-            tk.Label(content_frame, text=f"Hits to kill: {data.get('hits', '?')}", 
-                    font=("Arial", 9), background="#FFFFFF").pack(anchor=tk.W)
+            
+            # Show both deterministic hits and avg hits with crits
+            hits = data.get('hits', '?')
+            avg_hits = data.get('avg_hits', hits)
+            
+            if isinstance(avg_hits, (int, float)) and isinstance(hits, (int, float)) and abs(avg_hits - hits) > 0.05:
+                tk.Label(content_frame, text=f"Hits to kill: {hits} (avg: {avg_hits:.1f} with crits)", 
+                        font=("Arial", 9), background="#FFFFFF").pack(anchor=tk.W)
+            else:
+                tk.Label(content_frame, text=f"Hits to kill: {hits}", 
+                        font=("Arial", 9), background="#FFFFFF").pack(anchor=tk.W)
             
             # Spawn and impact
             tk.Label(content_frame, text="", background="#FFFFFF").pack()
@@ -2735,15 +2862,18 @@ class ArchaeologySimulatorWindow:
                 continue
             
             bp = self.calculate_damage_breakpoints(
-                block_data.health, block_data.armor, stats
+                block_data.health, block_data.armor, stats, block_type
             )
             
             current_hits = bp['current_hits']
+            avg_hits = bp['avg_hits']
             if current_hits == float('inf'):
                 current_hits = 9999
+            if avg_hits == float('inf'):
+                avg_hits = 9999
             
-            # Stamina impact = spawn_rate * hits * blocks_per_floor (15)
-            stamina_impact = spawn_rate * current_hits * self.BLOCKS_PER_FLOOR
+            # Stamina impact uses avg_hits (accounts for crits) = spawn_rate * avg_hits * blocks_per_floor (15)
+            stamina_impact = spawn_rate * avg_hits * self.BLOCKS_PER_FLOOR
             
             # Calculate breakpoint efficiency if there's a next breakpoint
             bp_efficiency = 0
@@ -2759,6 +2889,7 @@ class ArchaeologySimulatorWindow:
                 'block_type': block_type,
                 'spawn_rate': spawn_rate,
                 'current_hits': current_hits,
+                'avg_hits': avg_hits,
                 'stamina_impact': stamina_impact,
                 'bp': bp,
                 'bp_efficiency': bp_efficiency,
@@ -2801,6 +2932,7 @@ class ArchaeologySimulatorWindow:
             labels = self.breakpoint_labels[block_type]
             bp = bd['bp']
             current_hits = bd['current_hits']
+            avg_hits = bd['avg_hits']
             spawn_rate = bd['spawn_rate']
             stamina_impact = bd['stamina_impact']
             block_stats = bd['block_stats']
@@ -2818,16 +2950,43 @@ class ArchaeologySimulatorWindow:
                 except:
                     pass
             
+            # Update card button states (colors based on active state, not row highlight)
+            card_level = self.block_cards.get(block_type, 0)
+            card_btn = labels.get('card_btn')
+            gilded_btn = labels.get('gilded_btn')
+            
+            if card_btn:
+                if card_level == 1:
+                    card_btn.config(foreground="#FFFFFF", background="#4CAF50")  # Active green
+                else:
+                    card_btn.config(foreground="#888888", background=bg_color)  # Inactive
+            
+            if gilded_btn:
+                if card_level == 2:
+                    gilded_btn.config(foreground="#FFFFFF", background="#FFD700")  # Active gold
+                else:
+                    gilded_btn.config(foreground="#888888", background=bg_color)  # Inactive
+            
+            # Update help label background
+            help_label = labels.get('help_label')
+            if help_label:
+                help_label.config(background=bg_color)
+            
             # Update impact label
             labels['impact'].config(text=f"({stamina_impact:.1f})")
             
-            # Format current hits
+            # Format current hits - show both deterministic and avg with crits
+            # Format: "3h (2.4)" where 3 is deterministic, 2.4 is avg with crits
             if current_hits >= 9999:
                 labels['hits'].config(text="∞ hits", foreground="#C73E1D")
             elif current_hits == 1:
-                labels['hits'].config(text="1 hit ✓", foreground="#2E7D32")
+                labels['hits'].config(text="1h ✓", foreground="#2E7D32")
             else:
-                labels['hits'].config(text=f"{current_hits:.0f} hits", foreground="#1976D2")
+                # Show avg_hits in parentheses if different from current_hits
+                if abs(avg_hits - current_hits) > 0.05:
+                    labels['hits'].config(text=f"{current_hits:.0f}h ({avg_hits:.1f})", foreground="#1976D2")
+                else:
+                    labels['hits'].config(text=f"{current_hits:.0f}h", foreground="#1976D2")
             
             # Format breakpoint info
             if bp['next_breakpoint_dmg'] is not None and bp['dmg_needed'] > 0:
@@ -2842,11 +3001,18 @@ class ArchaeologySimulatorWindow:
                 labels['bp_info'].config(text="(at bp)", foreground="#2E7D32")
             
             # Store tooltip data
+            # Check if card is applied
+            card_level = self.block_cards.get(block_type, 0)
+            effective_hp = bp['block_hp']  # Already has card reduction applied
+            
             labels['tooltip_data'] = {
                 'hp': block_stats.health,
+                'effective_hp': effective_hp,
+                'card_level': card_level,
                 'armor': block_stats.armor,
                 'eff_dmg': bp['current_eff_dmg'],
                 'hits': current_hits if current_hits < 9999 else "∞",
+                'avg_hits': avg_hits if avg_hits < 9999 else "∞",
                 'spawn_pct': f"{spawn_rate*100:.1f}%",
                 'impact': f"{stamina_impact:.1f}",
                 'has_next_bp': bp['dmg_needed'] is not None and bp['dmg_needed'] > 0,
@@ -3007,6 +3173,18 @@ class ArchaeologySimulatorWindow:
             else:
                 self.upgrade_cost_icon_labels['armor_pen'].config(text="(MAX)", foreground="#C73E1D")
         
+        # Update upgrade level labels in the middle column
+        if hasattr(self, 'upgrade_level_labels'):
+            self.upgrade_level_labels['flat_damage'].config(text=str(self.upgrade_flat_damage))
+            self.upgrade_level_labels['armor_pen'].config(text=str(self.upgrade_armor_pen))
+            # Color based on level
+            for upgrade, label in self.upgrade_level_labels.items():
+                level = self.upgrade_flat_damage if upgrade == 'flat_damage' else self.upgrade_armor_pen
+                if level > 0:
+                    label.config(foreground="#808080")
+                else:
+                    label.config(foreground="gray")
+        
         # Update mod chances (show 2 decimal places since values are small, e.g. 0.20%)
         if hasattr(self, 'mod_labels'):
             self.mod_labels['exp_mod_chance'].config(text=f"{stats['exp_mod_chance']*100:.2f}%")
@@ -3148,43 +3326,28 @@ class ArchaeologySimulatorWindow:
         self.update_forecast_display()
     
     def update_forecast_display(self):
-        """Update the skill forecast table with optimal distributions"""
+        """Update the skill forecast table with optimal distribution (single row)"""
         if not hasattr(self, 'forecast_1_dist_label'):
             return
         
         abbrev = {'strength': 'S', 'agility': 'A', 'intellect': 'I', 'perception': 'P', 'luck': 'L'}
         
-        # Get current forecast levels
+        # Get current forecast level
         levels_1 = self.forecast_levels_1.get()
-        levels_2 = self.forecast_levels_2.get()
         
-        # Calculate forecast for row 1
+        # Calculate forecast
         forecast_1 = self.calculate_forecast(levels_1)
         dist_1_str = self.format_distribution(forecast_1['distribution'])
         self.forecast_1_dist_label.config(text=dist_1_str)
         self.forecast_1_floors_label.config(text=f"{forecast_1['floors_per_run']:.2f}")
         self.forecast_1_gain_label.config(text=f"+{forecast_1['improvement_pct']:.1f}%")
         
-        # Path for row 1
+        # Path
         if forecast_1['path']:
             path_1_str = ' → '.join(abbrev[s] for s in forecast_1['path'])
             self.forecast_1_path_label.config(text=path_1_str)
         else:
             self.forecast_1_path_label.config(text="—")
-        
-        # Calculate forecast for row 2
-        forecast_2 = self.calculate_forecast(levels_2)
-        dist_2_str = self.format_distribution(forecast_2['distribution'])
-        self.forecast_2_dist_label.config(text=dist_2_str)
-        self.forecast_2_floors_label.config(text=f"{forecast_2['floors_per_run']:.2f}")
-        self.forecast_2_gain_label.config(text=f"+{forecast_2['improvement_pct']:.1f}%")
-        
-        # Path for row 2
-        if forecast_2['path']:
-            path_2_str = ' → '.join(abbrev[s] for s in forecast_2['path'])
-            self.forecast_2_path_label.config(text=path_2_str)
-        else:
-            self.forecast_2_path_label.config(text="—")
         
         # Update budget planner too
         self.update_budget_display()
