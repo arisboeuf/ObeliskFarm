@@ -85,6 +85,10 @@ class ArchaeologySimulatorWindow:
             'loot_mod_chance': 0.0005,  # +0.05%
             'max_level': 25,
         },
+        'arch_xp': {
+            'arch_xp_bonus': 0.02,  # +2% Archaeology Exp
+            'max_level': 25,
+        },
     }
     
     # Gem costs per level for each upgrade type
@@ -105,6 +109,31 @@ class ArchaeologySimulatorWindow:
             500, 525, 551, 578, 607, 638, 670, 703, 738, 775,  # 1-10
             814, 855, 897, 942, 989, 1000, 1000, 1000, 1000, 1000,  # 11-20
             1000, 1000, 1000, 1000, 1000,  # 21-25
+        ],
+        # Archaeology Exp Gain +2% per level (Common currency, not Gems)
+        # Costs: 1.00, 1.20, 1.44, 1.73, 2.07, 2.49, 2.99, 3.58, 4.30, 5.16,
+        #        6.19, 7.43, 8.92, 10.70, 12.84, 15.41, 18.49, 22.19, 26.62, 31.95,
+        #        38.34, 46.01, 55.21, 66.25, 79.50
+        'arch_xp': [
+            1.00, 1.20, 1.44, 1.73, 2.07, 2.49, 2.99, 3.58, 4.30, 5.16,  # 1-10
+            6.19, 7.43, 8.92, 10.70, 12.84, 15.41, 18.49, 22.19, 26.62, 31.95,  # 11-20
+            38.34, 46.01, 55.21, 66.25, 79.50,  # 21-25
+        ],
+    }
+    
+    # Common costs for fragment upgrades (Flat Damage, Armor Pen)
+    COMMON_UPGRADE_COSTS = {
+        # Flat Damage +1 per level (0.50 base, 1.2x multiplier)
+        'flat_damage': [
+            0.50, 0.60, 0.72, 0.86, 1.04, 1.24, 1.49, 1.79, 2.15, 2.58,  # 1-10
+            3.10, 3.72, 4.46, 5.35, 6.42, 7.70, 9.24, 11.09, 13.31, 15.97,  # 11-20
+            19.17, 23.00, 27.60, 33.12, 39.75,  # 21-25
+        ],
+        # Armor Penetration +1 per level (0.75 base, 1.2x multiplier)
+        'armor_pen': [
+            0.75, 0.90, 1.08, 1.30, 1.56, 1.87, 2.24, 2.69, 3.22, 3.87,  # 1-10
+            4.64, 5.57, 6.69, 8.02, 9.63, 11.56, 13.87, 16.64, 19.97, 23.96,  # 11-20
+            28.75, 34.50, 41.40, 49.69, 59.62,  # 21-25
         ],
     }
     
@@ -188,8 +217,11 @@ class ArchaeologySimulatorWindow:
             self.upgrade_flat_damage = state.get('upgrade_flat_damage', 0)
             self.upgrade_armor_pen = state.get('upgrade_armor_pen', 0)
             self.gem_upgrades = state.get('gem_upgrades', {
-                'stamina': 0, 'xp': 0, 'fragment': 0,
+                'stamina': 0, 'xp': 0, 'fragment': 0, 'arch_xp': 0,
             })
+            # Ensure new upgrade types are present if loading old save
+            if 'arch_xp' not in self.gem_upgrades:
+                self.gem_upgrades['arch_xp'] = 0
             
             # Update enrage checkbox
             if hasattr(self, 'enrage_enabled'):
@@ -226,6 +258,7 @@ class ArchaeologySimulatorWindow:
             'stamina': 0,
             'xp': 0,
             'fragment': 0,
+            'arch_xp': 0,
         }
     
     def get_total_stats(self):
@@ -239,6 +272,7 @@ class ArchaeologySimulatorWindow:
         gem_stamina = self.gem_upgrades.get('stamina', 0)
         gem_xp = self.gem_upgrades.get('xp', 0)
         gem_fragment = self.gem_upgrades.get('fragment', 0)
+        gem_arch_xp = self.gem_upgrades.get('arch_xp', 0)
         
         flat_damage = self.base_damage + self.upgrade_flat_damage + str_pts * self.SKILL_BONUSES['strength']['flat_damage']
         percent_damage_bonus = str_pts * self.SKILL_BONUSES['strength']['percent_damage']
@@ -287,6 +321,9 @@ class ArchaeologySimulatorWindow:
         stamina_mod_chance = (all_mod_bonus + 
                              gem_stamina * self.GEM_UPGRADE_BONUSES['stamina']['stamina_mod_chance'])
         
+        # Archaeology XP bonus from common upgrade
+        arch_xp_mult = 1.0 + gem_arch_xp * self.GEM_UPGRADE_BONUSES['arch_xp']['arch_xp_bonus']
+        
         return {
             'flat_damage': flat_damage,
             'total_damage': total_damage,
@@ -302,6 +339,8 @@ class ArchaeologySimulatorWindow:
             'loot_mod_chance': min(1.0, loot_mod_chance),
             'speed_mod_chance': min(1.0, speed_mod_chance),
             'stamina_mod_chance': min(1.0, stamina_mod_chance),
+            # Archaeology XP multiplier (applies to leveling)
+            'arch_xp_mult': arch_xp_mult,
         }
     
     def calculate_effective_damage(self, stats, block_armor):
@@ -564,6 +603,25 @@ class ArchaeologySimulatorWindow:
             return 0
         return sum(self.GEM_COSTS[upgrade_name][:current_level])
     
+    def get_common_upgrade_cost(self, upgrade_name):
+        """Get the Common cost of the next upgrade level for Flat Damage or Armor Pen"""
+        if upgrade_name not in self.COMMON_UPGRADE_COSTS:
+            return None
+        current_level = getattr(self, f'upgrade_{upgrade_name}', 0)
+        max_level = len(self.COMMON_UPGRADE_COSTS[upgrade_name])
+        if current_level >= max_level:
+            return None
+        return self.COMMON_UPGRADE_COSTS[upgrade_name][current_level]
+    
+    def get_total_common_cost(self, upgrade_name):
+        """Get total Common spent on this upgrade"""
+        if upgrade_name not in self.COMMON_UPGRADE_COSTS:
+            return 0
+        current_level = getattr(self, f'upgrade_{upgrade_name}', 0)
+        if current_level == 0:
+            return 0
+        return sum(self.COMMON_UPGRADE_COSTS[upgrade_name][:current_level])
+    
     def calculate_gem_upgrade_efficiency(self, upgrade_name):
         """Calculate the efficiency of adding one gem upgrade level"""
         max_level = self.GEM_UPGRADE_BONUSES[upgrade_name]['max_level']
@@ -716,25 +774,59 @@ class ArchaeologySimulatorWindow:
         
         ttk.Separator(col_frame, orient='horizontal').pack(fill=tk.X, pady=5, padx=5)
         
-        # Upgrades
-        tk.Label(col_frame, text="Upgrades", font=("Arial", 10, "bold"), 
-                background="#E3F2FD").pack(pady=(0, 3))
+        # Upgrades header with common fragment icon
+        upgrade_header = tk.Frame(col_frame, background="#E3F2FD")
+        upgrade_header.pack(fill=tk.X, padx=8, pady=(0, 3))
+        
+        tk.Label(upgrade_header, text="Upgrades", font=("Arial", 10, "bold"), 
+                background="#E3F2FD").pack(side=tk.LEFT)
+        
+        # Load common fragment icon for stats column
+        try:
+            stats_frag_icon_path = Path(__file__).parent.parent / "sprites" / "fragmentcommon.png"
+            if stats_frag_icon_path.exists():
+                stats_frag_image = Image.open(stats_frag_icon_path)
+                stats_frag_image = stats_frag_image.resize((12, 12), Image.Resampling.LANCZOS)
+                self.stats_frag_photo = ImageTk.PhotoImage(stats_frag_image)
+                tk.Label(upgrade_header, image=self.stats_frag_photo, background="#E3F2FD").pack(side=tk.LEFT, padx=(5, 0))
+        except:
+            pass
         
         upgrade_grid = tk.Frame(col_frame, background="#E3F2FD")
         upgrade_grid.pack(fill=tk.X, padx=8, pady=2)
         
         self.upgrade_labels = {}
+        self.upgrade_cost_icon_labels = {}
+        
+        # Flat Damage row
         tk.Label(upgrade_grid, text="Flat Dmg:", background="#E3F2FD", font=("Arial", 9)).grid(
             row=0, column=0, sticky=tk.W, pady=1)
-        self.upgrade_labels['flat_damage'] = tk.Label(upgrade_grid, text="+0", 
-            background="#E3F2FD", font=("Arial", 9, "bold"), width=4, anchor=tk.E)
-        self.upgrade_labels['flat_damage'].grid(row=0, column=1, sticky=tk.E, pady=1)
+        fd_frame = tk.Frame(upgrade_grid, background="#E3F2FD")
+        fd_frame.grid(row=0, column=1, sticky=tk.E, pady=1)
+        self.upgrade_labels['flat_damage'] = tk.Label(fd_frame, text="+0", 
+            background="#E3F2FD", font=("Arial", 9, "bold"), anchor=tk.E)
+        self.upgrade_labels['flat_damage'].pack(side=tk.LEFT)
+        self.upgrade_cost_icon_labels['flat_damage'] = tk.Label(fd_frame, text="", 
+            background="#E3F2FD", font=("Arial", 9), foreground="#555555", anchor=tk.E)
+        self.upgrade_cost_icon_labels['flat_damage'].pack(side=tk.LEFT, padx=(3, 0))
+        # Add small fragment icon after cost
+        if hasattr(self, 'stats_frag_photo'):
+            tk.Label(fd_frame, image=self.stats_frag_photo, background="#E3F2FD").pack(side=tk.LEFT)
         
+        # Armor Pen row
         tk.Label(upgrade_grid, text="Armor Pen:", background="#E3F2FD", font=("Arial", 9)).grid(
             row=1, column=0, sticky=tk.W, pady=1)
-        self.upgrade_labels['armor_pen'] = tk.Label(upgrade_grid, text="+0", 
-            background="#E3F2FD", font=("Arial", 9, "bold"), width=4, anchor=tk.E)
-        self.upgrade_labels['armor_pen'].grid(row=1, column=1, sticky=tk.E, pady=1)
+        ap_frame = tk.Frame(upgrade_grid, background="#E3F2FD")
+        ap_frame.grid(row=1, column=1, sticky=tk.E, pady=1)
+        self.upgrade_labels['armor_pen'] = tk.Label(ap_frame, text="+0", 
+            background="#E3F2FD", font=("Arial", 9, "bold"), anchor=tk.E)
+        self.upgrade_labels['armor_pen'].pack(side=tk.LEFT)
+        self.upgrade_cost_icon_labels['armor_pen'] = tk.Label(ap_frame, text="", 
+            background="#E3F2FD", font=("Arial", 9), foreground="#555555", anchor=tk.E)
+        self.upgrade_cost_icon_labels['armor_pen'].pack(side=tk.LEFT, padx=(3, 0))
+        # Add small fragment icon after cost
+        if hasattr(self, 'stats_frag_photo'):
+            tk.Label(ap_frame, image=self.stats_frag_photo, background="#E3F2FD").pack(side=tk.LEFT)
         
         ttk.Separator(col_frame, orient='horizontal').pack(fill=tk.X, pady=5, padx=5)
         
@@ -761,6 +853,31 @@ class ArchaeologySimulatorWindow:
                                   foreground="#9932CC")
             value_label.grid(row=i, column=1, sticky=tk.E, pady=1)
             self.mod_labels[key] = value_label
+        
+        ttk.Separator(col_frame, orient='horizontal').pack(fill=tk.X, pady=5, padx=5)
+        
+        # Multipliers section
+        tk.Label(col_frame, text="Multipliers", font=("Arial", 10, "bold"), 
+                background="#E3F2FD").pack(pady=(0, 3))
+        
+        mult_grid = tk.Frame(col_frame, background="#E3F2FD")
+        mult_grid.pack(fill=tk.X, padx=8, pady=2)
+        
+        self.mult_labels = {}
+        mult_names = [
+            ("XP Mult:", "xp_mult"),
+            ("Frag Mult:", "fragment_mult"),
+            ("Arch XP:", "arch_xp_mult"),
+        ]
+        
+        for i, (label_text, key) in enumerate(mult_names):
+            tk.Label(mult_grid, text=label_text, background="#E3F2FD", 
+                    font=("Arial", 9), anchor=tk.W).grid(row=i, column=0, sticky=tk.W, pady=1)
+            value_label = tk.Label(mult_grid, text="1.00x", background="#E3F2FD", 
+                                  font=("Arial", 9, "bold"), anchor=tk.E, width=7,
+                                  foreground="#2E7D32")
+            value_label.grid(row=i, column=1, sticky=tk.E, pady=1)
+            self.mult_labels[key] = value_label
     
     def create_skills_column(self, parent):
         """Middle column: Skill and upgrade buttons"""
@@ -771,7 +888,7 @@ class ArchaeologySimulatorWindow:
                 background="#E8F5E9").pack(pady=(5, 3))
         
         tk.Label(col_frame, text="% = improvement in floors/run", 
-                font=("Arial", 8), foreground="gray", background="#E8F5E9").pack(pady=(0, 5))
+                font=("Arial", 9), foreground="#555555", background="#E8F5E9").pack(pady=(0, 5))
         
         # Skills
         self.skill_buttons = {}
@@ -809,18 +926,37 @@ class ArchaeologySimulatorWindow:
             self.skill_efficiency_labels[skill] = eff_label
             
             tk.Label(row_frame, text=info, background="#E8F5E9", 
-                    font=("Arial", 7), foreground="gray").pack(side=tk.LEFT)
+                    font=("Arial", 9), foreground="#555555").pack(side=tk.LEFT)
             
             self.skill_buttons[skill] = (minus_btn, plus_btn)
         
         ttk.Separator(col_frame, orient='horizontal').pack(fill=tk.X, pady=5, padx=5)
         
-        # Upgrades
-        tk.Label(col_frame, text="Upgrades", font=("Arial", 10, "bold"), 
-                background="#E8F5E9").pack(pady=(0, 3))
+        # Upgrades (Common Fragment cost)
+        upgrade_header_frame = tk.Frame(col_frame, background="#E8F5E9")
+        upgrade_header_frame.pack(fill=tk.X, padx=5, pady=(0, 3))
+        
+        tk.Label(upgrade_header_frame, text="Upgrades", font=("Arial", 10, "bold"), 
+                background="#E8F5E9").pack(side=tk.LEFT)
+        
+        # Load common fragment icon for header
+        try:
+            common_frag_icon_path = Path(__file__).parent.parent / "sprites" / "fragmentcommon.png"
+            if common_frag_icon_path.exists():
+                common_frag_image = Image.open(common_frag_icon_path)
+                common_frag_image = common_frag_image.resize((14, 14), Image.Resampling.LANCZOS)
+                self.common_frag_header_photo = ImageTk.PhotoImage(common_frag_image)
+                common_frag_label = tk.Label(upgrade_header_frame, image=self.common_frag_header_photo, 
+                                            background="#E8F5E9")
+                common_frag_label.pack(side=tk.LEFT, padx=(5, 0))
+        except:
+            # Fallback to text
+            tk.Label(upgrade_header_frame, text="(Common)", font=("Arial", 8), 
+                    foreground="#808080", background="#E8F5E9").pack(side=tk.LEFT, padx=(3, 0))
         
         self.upgrade_buttons = {}
         self.upgrade_efficiency_labels = {}
+        self.upgrade_cost_labels = {}
         
         upgrades_frame = tk.Frame(col_frame, background="#E8F5E9")
         upgrades_frame.pack(fill=tk.X, padx=5, pady=2)
@@ -841,12 +977,65 @@ class ArchaeologySimulatorWindow:
             tk.Label(row_frame, text=label_text, background="#E8F5E9", 
                     font=("Arial", 9, "bold"), width=11, anchor=tk.W).pack(side=tk.LEFT)
             
+            # Efficiency label (% improvement)
             eff_label = tk.Label(row_frame, text="—", background="#E8F5E9", 
                                 font=("Arial", 9, "bold"), foreground="#2E7D32", width=7, anchor=tk.E)
             eff_label.pack(side=tk.LEFT)
             self.upgrade_efficiency_labels[upgrade] = eff_label
             
+            # Cost efficiency label (%/Common)
+            cost_eff_label = tk.Label(row_frame, text="", background="#E8F5E9", 
+                                     font=("Arial", 9), foreground="#555555", anchor=tk.W)
+            cost_eff_label.pack(side=tk.LEFT, padx=(3, 0))
+            self.upgrade_cost_labels[upgrade] = cost_eff_label
+            
+            # Info icon with tooltip
+            info_label = tk.Label(row_frame, text="?", background="#E8F5E9", 
+                                 font=("Arial", 9, "bold"), foreground="#1976D2", cursor="hand2")
+            info_label.pack(side=tk.LEFT, padx=(2, 0))
+            self._create_common_upgrade_tooltip(info_label, upgrade)
+            
             self.upgrade_buttons[upgrade] = (minus_btn, plus_btn)
+        
+        # Arch XP Upgrade (also costs Common, but stored in gem_upgrades)
+        arch_xp_frame = tk.Frame(upgrades_frame, background="#E8F5E9")
+        arch_xp_frame.pack(fill=tk.X, pady=1)
+        
+        arch_xp_minus_btn = tk.Button(arch_xp_frame, text="-", width=2, font=("Arial", 8, "bold"),
+                             command=lambda: self.remove_gem_upgrade('arch_xp'))
+        arch_xp_minus_btn.pack(side=tk.LEFT, padx=(0, 1))
+        
+        arch_xp_plus_btn = tk.Button(arch_xp_frame, text="+", width=2, font=("Arial", 8, "bold"),
+                            command=lambda: self.add_gem_upgrade('arch_xp'))
+        arch_xp_plus_btn.pack(side=tk.LEFT, padx=(0, 3))
+        
+        # Level display
+        self.arch_xp_level_label = tk.Label(arch_xp_frame, text="0", background="#E8F5E9", 
+                              font=("Arial", 9, "bold"), foreground="#808080", width=2, anchor=tk.E)
+        self.arch_xp_level_label.pack(side=tk.LEFT, padx=(0, 3))
+        
+        tk.Label(arch_xp_frame, text="Exp Gain", background="#E8F5E9", 
+                font=("Arial", 9, "bold"), width=8, anchor=tk.W).pack(side=tk.LEFT)
+        
+        # Efficiency label (shows +X% per level effect, not floors improvement)
+        self.arch_xp_eff_label = tk.Label(arch_xp_frame, text="+2%", background="#E8F5E9", 
+                            font=("Arial", 9), foreground="#2E7D32", width=5, anchor=tk.E)
+        self.arch_xp_eff_label.pack(side=tk.LEFT)
+        
+        # Cost efficiency label
+        self.arch_xp_cost_label = tk.Label(arch_xp_frame, text="", background="#E8F5E9", 
+                                 font=("Arial", 9), foreground="#555555", anchor=tk.W)
+        self.arch_xp_cost_label.pack(side=tk.LEFT, padx=(3, 0))
+        
+        # Add common fragment icon after cost
+        if hasattr(self, 'common_frag_header_photo'):
+            tk.Label(arch_xp_frame, image=self.common_frag_header_photo, background="#E8F5E9").pack(side=tk.LEFT)
+        
+        # Info icon with tooltip
+        arch_xp_info_label = tk.Label(arch_xp_frame, text="?", background="#E8F5E9", 
+                             font=("Arial", 9, "bold"), foreground="#1976D2", cursor="hand2")
+        arch_xp_info_label.pack(side=tk.LEFT, padx=(2, 0))
+        self._create_arch_xp_tooltip(arch_xp_info_label)
         
         ttk.Separator(col_frame, orient='horizontal').pack(fill=tk.X, pady=5, padx=5)
         
@@ -910,7 +1099,7 @@ class ArchaeologySimulatorWindow:
             
             # Info tooltip
             info_label = tk.Label(row_frame, text="?", background="#E8F5E9", 
-                                 font=("Arial", 7), foreground="gray", cursor="hand2")
+                                 font=("Arial", 9, "bold"), foreground="#1976D2", cursor="hand2")
             info_label.pack(side=tk.LEFT)
             self._create_gem_upgrade_tooltip(info_label, gem_upgrade, info, max_lvl)
             
@@ -926,6 +1115,197 @@ class ArchaeologySimulatorWindow:
                                             background="#E8F5E9", foreground="#1976D2")
         self.recommendation_label.pack(pady=(0, 5))
     
+    def _create_arch_xp_tooltip(self, widget):
+        """Creates a tooltip for the Archaeology Exp Gain upgrade"""
+        def on_enter(event):
+            current_level = self.gem_upgrades.get('arch_xp', 0)
+            max_level = self.GEM_UPGRADE_BONUSES['arch_xp']['max_level']
+            next_cost = self.get_gem_upgrade_cost('arch_xp')
+            total_spent = self.get_total_gem_cost('arch_xp')
+            
+            tooltip = tk.Toplevel()
+            tooltip.wm_overrideredirect(True)
+            tooltip.wm_geometry(f"+{event.x_root+10}+{event.y_root+10}")
+            
+            # Outer frame for shadow effect (gray for Common)
+            outer_frame = tk.Frame(tooltip, background="#808080", relief=tk.FLAT, borderwidth=0)
+            outer_frame.pack(padx=2, pady=2)
+            
+            # Inner frame
+            inner_frame = tk.Frame(outer_frame, background="#FFFFFF", relief=tk.FLAT, borderwidth=0)
+            inner_frame.pack(padx=1, pady=1)
+            
+            content_frame = tk.Frame(inner_frame, background="#FFFFFF", padx=10, pady=8)
+            content_frame.pack()
+            
+            # Title with icon
+            title_frame = tk.Frame(content_frame, background="#FFFFFF")
+            title_frame.pack(anchor=tk.W)
+            
+            # Try to load common fragment icon
+            try:
+                icon_path = Path(__file__).parent.parent / "sprites" / "fragmentcommon.png"
+                if icon_path.exists():
+                    icon_image = Image.open(icon_path)
+                    icon_image = icon_image.resize((16, 16), Image.Resampling.LANCZOS)
+                    tooltip.icon_photo = ImageTk.PhotoImage(icon_image)
+                    tk.Label(title_frame, image=tooltip.icon_photo, background="#FFFFFF").pack(side=tk.LEFT, padx=(0, 5))
+            except:
+                pass
+            
+            tk.Label(title_frame, text="Common Upgrade: Exp Gain +2%", 
+                    font=("Arial", 10, "bold"), foreground="#808080", 
+                    background="#FFFFFF").pack(side=tk.LEFT)
+            
+            # Effect
+            tk.Label(content_frame, text="Effect: +2% Archaeology Exp per level", 
+                    font=("Arial", 9), background="#FFFFFF").pack(anchor=tk.W, pady=(2, 0))
+            
+            # Current bonus
+            current_bonus = current_level * 2
+            tk.Label(content_frame, text=f"Current Bonus: +{current_bonus}% Archaeology Exp", 
+                    font=("Arial", 9, "bold"), foreground="#2E7D32",
+                    background="#FFFFFF").pack(anchor=tk.W, pady=(2, 0))
+            
+            # Level
+            tk.Label(content_frame, text=f"Level: {current_level} / {max_level}", 
+                    font=("Arial", 9, "bold"), background="#FFFFFF").pack(anchor=tk.W, pady=(5, 0))
+            
+            # Next cost with icon
+            if next_cost:
+                cost_frame = tk.Frame(content_frame, background="#FFFFFF")
+                cost_frame.pack(anchor=tk.W)
+                tk.Label(cost_frame, text=f"Next Level: {next_cost:.2f}", 
+                        font=("Arial", 9), foreground="#2E7D32", 
+                        background="#FFFFFF").pack(side=tk.LEFT)
+                try:
+                    if hasattr(tooltip, 'icon_photo'):
+                        tk.Label(cost_frame, image=tooltip.icon_photo, background="#FFFFFF").pack(side=tk.LEFT, padx=(3, 0))
+                except:
+                    tk.Label(cost_frame, text=" Common", font=("Arial", 9), foreground="#2E7D32", 
+                            background="#FFFFFF").pack(side=tk.LEFT)
+            else:
+                tk.Label(content_frame, text="MAX LEVEL", 
+                        font=("Arial", 9, "bold"), foreground="#C73E1D", 
+                        background="#FFFFFF").pack(anchor=tk.W)
+            
+            # Total spent with icon
+            total_frame = tk.Frame(content_frame, background="#FFFFFF")
+            total_frame.pack(anchor=tk.W, pady=(2, 0))
+            tk.Label(total_frame, text=f"Total Spent: {total_spent:.2f}", 
+                    font=("Arial", 9), foreground="gray", 
+                    background="#FFFFFF").pack(side=tk.LEFT)
+            try:
+                if hasattr(tooltip, 'icon_photo'):
+                    tk.Label(total_frame, image=tooltip.icon_photo, background="#FFFFFF").pack(side=tk.LEFT, padx=(3, 0))
+            except:
+                tk.Label(total_frame, text=" Common", font=("Arial", 9), foreground="gray", 
+                        background="#FFFFFF").pack(side=tk.LEFT)
+            
+            widget.tooltip = tooltip
+        
+        def on_leave(event):
+            if hasattr(widget, 'tooltip'):
+                widget.tooltip.destroy()
+                del widget.tooltip
+        
+        widget.bind("<Enter>", on_enter)
+        widget.bind("<Leave>", on_leave)
+    
+    def _create_common_upgrade_tooltip(self, widget, upgrade_name):
+        """Creates a tooltip showing Common upgrade details and costs"""
+        def on_enter(event):
+            current_level = getattr(self, f'upgrade_{upgrade_name}', 0)
+            next_cost = self.get_common_upgrade_cost(upgrade_name)
+            total_spent = self.get_total_common_cost(upgrade_name)
+            max_level = len(self.COMMON_UPGRADE_COSTS.get(upgrade_name, []))
+            
+            display_name = "Flat Damage +1" if upgrade_name == 'flat_damage' else "Armor Pen +1"
+            
+            tooltip = tk.Toplevel()
+            tooltip.wm_overrideredirect(True)
+            tooltip.wm_geometry(f"+{event.x_root+10}+{event.y_root+10}")
+            
+            # Outer frame for shadow effect (gray for Common)
+            outer_frame = tk.Frame(tooltip, background="#808080", relief=tk.FLAT, borderwidth=0)
+            outer_frame.pack(padx=2, pady=2)
+            
+            # Inner frame
+            inner_frame = tk.Frame(outer_frame, background="#FFFFFF", relief=tk.FLAT, borderwidth=0)
+            inner_frame.pack(padx=1, pady=1)
+            
+            content_frame = tk.Frame(inner_frame, background="#FFFFFF", padx=10, pady=8)
+            content_frame.pack()
+            
+            # Title with icon
+            title_frame = tk.Frame(content_frame, background="#FFFFFF")
+            title_frame.pack(anchor=tk.W)
+            
+            # Try to load common fragment icon
+            try:
+                icon_path = Path(__file__).parent.parent / "sprites" / "fragmentcommon.png"
+                if icon_path.exists():
+                    icon_image = Image.open(icon_path)
+                    icon_image = icon_image.resize((16, 16), Image.Resampling.LANCZOS)
+                    tooltip.icon_photo = ImageTk.PhotoImage(icon_image)
+                    tk.Label(title_frame, image=tooltip.icon_photo, background="#FFFFFF").pack(side=tk.LEFT, padx=(0, 5))
+            except:
+                pass
+            
+            tk.Label(title_frame, text=f"Common Upgrade: {display_name}", 
+                    font=("Arial", 10, "bold"), foreground="#808080", 
+                    background="#FFFFFF").pack(side=tk.LEFT)
+            
+            # Effect
+            effect_text = "+1 Flat Damage per level" if upgrade_name == 'flat_damage' else "+1 Armor Penetration per level"
+            tk.Label(content_frame, text=f"Effect: {effect_text}", 
+                    font=("Arial", 9), background="#FFFFFF").pack(anchor=tk.W, pady=(2, 0))
+            
+            # Level
+            tk.Label(content_frame, text=f"Level: {current_level} / {max_level}", 
+                    font=("Arial", 9, "bold"), background="#FFFFFF").pack(anchor=tk.W, pady=(5, 0))
+            
+            # Next cost with icon
+            if next_cost:
+                cost_frame = tk.Frame(content_frame, background="#FFFFFF")
+                cost_frame.pack(anchor=tk.W)
+                tk.Label(cost_frame, text=f"Next Level: {next_cost:.2f}", 
+                        font=("Arial", 9), foreground="#2E7D32", 
+                        background="#FFFFFF").pack(side=tk.LEFT)
+                try:
+                    if hasattr(tooltip, 'icon_photo'):
+                        tk.Label(cost_frame, image=tooltip.icon_photo, background="#FFFFFF").pack(side=tk.LEFT, padx=(3, 0))
+                except:
+                    tk.Label(cost_frame, text=" Common", font=("Arial", 9), foreground="#2E7D32", 
+                            background="#FFFFFF").pack(side=tk.LEFT)
+            else:
+                tk.Label(content_frame, text="MAX LEVEL", 
+                        font=("Arial", 9, "bold"), foreground="#C73E1D", 
+                        background="#FFFFFF").pack(anchor=tk.W)
+            
+            # Total spent with icon
+            total_frame = tk.Frame(content_frame, background="#FFFFFF")
+            total_frame.pack(anchor=tk.W, pady=(2, 0))
+            tk.Label(total_frame, text=f"Total Spent: {total_spent:.2f}", 
+                    font=("Arial", 9), foreground="gray", 
+                    background="#FFFFFF").pack(side=tk.LEFT)
+            try:
+                if hasattr(tooltip, 'icon_photo'):
+                    tk.Label(total_frame, image=tooltip.icon_photo, background="#FFFFFF").pack(side=tk.LEFT, padx=(3, 0))
+            except:
+                tk.Label(total_frame, text=" Common", font=("Arial", 9), foreground="gray", 
+                        background="#FFFFFF").pack(side=tk.LEFT)
+            
+            widget.tooltip = tooltip
+        
+        def on_leave(event):
+            if hasattr(widget, 'tooltip'):
+                widget.tooltip.destroy()
+                del widget.tooltip
+        
+        widget.bind("<Enter>", on_enter)
+        widget.bind("<Leave>", on_leave)
+    
     def _create_gem_upgrade_tooltip(self, widget, upgrade_name, info, max_level):
         """Creates a tooltip showing gem upgrade details and costs"""
         def on_enter(event):
@@ -933,12 +1313,17 @@ class ArchaeologySimulatorWindow:
             next_cost = self.get_gem_upgrade_cost(upgrade_name)
             total_spent = self.get_total_gem_cost(upgrade_name)
             
+            # Determine currency type (arch_xp uses Common, others use Gems)
+            is_common_currency = (upgrade_name == 'arch_xp')
+            currency_name = "Common" if is_common_currency else "Gems"
+            border_color = "#808080" if is_common_currency else "#9932CC"  # Gray for Common, Purple for Gems
+            
             tooltip = tk.Toplevel()
             tooltip.wm_overrideredirect(True)
             tooltip.wm_geometry(f"+{event.x_root+10}+{event.y_root+10}")
             
             # Outer frame for shadow effect
-            outer_frame = tk.Frame(tooltip, background="#9932CC", relief=tk.FLAT, borderwidth=0)
+            outer_frame = tk.Frame(tooltip, background=border_color, relief=tk.FLAT, borderwidth=0)
             outer_frame.pack(padx=2, pady=2)
             
             # Inner frame
@@ -949,8 +1334,10 @@ class ArchaeologySimulatorWindow:
             content_frame.pack()
             
             # Title
-            tk.Label(content_frame, text=f"Gem Upgrade: {upgrade_name.capitalize()}", 
-                    font=("Arial", 10, "bold"), foreground="#9932CC", 
+            title_prefix = "Common Upgrade" if is_common_currency else "Gem Upgrade"
+            display_name = "Arch XP" if upgrade_name == 'arch_xp' else upgrade_name.capitalize()
+            tk.Label(content_frame, text=f"{title_prefix}: {display_name}", 
+                    font=("Arial", 10, "bold"), foreground=border_color, 
                     background="#FFFFFF").pack(anchor=tk.W)
             
             # Effect
@@ -963,7 +1350,11 @@ class ArchaeologySimulatorWindow:
             
             # Next cost
             if next_cost:
-                tk.Label(content_frame, text=f"Next Level: {next_cost} Gems", 
+                if is_common_currency:
+                    cost_text = f"Next Level: {next_cost:.2f} {currency_name}"
+                else:
+                    cost_text = f"Next Level: {next_cost} {currency_name}"
+                tk.Label(content_frame, text=cost_text, 
                         font=("Arial", 9), foreground="#2E7D32", 
                         background="#FFFFFF").pack(anchor=tk.W)
             else:
@@ -972,7 +1363,11 @@ class ArchaeologySimulatorWindow:
                         background="#FFFFFF").pack(anchor=tk.W)
             
             # Total spent
-            tk.Label(content_frame, text=f"Total Spent: {total_spent} Gems", 
+            if is_common_currency:
+                total_text = f"Total Spent: {total_spent:.2f} {currency_name}"
+            else:
+                total_text = f"Total Spent: {total_spent} {currency_name}"
+            tk.Label(content_frame, text=total_text, 
                     font=("Arial", 9), foreground="gray", 
                     background="#FFFFFF").pack(anchor=tk.W, pady=(2, 0))
             
@@ -1187,8 +1582,8 @@ class ArchaeologySimulatorWindow:
         self.avg_block_frag_label.grid(row=3, column=1, sticky=tk.E, pady=1)
         
         # Armor pen needed hint
-        tk.Label(avg_stats_grid, text="Armor Pen needed:", font=("Arial", 8), 
-                background="#FFF3E0", foreground="gray").grid(row=4, column=0, sticky=tk.W, pady=(3,1))
+        tk.Label(avg_stats_grid, text="Armor Pen needed:", font=("Arial", 9), 
+                background="#FFF3E0", foreground="#555555").grid(row=4, column=0, sticky=tk.W, pady=(3,1))
         self.armor_pen_hint_label = tk.Label(avg_stats_grid, text="—", 
                                             font=("Arial", 8, "bold"), 
                                             background="#FFF3E0", foreground="#555555")
@@ -1219,7 +1614,7 @@ class ArchaeologySimulatorWindow:
         tk.Label(best_bp_inner, text="★ Best Next:", font=("Arial", 8, "bold"), 
                 background="#FFECB3", foreground="#FF6F00").pack(side=tk.LEFT)
         
-        self.best_bp_label = tk.Label(best_bp_inner, text="—", font=("Arial", 8), 
+        self.best_bp_label = tk.Label(best_bp_inner, text="—", font=("Arial", 9), 
                                      background="#FFECB3", foreground="#333333")
         self.best_bp_label.pack(side=tk.LEFT, padx=(5, 0))
         
@@ -1250,17 +1645,17 @@ class ArchaeologySimulatorWindow:
             name_label.pack(side=tk.LEFT)
             
             # Stamina impact indicator
-            impact_label = tk.Label(row_frame, text="", font=("Arial", 7), 
+            impact_label = tk.Label(row_frame, text="", font=("Arial", 9), 
                                    background="#FFF3E0", foreground="#888888", width=8, anchor=tk.W)
             impact_label.pack(side=tk.LEFT)
             
             # Current hits
-            hits_label = tk.Label(row_frame, text="—", font=("Arial", 8), 
+            hits_label = tk.Label(row_frame, text="—", font=("Arial", 9), 
                                  background="#FFF3E0", width=6, anchor=tk.W)
             hits_label.pack(side=tk.LEFT)
             
             # Next breakpoint info
-            bp_info_label = tk.Label(row_frame, text="", font=("Arial", 8), 
+            bp_info_label = tk.Label(row_frame, text="", font=("Arial", 9), 
                                     background="#FFF3E0", foreground="#555555",
                                     anchor=tk.W)
             bp_info_label.pack(side=tk.LEFT, fill=tk.X, expand=True)
@@ -1720,7 +2115,7 @@ class ArchaeologySimulatorWindow:
                     self.chart_canvas.create_text(
                         margin_left + bar_width + 3, y + bar_height/2,
                         text=pct_text, anchor=tk.W,
-                        font=("Arial", 7), fill="#333333"
+                        font=("Arial", 8), fill="#333333"
                     )
             else:
                 # Gray placeholder for 0%
@@ -1732,7 +2127,7 @@ class ArchaeologySimulatorWindow:
                 self.chart_canvas.create_text(
                     margin_left + 5, y + bar_height/2,
                     text="0%", anchor=tk.W,
-                    font=("Arial", 7), fill="#999999"
+                    font=("Arial", 8), fill="#666666"
                 )
             
             y += bar_height + bar_spacing
@@ -1756,8 +2151,22 @@ class ArchaeologySimulatorWindow:
             label.config(text=str(self.skill_points[skill]))
         
         # Update upgrades
+        # Update upgrade labels with level and next cost (with icon)
         self.upgrade_labels['flat_damage'].config(text=f"+{self.upgrade_flat_damage}")
+        fd_cost = self.get_common_upgrade_cost('flat_damage')
+        if hasattr(self, 'upgrade_cost_icon_labels'):
+            if fd_cost:
+                self.upgrade_cost_icon_labels['flat_damage'].config(text=f"({fd_cost:.1f})")
+            else:
+                self.upgrade_cost_icon_labels['flat_damage'].config(text="(MAX)", foreground="#C73E1D")
+        
         self.upgrade_labels['armor_pen'].config(text=f"+{self.upgrade_armor_pen}")
+        ap_cost = self.get_common_upgrade_cost('armor_pen')
+        if hasattr(self, 'upgrade_cost_icon_labels'):
+            if ap_cost:
+                self.upgrade_cost_icon_labels['armor_pen'].config(text=f"({ap_cost:.1f})")
+            else:
+                self.upgrade_cost_icon_labels['armor_pen'].config(text="(MAX)", foreground="#C73E1D")
         
         # Update mod chances (show 2 decimal places since values are small, e.g. 0.20%)
         if hasattr(self, 'mod_labels'):
@@ -1765,6 +2174,12 @@ class ArchaeologySimulatorWindow:
             self.mod_labels['loot_mod_chance'].config(text=f"{stats['loot_mod_chance']*100:.2f}%")
             self.mod_labels['speed_mod_chance'].config(text=f"{stats['speed_mod_chance']*100:.2f}%")
             self.mod_labels['stamina_mod_chance'].config(text=f"{stats['stamina_mod_chance']*100:.2f}%")
+        
+        # Update multipliers
+        if hasattr(self, 'mult_labels'):
+            self.mult_labels['xp_mult'].config(text=f"{stats['xp_mult']:.2f}x")
+            self.mult_labels['fragment_mult'].config(text=f"{stats['fragment_mult']:.2f}x")
+            self.mult_labels['arch_xp_mult'].config(text=f"{stats['arch_xp_mult']:.2f}x")
         
         # Update gem upgrade levels
         if hasattr(self, 'gem_upgrade_labels'):
@@ -1779,6 +2194,25 @@ class ArchaeologySimulatorWindow:
                     label.config(foreground="#9932CC")  # Purple when active
                 else:
                     label.config(foreground="gray")  # Gray when 0
+        
+        # Update Arch XP upgrade (Common cost upgrade)
+        if hasattr(self, 'arch_xp_level_label'):
+            arch_xp_level = self.gem_upgrades.get('arch_xp', 0)
+            max_level = self.GEM_UPGRADE_BONUSES['arch_xp']['max_level']
+            self.arch_xp_level_label.config(text=f"{arch_xp_level}")
+            if arch_xp_level >= max_level:
+                self.arch_xp_level_label.config(foreground="#C73E1D")
+            elif arch_xp_level > 0:
+                self.arch_xp_level_label.config(foreground="#808080")
+            else:
+                self.arch_xp_level_label.config(foreground="gray")
+            
+            # Update cost label
+            next_cost = self.get_gem_upgrade_cost('arch_xp')
+            if next_cost:
+                self.arch_xp_cost_label.config(text=f"({next_cost:.2f})")
+            else:
+                self.arch_xp_cost_label.config(text="(MAX)", foreground="#C73E1D")
         
         # Calculate efficiencies
         best_choice = None
@@ -1797,6 +2231,20 @@ class ArchaeologySimulatorWindow:
             if improvement > best_improvement:
                 best_improvement = improvement
                 best_choice = (upgrade, 'upgrade')
+            
+            # Update cost efficiency label (%/Common)
+            if hasattr(self, 'upgrade_cost_labels') and upgrade in self.upgrade_cost_labels:
+                next_cost = self.get_common_upgrade_cost(upgrade)
+                if next_cost and next_cost > 0 and improvement > 0:
+                    cost_efficiency = improvement / next_cost
+                    self.upgrade_cost_labels[upgrade].config(
+                        text=f"({cost_efficiency:.2f}%/C)",
+                        foreground="#666666"
+                    )
+                elif next_cost is None:
+                    self.upgrade_cost_labels[upgrade].config(text="(MAX)", foreground="#C73E1D")
+                else:
+                    self.upgrade_cost_labels[upgrade].config(text="")
         
         # Calculate gem upgrade efficiencies
         if hasattr(self, 'gem_upgrade_efficiency_labels'):
