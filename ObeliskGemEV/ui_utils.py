@@ -5,28 +5,85 @@ Shared UI utilities for ObeliskGemEV
 import tkinter as tk
 
 
-def create_tooltip(widget, text, position="right"):
+def calculate_tooltip_position(event, tooltip_width, tooltip_height, screen_width, screen_height, position="auto"):
+    """
+    Calculate the optimal position for a tooltip to ensure it stays on screen.
+    
+    Args:
+        event: The tkinter event with x_root and y_root cursor position
+        tooltip_width: Estimated width of the tooltip
+        tooltip_height: Estimated height of the tooltip
+        screen_width: Width of the screen
+        screen_height: Height of the screen
+        position: "auto" (default), "left", or "right" - horizontal preference
+    
+    Returns:
+        tuple: (x, y) coordinates for the tooltip position
+    """
+    margin = 10  # Minimum distance from screen edge
+    cursor_offset = 10  # Distance from cursor
+    
+    # Smart horizontal positioning
+    if position == "left":
+        x = event.x_root - tooltip_width - cursor_offset
+        if x < margin:
+            x = event.x_root + cursor_offset
+    elif position == "right":
+        x = event.x_root + cursor_offset
+        if x + tooltip_width > screen_width - margin:
+            x = event.x_root - tooltip_width - cursor_offset
+    else:  # auto
+        # Prefer right, but switch to left if not enough space
+        if event.x_root + tooltip_width + cursor_offset + margin > screen_width:
+            x = event.x_root - tooltip_width - cursor_offset
+        else:
+            x = event.x_root + cursor_offset
+    
+    # Ensure x stays on screen
+    if x < margin:
+        x = margin
+    if x + tooltip_width > screen_width - margin:
+        x = screen_width - tooltip_width - margin
+    
+    # Smart vertical positioning
+    # Prefer below cursor, but switch to above if not enough space
+    if event.y_root + tooltip_height + cursor_offset + margin > screen_height:
+        y = event.y_root - tooltip_height - cursor_offset
+    else:
+        y = event.y_root + cursor_offset
+    
+    # Ensure y stays on screen
+    if y < margin:
+        y = margin
+    if y + tooltip_height > screen_height - margin:
+        y = screen_height - tooltip_height - margin
+    
+    return x, y
+
+
+def create_tooltip(widget, text, position="auto"):
     """
     Creates a styled tooltip with rich formatting.
     
     Args:
         widget: The tkinter widget to attach the tooltip to
         text: The tooltip text (supports newlines, headers end with ':')
-        position: "right" (default) or "left" - where to position relative to cursor
+        position: "auto" (default), "right", or "left" - where to position relative to cursor
+                  "auto" will intelligently position to avoid going off-screen
     """
     def on_enter(event):
         tooltip = tk.Toplevel()
         tooltip.wm_overrideredirect(True)
         
-        # Calculate position based on preference
-        if position == "left":
-            # Estimate tooltip width and position to the left
-            x = event.x_root - 250
-            if x < 10:
-                x = event.x_root + 10
-        else:
-            x = event.x_root + 10
-        y = event.y_root + 10
+        # Estimate tooltip dimensions based on content
+        lines = text.split('\n')
+        tooltip_width = min(max(len(line) for line in lines) * 8 + 30, 350) if lines else 250
+        tooltip_height = len(lines) * 18 + 30
+        
+        # Get screen dimensions and calculate position
+        screen_width = tooltip.winfo_screenwidth()
+        screen_height = tooltip.winfo_screenheight()
+        x, y = calculate_tooltip_position(event, tooltip_width, tooltip_height, screen_width, screen_height, position)
         
         tooltip.wm_geometry(f"+{x}+{y}")
         
@@ -107,24 +164,16 @@ def create_simple_tooltip(widget, lines, title=None, title_color="#1976D2", bord
         tooltip = tk.Toplevel()
         tooltip.wm_overrideredirect(True)
         
-        # Smart positioning
+        # Estimate tooltip dimensions
         tooltip_width = 300
         tooltip_height = 50 + len(lines) * 18
+        if title:
+            tooltip_height += 25
+        
+        # Get screen dimensions and calculate position
         screen_width = tooltip.winfo_screenwidth()
         screen_height = tooltip.winfo_screenheight()
-        
-        if position == "left" or (position == "auto" and event.x_root > screen_width / 2):
-            x = event.x_root - tooltip_width - 10
-            if x < 10:
-                x = event.x_root + 20
-        else:
-            x = event.x_root + 10
-        
-        y = event.y_root - 20
-        if y + tooltip_height > screen_height - 50:
-            y = screen_height - tooltip_height - 50
-        if y < 10:
-            y = 10
+        x, y = calculate_tooltip_position(event, tooltip_width, tooltip_height, screen_width, screen_height, position)
         
         tooltip.wm_geometry(f"+{x}+{y}")
         
