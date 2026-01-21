@@ -455,6 +455,8 @@ class ArchaeologySimulatorWindow:
             'forecast_levels_1': self.forecast_levels_1.get() if hasattr(self, 'forecast_levels_1') else 5,
             'budget_points': self.budget_points.get() if hasattr(self, 'budget_points') else 20,
             'xp_budget_points': self.xp_budget_points.get() if hasattr(self, 'xp_budget_points') else 20,
+            'frag_budget_points': self.frag_budget_points.get() if hasattr(self, 'frag_budget_points') else 20,
+            'frag_target_type': self.frag_target_var.get() if hasattr(self, 'frag_target_var') else 'common',
         }
         try:
             SAVE_DIR.mkdir(parents=True, exist_ok=True)
@@ -526,6 +528,14 @@ class ArchaeologySimulatorWindow:
             if hasattr(self, 'xp_budget_points'):
                 self.xp_budget_points.set(state.get('xp_budget_points', 20))
                 self.xp_budget_points_label.config(text=str(self.xp_budget_points.get()))
+            
+            # Update Fragment Planner budget points and target type
+            if hasattr(self, 'frag_budget_points'):
+                self.frag_budget_points.set(state.get('frag_budget_points', 20))
+                self.frag_budget_points_label.config(text=str(self.frag_budget_points.get()))
+            if hasattr(self, 'frag_target_var'):
+                self.frag_target_var.set(state.get('frag_target_type', 'common'))
+                self._update_frag_target_buttons()
             
             # Update unlocked stage and rebuild upgrade widgets
             if hasattr(self, 'unlocked_stage_var'):
@@ -1283,7 +1293,7 @@ class ArchaeologySimulatorWindow:
         return new_floors, percent_improvement
     
     def calculate_fragment_upgrade_efficiency(self, upgrade_key):
-        """Calculate the efficiency of adding one fragment upgrade level"""
+        """Calculate the efficiency of adding one fragment upgrade level (Stage Rush = Floors/Run)"""
         upgrade_info = self.FRAGMENT_UPGRADES.get(upgrade_key, {})
         max_level = upgrade_info.get('max_level', 25)
         current_level = self.fragment_upgrade_levels.get(upgrade_key, 0)
@@ -1307,6 +1317,80 @@ class ArchaeologySimulatorWindow:
             percent_improvement = 0
         
         return new_floors, percent_improvement
+    
+    def calculate_fragment_upgrade_xp_efficiency(self, upgrade_key):
+        """Calculate the XP efficiency of adding one fragment upgrade level"""
+        upgrade_info = self.FRAGMENT_UPGRADES.get(upgrade_key, {})
+        max_level = upgrade_info.get('max_level', 25)
+        current_level = self.fragment_upgrade_levels.get(upgrade_key, 0)
+        
+        if current_level >= max_level:
+            return 0, 0
+        
+        current_stats = self.get_total_stats()
+        current_xp = self.calculate_xp_per_run(current_stats, self.current_stage)
+        
+        # Temporarily add one level
+        self.fragment_upgrade_levels[upgrade_key] = current_level + 1
+        new_stats = self.get_total_stats()
+        new_xp = self.calculate_xp_per_run(new_stats, self.current_stage)
+        # Restore original level
+        self.fragment_upgrade_levels[upgrade_key] = current_level
+        
+        if current_xp > 0:
+            percent_improvement = ((new_xp - current_xp) / current_xp) * 100
+        else:
+            percent_improvement = 0
+        
+        return new_xp, percent_improvement
+    
+    def calculate_fragment_upgrade_fragment_efficiency(self, upgrade_key):
+        """
+        Calculate the Fragment/Hour efficiency of adding one fragment upgrade level.
+        
+        Returns:
+            (new_frags_per_hour, percent_improvement) - percentage gain in Frag/h
+        """
+        upgrade_info = self.FRAGMENT_UPGRADES.get(upgrade_key, {})
+        max_level = upgrade_info.get('max_level', 25)
+        current_level = self.fragment_upgrade_levels.get(upgrade_key, 0)
+        
+        if current_level >= max_level:
+            return 0, 0
+        
+        current_stats = self.get_total_stats()
+        current_frags = self.calculate_fragments_per_run(current_stats, self.current_stage)
+        current_total = sum(current_frags.values())
+        current_duration = self.calculate_run_duration(current_stats, self.current_stage)
+        
+        # Calculate current frags/hour
+        if current_duration > 0:
+            current_frags_per_hour = current_total * (3600.0 / current_duration)
+        else:
+            current_frags_per_hour = 0
+        
+        # Temporarily add one level
+        self.fragment_upgrade_levels[upgrade_key] = current_level + 1
+        new_stats = self.get_total_stats()
+        new_frags = self.calculate_fragments_per_run(new_stats, self.current_stage)
+        new_total = sum(new_frags.values())
+        new_duration = self.calculate_run_duration(new_stats, self.current_stage)
+        # Restore original level
+        self.fragment_upgrade_levels[upgrade_key] = current_level
+        
+        # Calculate new frags/hour
+        if new_duration > 0:
+            new_frags_per_hour = new_total * (3600.0 / new_duration)
+        else:
+            new_frags_per_hour = 0
+        
+        # Return percentage improvement
+        if current_frags_per_hour > 0:
+            percent_improvement = ((new_frags_per_hour - current_frags_per_hour) / current_frags_per_hour) * 100
+        else:
+            percent_improvement = 0
+        
+        return new_frags_per_hour, percent_improvement
     
     def calculate_forecast(self, levels_ahead: int):
         """
@@ -1845,7 +1929,9 @@ class ArchaeologySimulatorWindow:
         
         # Initialize upgrade tracking dicts
         self.upgrade_buttons = {}
-        self.upgrade_efficiency_labels = {}
+        self.upgrade_efficiency_labels = {}  # Stage Rush (Floors)
+        self.upgrade_xp_efficiency_labels = {}  # XP efficiency
+        self.upgrade_frag_efficiency_labels = {}  # Fragment efficiency
         self.upgrade_cost_labels = {}
         self.upgrade_level_labels = {}
         self.fragment_upgrade_levels = {}  # Track levels for new FRAGMENT_UPGRADES
@@ -2105,11 +2191,28 @@ class ArchaeologySimulatorWindow:
         
         # Clear tracking dicts (but preserve levels)
         self.upgrade_buttons = {}
-        self.upgrade_efficiency_labels = {}
+        self.upgrade_efficiency_labels = {}  # Stage Rush (Floors)
+        self.upgrade_xp_efficiency_labels = {}  # XP efficiency
+        self.upgrade_frag_efficiency_labels = {}  # Fragment efficiency
         self.upgrade_cost_labels = {}
         self.upgrade_level_labels = {}
         
         unlocked_stage = self.get_unlocked_stage()
+        
+        # Column headers for the three efficiency types
+        header_row = tk.Frame(self.upgrades_container, background="#E8F5E9")
+        header_row.pack(fill=tk.X, pady=(0, 3))
+        
+        # Spacer for buttons and level (left side)
+        tk.Label(header_row, text="", background="#E8F5E9", width=28).pack(side=tk.LEFT)
+        
+        # Three efficiency column headers (RIGHT to LEFT order for pack)
+        tk.Label(header_row, text="Frag", background="#E8F5E9", 
+                font=("Arial", 7, "bold"), foreground="#9932CC", width=7, anchor=tk.E).pack(side=tk.RIGHT, padx=(2, 3))
+        tk.Label(header_row, text="XP", background="#E8F5E9", 
+                font=("Arial", 7, "bold"), foreground="#1976D2", width=7, anchor=tk.E).pack(side=tk.RIGHT, padx=(2, 0))
+        tk.Label(header_row, text="Stage", background="#E8F5E9", 
+                font=("Arial", 7, "bold"), foreground="#2E7D32", width=7, anchor=tk.E).pack(side=tk.RIGHT, padx=(2, 0))
         
         # Colors for each fragment type
         type_colors = {
@@ -2153,7 +2256,7 @@ class ArchaeologySimulatorWindow:
                 self._create_upgrade_row(upgrade_key, upgrade_info, type_colors[cost_type])
     
     def _create_upgrade_row(self, upgrade_key, upgrade_info, color):
-        """Create a single upgrade row widget"""
+        """Create a single upgrade row widget with three efficiency columns"""
         row_frame = tk.Frame(self.upgrades_container, background="#E8F5E9")
         row_frame.pack(fill=tk.X, pady=1)
         
@@ -2180,7 +2283,7 @@ class ArchaeologySimulatorWindow:
         # Display name
         display_name = upgrade_info.get('display_name', upgrade_key)
         tk.Label(row_frame, text=display_name, background="#E8F5E9", 
-                font=("Arial", 8), width=15, anchor=tk.W).pack(side=tk.LEFT)
+                font=("Arial", 8), width=14, anchor=tk.W).pack(side=tk.LEFT)
         
         # Help ? label with tooltip (includes stage unlock info)
         help_label = tk.Label(row_frame, text="?", background="#E8F5E9",
@@ -2188,16 +2291,22 @@ class ArchaeologySimulatorWindow:
         help_label.pack(side=tk.LEFT, padx=(0, 2))
         self._create_fragment_upgrade_tooltip(help_label, upgrade_key, upgrade_info, color)
         
-        # Efficiency per fragment - MOST IMPORTANT VALUE - prominent display
-        # Shows: "Efficiency: X.XXXX" - gain per cost, higher = better value
-        eff_per_frag_label = tk.Label(row_frame, text="", background="#E8F5E9",
-                                     font=("Arial", 9, "bold"), foreground="#1976D2", width=18, anchor=tk.E)
-        eff_per_frag_label.pack(side=tk.RIGHT, padx=(0, 3))
-        self.upgrade_cost_labels[upgrade_key] = eff_per_frag_label
+        # Three efficiency columns from RIGHT to LEFT (pack order matters)
+        # Fragment Farming efficiency (rightmost)
+        frag_eff_label = tk.Label(row_frame, text="+0.00%", background="#E8F5E9",
+                                 font=("Arial", 8), foreground="#9932CC", width=7, anchor=tk.E)
+        frag_eff_label.pack(side=tk.RIGHT, padx=(2, 3))
+        self.upgrade_frag_efficiency_labels[upgrade_key] = frag_eff_label
         
-        # Efficiency label (+X.XX% floors/run) - smaller, secondary info
+        # XP efficiency (middle)
+        xp_eff_label = tk.Label(row_frame, text="+0.00%", background="#E8F5E9",
+                               font=("Arial", 8), foreground="#1976D2", width=7, anchor=tk.E)
+        xp_eff_label.pack(side=tk.RIGHT, padx=(2, 0))
+        self.upgrade_xp_efficiency_labels[upgrade_key] = xp_eff_label
+        
+        # Stage Rush efficiency (floors/run) - leftmost of the three
         eff_label = tk.Label(row_frame, text="+0.00%", background="#E8F5E9",
-                            font=("Arial", 8), foreground="#2E7D32", width=8, anchor=tk.E)
+                            font=("Arial", 8), foreground="#2E7D32", width=7, anchor=tk.E)
         eff_label.pack(side=tk.RIGHT, padx=(2, 0))
         self.upgrade_efficiency_labels[upgrade_key] = eff_label
         
@@ -4755,7 +4864,7 @@ class ArchaeologySimulatorWindow:
                         text=f"+{improvement:.2f}%", foreground="#2E7D32")
                     # Note: We don't include gem upgrades in "best choice" since they cost gems
         
-        # Calculate fragment upgrade efficiencies
+        # Calculate fragment upgrade efficiencies (3 types: Stage Rush, XP, Fragments)
         if hasattr(self, 'upgrade_efficiency_labels'):
             for upgrade_key in self.upgrade_efficiency_labels:
                 upgrade_info = self.FRAGMENT_UPGRADES.get(upgrade_key, {})
@@ -4763,27 +4872,29 @@ class ArchaeologySimulatorWindow:
                 current_level = self.fragment_upgrade_levels.get(upgrade_key, 0)
                 
                 if current_level >= max_level:
+                    # All three efficiency labels show MAX
                     self.upgrade_efficiency_labels[upgrade_key].config(text="MAX", foreground="#C73E1D")
-                    # Also update cost label
-                    if hasattr(self, 'upgrade_cost_labels') and upgrade_key in self.upgrade_cost_labels:
-                        self.upgrade_cost_labels[upgrade_key].config(text="", foreground="#666666")
+                    if hasattr(self, 'upgrade_xp_efficiency_labels') and upgrade_key in self.upgrade_xp_efficiency_labels:
+                        self.upgrade_xp_efficiency_labels[upgrade_key].config(text="MAX", foreground="#C73E1D")
+                    if hasattr(self, 'upgrade_frag_efficiency_labels') and upgrade_key in self.upgrade_frag_efficiency_labels:
+                        self.upgrade_frag_efficiency_labels[upgrade_key].config(text="MAX", foreground="#C73E1D")
                 else:
-                    _, improvement = self.calculate_fragment_upgrade_efficiency(upgrade_key)
+                    # Stage Rush efficiency (floors/run)
+                    _, stage_improvement = self.calculate_fragment_upgrade_efficiency(upgrade_key)
                     self.upgrade_efficiency_labels[upgrade_key].config(
-                        text=f"+{improvement:.2f}%", foreground="#2E7D32")
+                        text=f"+{stage_improvement:.2f}%", foreground="#2E7D32")
                     
-                    # Calculate efficiency per fragment cost - THIS IS THE KEY VALUE
-                    if hasattr(self, 'upgrade_cost_labels') and upgrade_key in self.upgrade_cost_labels:
-                        next_cost = get_upgrade_cost(upgrade_key, current_level)
-                        if next_cost and next_cost > 0 and improvement > 0:
-                            eff_per_frag = improvement / next_cost
-                            self.upgrade_cost_labels[upgrade_key].config(
-                                text=f"Efficiency: {eff_per_frag:.4f}", foreground="#1976D2")
-                        elif next_cost:
-                            self.upgrade_cost_labels[upgrade_key].config(
-                                text=f"Cost: {next_cost:.0f}", foreground="#999999")
-                        else:
-                            self.upgrade_cost_labels[upgrade_key].config(text="", foreground="#666666")
+                    # XP efficiency
+                    if hasattr(self, 'upgrade_xp_efficiency_labels') and upgrade_key in self.upgrade_xp_efficiency_labels:
+                        _, xp_improvement = self.calculate_fragment_upgrade_xp_efficiency(upgrade_key)
+                        self.upgrade_xp_efficiency_labels[upgrade_key].config(
+                            text=f"+{xp_improvement:.2f}%", foreground="#1976D2")
+                    
+                    # Fragment farming efficiency (% improvement in Frag/h)
+                    if hasattr(self, 'upgrade_frag_efficiency_labels') and upgrade_key in self.upgrade_frag_efficiency_labels:
+                        _, frag_improvement = self.calculate_fragment_upgrade_fragment_efficiency(upgrade_key)
+                        self.upgrade_frag_efficiency_labels[upgrade_key].config(
+                            text=f"+{frag_improvement:.2f}%", foreground="#9932CC")
         
         # Note: Greedy recommendation removed - use Planner/Forecaster on the right instead
         
