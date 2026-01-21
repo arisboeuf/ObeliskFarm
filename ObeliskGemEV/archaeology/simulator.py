@@ -2895,13 +2895,11 @@ class ArchaeologySimulatorWindow:
             tooltip = tk.Toplevel()
             tooltip.wm_overrideredirect(True)
             
-            # Position tooltip smartly
             tooltip_width = 320
-            x = event.x_root - tooltip_width - 10
-            if x < 10:
-                x = event.x_root + 20
-            y = event.y_root - 20
-            
+            tooltip_height = 300
+            screen_width = tooltip.winfo_screenwidth()
+            screen_height = tooltip.winfo_screenheight()
+            x, y = calculate_tooltip_position(event, tooltip_width, tooltip_height, screen_width, screen_height)
             tooltip.wm_geometry(f"+{x}+{y}")
             
             outer_frame = tk.Frame(tooltip, background="#C73E1D", relief=tk.FLAT)
@@ -2952,11 +2950,10 @@ class ArchaeologySimulatorWindow:
             tooltip.wm_overrideredirect(True)
             
             tooltip_width = 340
-            x = event.x_root - tooltip_width - 10
-            if x < 10:
-                x = event.x_root + 20
-            y = event.y_root - 20
-            
+            tooltip_height = 340
+            screen_width = tooltip.winfo_screenwidth()
+            screen_height = tooltip.winfo_screenheight()
+            x, y = calculate_tooltip_position(event, tooltip_width, tooltip_height, screen_width, screen_height)
             tooltip.wm_geometry(f"+{x}+{y}")
             
             outer_frame = tk.Frame(tooltip, background="#FF6F00", relief=tk.FLAT)
@@ -3055,11 +3052,10 @@ class ArchaeologySimulatorWindow:
             tooltip.wm_overrideredirect(True)
             
             tooltip_width = 280
-            x = event.x_root - tooltip_width - 10
-            if x < 10:
-                x = event.x_root + 20
-            y = event.y_root - 10
-            
+            tooltip_height = 280
+            screen_width = tooltip.winfo_screenwidth()
+            screen_height = tooltip.winfo_screenheight()
+            x, y = calculate_tooltip_position(event, tooltip_width, tooltip_height, screen_width, screen_height)
             tooltip.wm_geometry(f"+{x}+{y}")
             
             color = self.BLOCK_COLORS.get(block_type, '#888888')
