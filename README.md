@@ -1,8 +1,8 @@
-# ObeliskGemEV Calculator 🎮
+# ObeliskGemEV Calculator
 
 An interactive GUI tool for calculating the **Expected Value (EV)** for freebies in the Android game **Idle Obelisk Miner**.
 
-## 📋 Overview
+## Overview
 
 The ObeliskGemEV Calculator helps you calculate the optimal return from various freebie mechanisms in the game. The tool automatically calculates the **Gem-equivalent value per hour** based on all active game mechanics such as jackpots, refresh chains, skill shards, founder drops, and more.
 
@@ -14,13 +14,13 @@ The ObeliskGemEV Calculator helps you calculate the optimal return from various 
 - **Multipliers** (rolls, refresh, total)
 - **Visual representation** of all contributions as a bar chart
 
-## 🛠️ Additional Tools
+## Additional Tools
 
-### 🔍 Option Analyzer (Lootbug)
+### Option Analyzer (Lootbug)
 Analyze whether specific gem purchases are worth it based on your current EV/h. Currently supports:
-- **2× Game Speed** (15 Gems for 10 minutes) - calculates if the additional gem income exceeds the cost
+- **2x Game Speed** (15 Gems for 10 minutes) - calculates if the additional gem income exceeds the cost
 
-### ⛏️ Archaeology Simulator
+### Archaeology Simulator
 Optimize your archaeology skill point allocation and upgrades:
 - **Skill Point Optimizer**: Find the best skill to level for maximum floors per run
 - **Damage Breakpoints**: See exactly how much damage you need to one-shot blocks
@@ -28,9 +28,24 @@ Optimize your archaeology skill point allocation and upgrades:
 - **Gem Upgrades**: Track Stamina, XP Boost, and Fragment upgrades
 - **Block Statistics**: View spawn rates and stats for all block types at each stage
 
-## 🎯 Main Features
+### Event Simulator
+Simulate and optimize the bimonthly event mechanics:
+- **Budget Optimizer**: Input available materials and get optimal upgrade recommendations
+- **Love2D Simulator**: Manual upgrade level adjustment with live simulation results
+- **Prestige Planning**: Calculate wave requirements for prestige unlocks
+- **Cost Analysis**: Compare upgrade costs across all tiers
 
-### 🎁 **FREEBIE Parameters**
+### Stargazing Optimizer
+Track and optimize your stargazing income:
+- **Star Income Tracking**: Calculate stars and super stars per hour
+- **Stats Input**: Enter your current stats directly from the game
+- **Upgrade Benefits**: See the percentage gain from each upgrade level
+- **Auto-Catch Analysis**: Track your offline farming efficiency
+- **Floor Clear Rate**: Calculate floors/hour from offline gains data
+
+## Main Features
+
+### FREEBIE Parameters
 
 Controls the basic freebie mechanics:
 - **Freebie Gems (Base)**: Base gems per roll (default: 9.0)
@@ -40,7 +55,7 @@ Controls the basic freebie mechanics:
 - **Jackpot**: Chance (5%) and number of additional rolls (default: 5)
 - **Instant Refresh**: Chance (5%) for instant refresh (chainable)
 
-### 📦 **FOUNDER SUPPLY DROP**
+### FOUNDER SUPPLY DROP
 
 Calculates returns from founder supply drops:
 - **VIP Lounge Level** (1-7): Automatically determines:
@@ -52,7 +67,7 @@ Calculates returns from founder supply drops:
 - **Founder Speed Boost**: 2× game speed for 5 minutes per drop (saves time → more freebies)
 - **Gift Chance**: 1/1234 chance for 10 gifts per supply drop
 
-### 💣 **BOMBS**
+### BOMBS
 
 Controls all bomb-related mechanics and their gem generation:
 
@@ -76,7 +91,7 @@ Controls all bomb-related mechanics and their gem generation:
 
 **Note:** 2× Game Speed (from Founder Supply Drop or Founder Bomb) halves ALL bomb recharge times!
 
-## 🖥️ GUI Features
+## GUI Features
 
 ### Live Updates
 - **Automatic calculation**: All values are updated immediately when you change a parameter
@@ -98,7 +113,7 @@ Controls all bomb-related mechanics and their gem generation:
 - **Total-EV**: Total gem-equivalent per hour (bold highlighted)
 - **Gift-EV**: Separate expected value per opened gift
 
-## 🚀 Installation & Start
+## Installation & Start
 
 ### Requirements
 
@@ -126,7 +141,7 @@ Or directly:
 python ObeliskGemEV/gui.py
 ```
 
-## 📊 Example Output
+## Example Output
 
 With default parameters, you get approximately:
 
@@ -140,7 +155,7 @@ TOTAL:                          148.0 Gem-Eq/h
 Gift-EV (per 1 opened gift):    XX.XX Gem-Eq
 ```
 
-## 🔧 Technical Details
+## Technical Details
 
 ### Calculated EV Contributions
 
@@ -166,17 +181,41 @@ Speed boosts save time, which effectively enables more freebies per hour:
 
 The time saved is converted into additional freebies and displayed as gem-equivalent.
 
-## 📝 Notes
+## Notes
 
 - All values are **per hour** and in **Gem-equivalent**
 - Calculations are based on current game mechanics (see code for status)
 - Parameters can be adjusted at any time if game values change
 - **Stonks** can be enabled/disabled via checkbox (for testing/comparisons)
+- All tool windows auto-save their state on close
 
-## 📄 License
+## Project Structure
+
+```
+ObeliskGemEV/
+├── gui.py                    # Main GUI application
+├── freebie_ev_calculator.py  # Core EV calculations
+├── ui_utils.py               # Shared UI utilities
+├── archaeology/              # Archaeology Simulator module
+│   ├── simulator.py          # Main GUI and calculations
+│   ├── block_stats.py        # Block HP/Armor/XP data
+│   └── block_spawn_rates.py  # Spawn rates by stage
+├── event/                    # Event Simulator module
+│   ├── simulator.py          # Main window with mode toggle
+│   ├── gui_budget.py         # Budget Optimizer panel
+│   ├── gui_love2d.py         # Love2D Simulator panel
+│   ├── simulation.py         # Combat simulation logic
+│   └── constants.py          # Upgrade data and costs
+├── lootbug/                  # Option Analyzer module
+│   └── analyzer.py           # Purchase analysis
+├── stargazing/               # Stargazing Optimizer module
+│   ├── simulator.py          # Main GUI
+│   ├── calculator.py         # Star income calculations
+│   └── data.py               # Star and upgrade data
+├── sprites/                  # UI icons and images
+└── save/                     # Auto-saved configurations
+```
+
+## License
 
 For personal use when playing Idle Obelisk Miner.
-
----
-
-**Good luck optimizing your freebie returns! 🎉**

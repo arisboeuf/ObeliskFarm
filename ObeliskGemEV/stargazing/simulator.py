@@ -129,7 +129,11 @@ class StargazingWindow:
             'all_star_mult': 1.0,
         }
         
-        # Floor clears per hour
+        # Floor clears input (floors + time -> floors/h)
+        self.floors_cleared = 120
+        self.time_hours = 1
+        self.time_minutes = 0
+        self.time_seconds = 0
         self.floor_clears_per_hour = 120.0
         
         # Upgrade levels (for calculating next upgrade benefit)
@@ -149,7 +153,10 @@ class StargazingWindow:
         """Save current state to file"""
         state = {
             'manual_stats': self.manual_stats,
-            'floor_clears_per_hour': self.floor_clears_per_hour,
+            'floors_cleared': self.floors_cleared,
+            'time_hours': self.time_hours,
+            'time_minutes': self.time_minutes,
+            'time_seconds': self.time_seconds,
             'stargazing_upgrades': self.stargazing_upgrades,
             'super_star_upgrades': self.super_star_upgrades,
             'stars_owned': self.stars_owned,
@@ -176,7 +183,12 @@ class StargazingWindow:
                 if key in state.get('manual_stats', {}):
                     self.manual_stats[key] = state['manual_stats'][key]
             
-            self.floor_clears_per_hour = state.get('floor_clears_per_hour', 120.0)
+            # Load floor/time values
+            self.floors_cleared = state.get('floors_cleared', 120)
+            self.time_hours = state.get('time_hours', 1)
+            self.time_minutes = state.get('time_minutes', 0)
+            self.time_seconds = state.get('time_seconds', 0)
+            self._calculate_floors_per_hour()
             
             # Load upgrade levels
             for key in self.stargazing_upgrades:
@@ -203,6 +215,14 @@ class StargazingWindow:
         except Exception as e:
             print(f"Warning: Could not load state: {e}")
     
+    def _calculate_floors_per_hour(self):
+        """Calculate floors per hour from floors and time inputs"""
+        total_hours = self.time_hours + self.time_minutes / 60 + self.time_seconds / 3600
+        if total_hours > 0:
+            self.floor_clears_per_hour = self.floors_cleared / total_hours
+        else:
+            self.floor_clears_per_hour = 0.0
+    
     def update_ui_from_state(self):
         """Update UI elements to reflect current state"""
         # Update manual stat entries
@@ -210,8 +230,15 @@ class StargazingWindow:
             for key, var in self.stat_vars.items():
                 var.set(str(self.manual_stats.get(key, 0)))
         
-        if hasattr(self, 'floor_clears_var'):
-            self.floor_clears_var.set(str(self.floor_clears_per_hour))
+        # Update floor/time inputs
+        if hasattr(self, 'floors_var'):
+            self.floors_var.set(str(self.floors_cleared))
+        if hasattr(self, 'time_h_var'):
+            self.time_h_var.set(str(self.time_hours))
+        if hasattr(self, 'time_m_var'):
+            self.time_m_var.set(str(self.time_minutes))
+        if hasattr(self, 'time_s_var'):
+            self.time_s_var.set(str(self.time_seconds))
         
         # Update upgrade labels
         if hasattr(self, 'upgrade_level_labels'):
@@ -274,11 +301,17 @@ class StargazingWindow:
         container = tk.Frame(parent, background=COLOR_STATS, relief=tk.RIDGE, borderwidth=2)
         container.grid(row=0, column=0, sticky="nsew", padx=(0, 3), pady=0)
         
-        # Header
+        # Header with help tooltip
         header = tk.Frame(container, background=COLOR_STATS)
         header.pack(fill=tk.X, padx=5, pady=(5, 3))
         tk.Label(header, text="YOUR STATS (from game)", font=("Arial", 11, "bold"), 
                  background=COLOR_STATS).pack(side=tk.LEFT)
+        
+        # Help button with tooltip
+        help_label = tk.Label(header, text="?", font=("Arial", 10, "bold"), 
+                              cursor="hand2", foreground="#1565C0", background=COLOR_STATS)
+        help_label.pack(side=tk.LEFT, padx=(5, 0))
+        self._create_stats_help_tooltip(help_label)
         
         # Stats frame with scroll
         canvas = tk.Canvas(container, background=COLOR_STATS, highlightthickness=0)
@@ -359,28 +392,69 @@ class StargazingWindow:
             tk.Label(row_frame, text=suffix, background=COLOR_STATS, 
                      font=("Arial", 9), fg="gray").pack(side=tk.LEFT)
         
-        # Floor clears
+        # Floor clears section
         ttk.Separator(stats_frame, orient='horizontal').pack(fill=tk.X, pady=(10, 5))
         
+        floor_header = tk.Frame(stats_frame, background=COLOR_STATS)
+        floor_header.pack(fill=tk.X, pady=2)
+        tk.Label(floor_header, text="OFFLINE GAINS INPUT", font=("Arial", 9, "bold"), 
+                 background=COLOR_STATS, fg="#1565C0").pack(side=tk.LEFT)
+        
+        # Help tooltip for floor input
+        floor_help = tk.Label(floor_header, text="?", font=("Arial", 9, "bold"), 
+                              cursor="hand2", foreground="#1565C0", background=COLOR_STATS)
+        floor_help.pack(side=tk.LEFT, padx=(5, 0))
+        self._create_floor_input_tooltip(floor_help)
+        
+        # Floors input
         floor_frame = tk.Frame(stats_frame, background=COLOR_STATS)
         floor_frame.pack(fill=tk.X, pady=2)
-        tk.Label(floor_frame, text="Floors/hour:", background=COLOR_STATS, 
-                 font=("Arial", 9, "bold"), width=18, anchor=tk.W).pack(side=tk.LEFT)
-        self.floor_clears_var = tk.StringVar(value=str(self.floor_clears_per_hour))
-        floor_entry = ttk.Entry(floor_frame, textvariable=self.floor_clears_var, width=8, font=("Arial", 10))
-        floor_entry.pack(side=tk.LEFT, padx=3)
-        floor_entry.bind('<Return>', lambda e: self.on_stat_changed())
-        floor_entry.bind('<FocusOut>', lambda e: self.on_stat_changed())
+        tk.Label(floor_frame, text="Floors cleared:", background=COLOR_STATS, 
+                 font=("Arial", 9), width=14, anchor=tk.W).pack(side=tk.LEFT)
+        self.floors_var = tk.StringVar(value=str(self.floors_cleared))
+        floors_entry = ttk.Entry(floor_frame, textvariable=self.floors_var, width=8, font=("Arial", 10))
+        floors_entry.pack(side=tk.LEFT, padx=3)
+        floors_entry.bind('<Return>', lambda e: self.on_floor_time_changed())
+        floors_entry.bind('<FocusOut>', lambda e: self.on_floor_time_changed())
         
-        # Info about Super Star spawn
-        info_frame = tk.Frame(stats_frame, background=COLOR_STATS)
-        info_frame.pack(fill=tk.X, pady=(10, 3))
-        tk.Label(info_frame, text="ℹ️ Super Star Spawn:", font=("Arial", 8, "bold"), 
-                 background=COLOR_STATS, fg="#1565C0").pack(anchor=tk.W)
-        tk.Label(info_frame, text="Base 1/100 (1%) chance when a Star spawns,", 
-                 font=("Arial", 8), background=COLOR_STATS, fg="#555").pack(anchor=tk.W)
-        tk.Label(info_frame, text="multiplied by Super Star Spawn Rate.", 
-                 font=("Arial", 8), background=COLOR_STATS, fg="#555").pack(anchor=tk.W)
+        # Time input (h m s)
+        time_frame = tk.Frame(stats_frame, background=COLOR_STATS)
+        time_frame.pack(fill=tk.X, pady=2)
+        tk.Label(time_frame, text="Time:", background=COLOR_STATS, 
+                 font=("Arial", 9), width=14, anchor=tk.W).pack(side=tk.LEFT)
+        
+        # Hours
+        self.time_h_var = tk.StringVar(value=str(self.time_hours))
+        h_entry = ttk.Entry(time_frame, textvariable=self.time_h_var, width=3, font=("Arial", 10))
+        h_entry.pack(side=tk.LEFT)
+        h_entry.bind('<Return>', lambda e: self.on_floor_time_changed())
+        h_entry.bind('<FocusOut>', lambda e: self.on_floor_time_changed())
+        tk.Label(time_frame, text="h", background=COLOR_STATS, font=("Arial", 9)).pack(side=tk.LEFT, padx=(1, 5))
+        
+        # Minutes
+        self.time_m_var = tk.StringVar(value=str(self.time_minutes))
+        m_entry = ttk.Entry(time_frame, textvariable=self.time_m_var, width=3, font=("Arial", 10))
+        m_entry.pack(side=tk.LEFT)
+        m_entry.bind('<Return>', lambda e: self.on_floor_time_changed())
+        m_entry.bind('<FocusOut>', lambda e: self.on_floor_time_changed())
+        tk.Label(time_frame, text="m", background=COLOR_STATS, font=("Arial", 9)).pack(side=tk.LEFT, padx=(1, 5))
+        
+        # Seconds
+        self.time_s_var = tk.StringVar(value=str(self.time_seconds))
+        s_entry = ttk.Entry(time_frame, textvariable=self.time_s_var, width=3, font=("Arial", 10))
+        s_entry.pack(side=tk.LEFT)
+        s_entry.bind('<Return>', lambda e: self.on_floor_time_changed())
+        s_entry.bind('<FocusOut>', lambda e: self.on_floor_time_changed())
+        tk.Label(time_frame, text="s", background=COLOR_STATS, font=("Arial", 9)).pack(side=tk.LEFT, padx=(1, 0))
+        
+        # Calculated floors/hour display
+        result_frame = tk.Frame(stats_frame, background=COLOR_STATS)
+        result_frame.pack(fill=tk.X, pady=(5, 2))
+        tk.Label(result_frame, text="= Floors/hour:", background=COLOR_STATS, 
+                 font=("Arial", 9, "bold"), width=14, anchor=tk.W).pack(side=tk.LEFT)
+        self.floors_per_hour_label = tk.Label(result_frame, text=f"{self.floor_clears_per_hour:.2f}", 
+                                               background=COLOR_STATS, font=("Arial", 10, "bold"), fg="#1565C0")
+        self.floors_per_hour_label.pack(side=tk.LEFT, padx=3)
     
     def create_upgrades_section(self, parent):
         """Create the upgrades tracking section"""
@@ -562,8 +636,10 @@ class StargazingWindow:
         self.result_labels = {}
         
         # Star Results
-        tk.Label(results_frame, text="⭐ Star Income", font=("Arial", 11, "bold"), 
-                 background=COLOR_RESULTS, fg="#1565C0").pack(anchor=tk.W, pady=(0, 5))
+        star_header = tk.Frame(results_frame, background=COLOR_RESULTS)
+        star_header.pack(fill=tk.X, pady=(0, 5))
+        tk.Label(star_header, text="⭐ Star Income", font=("Arial", 11, "bold"), 
+                 background=COLOR_RESULTS, fg="#1565C0").pack(side=tk.LEFT)
         
         star_metrics = [
             ('Star Spawns/hour:', 'star_spawns'),
@@ -581,10 +657,33 @@ class StargazingWindow:
             val_label.pack(side=tk.RIGHT)
             self.result_labels[key] = val_label
         
+        # Auto-catch efficiency row
+        eff_row = tk.Frame(results_frame, background=COLOR_RESULTS)
+        eff_row.pack(fill=tk.X, pady=1)
+        tk.Label(eff_row, text="  Auto-Catch Efficiency:", background=COLOR_RESULTS, 
+                 font=("Arial", 9)).pack(side=tk.LEFT)
+        self.result_labels['auto_efficiency'] = tk.Label(eff_row, text="—", background=COLOR_RESULTS, 
+                                                          font=("Arial", 10, "bold"), fg="#6A1B9A")
+        self.result_labels['auto_efficiency'].pack(side=tk.RIGHT)
+        
+        # Help for auto efficiency
+        eff_help = tk.Label(eff_row, text="?", font=("Arial", 9, "bold"), 
+                            cursor="hand2", foreground="#6A1B9A", background=COLOR_RESULTS)
+        eff_help.pack(side=tk.RIGHT, padx=(0, 5))
+        self._create_auto_efficiency_tooltip(eff_help)
+        
         # Super Star Results
         ttk.Separator(results_frame, orient='horizontal').pack(fill=tk.X, pady=8)
-        tk.Label(results_frame, text="🌟 Super Star Income", font=("Arial", 11, "bold"), 
-                 background=COLOR_RESULTS, fg="#E65100").pack(anchor=tk.W, pady=(0, 5))
+        super_header = tk.Frame(results_frame, background=COLOR_RESULTS)
+        super_header.pack(fill=tk.X, pady=(0, 5))
+        tk.Label(super_header, text="🌟 Super Star Income", font=("Arial", 11, "bold"), 
+                 background=COLOR_RESULTS, fg="#E65100").pack(side=tk.LEFT)
+        
+        # Help button for Super Star spawn info
+        ss_help = tk.Label(super_header, text="?", font=("Arial", 10, "bold"), 
+                           cursor="hand2", foreground="#E65100", background=COLOR_RESULTS)
+        ss_help.pack(side=tk.LEFT, padx=(5, 0))
+        self._create_super_star_help_tooltip(ss_help)
         
         super_metrics = [
             ('Super Star Spawns/hour:', 'ss_spawns'),
@@ -601,6 +700,15 @@ class StargazingWindow:
                                  font=("Arial", 11, "bold"))
             val_label.pack(side=tk.RIGHT)
             self.result_labels[key] = val_label
+        
+        # Super Star auto efficiency
+        ss_eff_row = tk.Frame(results_frame, background=COLOR_RESULTS)
+        ss_eff_row.pack(fill=tk.X, pady=1)
+        tk.Label(ss_eff_row, text="  Auto-Catch Efficiency:", background=COLOR_RESULTS, 
+                 font=("Arial", 9)).pack(side=tk.LEFT)
+        self.result_labels['auto_efficiency_super'] = tk.Label(ss_eff_row, text="—", background=COLOR_RESULTS, 
+                                                                font=("Arial", 10, "bold"), fg="#6A1B9A")
+        self.result_labels['auto_efficiency_super'].pack(side=tk.RIGHT)
         
         # Multiplier breakdown
         ttk.Separator(results_frame, orient='horizontal').pack(fill=tk.X, pady=8)
@@ -660,10 +768,32 @@ class StargazingWindow:
                 val = var.get().strip()
                 if val:
                     self.manual_stats[key] = float(val)
+        except:
+            pass
+        
+        self.update_calculations()
+    
+    def on_floor_time_changed(self):
+        """Handle floor/time input changes"""
+        try:
+            floors_str = self.floors_var.get().strip()
+            if floors_str:
+                self.floors_cleared = int(float(floors_str))
             
-            val = self.floor_clears_var.get().strip()
-            if val:
-                self.floor_clears_per_hour = float(val)
+            h_str = self.time_h_var.get().strip()
+            self.time_hours = int(h_str) if h_str else 0
+            
+            m_str = self.time_m_var.get().strip()
+            self.time_minutes = int(m_str) if m_str else 0
+            
+            s_str = self.time_s_var.get().strip()
+            self.time_seconds = int(s_str) if s_str else 0
+            
+            # Calculate floors per hour
+            self._calculate_floors_per_hour()
+            
+            # Update display
+            self.floors_per_hour_label.config(text=f"{self.floor_clears_per_hour:.2f}")
         except:
             pass
         
@@ -698,15 +828,31 @@ class StargazingWindow:
         calc = StargazingCalculator(stats)
         summary = calc.get_summary()
         
-        # Update results
-        self.result_labels['star_spawns'].config(text=f"{summary['star_spawn_rate_per_hour']:.1f}")
-        self.result_labels['stars_per_hour'].config(text=f"{summary['stars_per_hour']:.1f}")
-        self.result_labels['auto_stars'].config(text=f"{summary['auto_caught_stars_per_hour']:.1f}")
-        self.result_labels['ss_spawns'].config(text=f"{summary['super_star_spawn_rate_per_hour']:.2f}")
-        self.result_labels['super_stars_per_hour'].config(text=f"{summary['super_stars_per_hour']:.2f}")
-        self.result_labels['auto_super'].config(text=f"{summary['auto_caught_super_stars_per_hour']:.2f}")
+        # Update results with 4 decimal places for income
+        self.result_labels['star_spawns'].config(text=f"{summary['star_spawn_rate_per_hour']:.2f}")
+        self.result_labels['stars_per_hour'].config(text=f"{summary['stars_per_hour']:.4f}")
+        self.result_labels['auto_stars'].config(text=f"{summary['auto_caught_stars_per_hour']:.4f}")
+        self.result_labels['ss_spawns'].config(text=f"{summary['super_star_spawn_rate_per_hour']:.4f}")
+        self.result_labels['super_stars_per_hour'].config(text=f"{summary['super_stars_per_hour']:.4f}")
+        self.result_labels['auto_super'].config(text=f"{summary['auto_caught_super_stars_per_hour']:.4f}")
         self.result_labels['star_mult'].config(text=f"{summary['star_multiplier']:.2f}x")
         self.result_labels['super_mult'].config(text=f"{summary['super_star_multiplier']:.2f}x")
+        
+        # Calculate auto-catch efficiency (what % of manual tapping you get)
+        auto_catch_pct = self.manual_stats.get('auto_catch_chance', 0)
+        if auto_catch_pct >= 100:
+            self.result_labels['auto_efficiency'].config(text="100% (= manual)", fg="#2E7D32")
+            self.result_labels['auto_efficiency_super'].config(text="100% (= manual)", fg="#2E7D32")
+        elif auto_catch_pct > 0:
+            # Show how much slower auto is vs manual (100%)
+            slowdown = ((100 - auto_catch_pct) / 100) * 100
+            self.result_labels['auto_efficiency'].config(
+                text=f"{auto_catch_pct:.1f}% ({slowdown:.1f}% slower)", fg="#E65100")
+            self.result_labels['auto_efficiency_super'].config(
+                text=f"{auto_catch_pct:.1f}% ({slowdown:.1f}% slower)", fg="#E65100")
+        else:
+            self.result_labels['auto_efficiency'].config(text="0% (no auto-catch)", fg="#C62828")
+            self.result_labels['auto_efficiency_super'].config(text="0% (no auto-catch)", fg="#C62828")
         
         # Calculate next upgrade benefits for each upgrade
         self.update_upgrade_benefits(calc, summary)
@@ -788,3 +934,120 @@ class StargazingWindow:
                 benefit_label.config(text=f"+{star_gain:.2f}%/+{super_gain:.2f}%", fg="#6A1B9A")
             else:
                 benefit_label.config(text="", fg="#888")
+    
+    def _create_tooltip(self, widget, title, lines, title_color="#1565C0"):
+        """Generic tooltip creator"""
+        def on_enter(event):
+            tooltip = tk.Toplevel()
+            tooltip.wm_overrideredirect(True)
+            
+            tooltip_width = 320
+            x = event.x_root - tooltip_width - 10
+            if x < 10:
+                x = event.x_root + 20
+            y = event.y_root - 20
+            
+            tooltip.wm_geometry(f"+{x}+{y}")
+            
+            outer_frame = tk.Frame(tooltip, background=title_color, relief=tk.FLAT)
+            outer_frame.pack(padx=2, pady=2)
+            
+            inner_frame = tk.Frame(outer_frame, background="#FFFFFF")
+            inner_frame.pack(padx=1, pady=1)
+            
+            content_frame = tk.Frame(inner_frame, background="#FFFFFF", padx=10, pady=8)
+            content_frame.pack()
+            
+            tk.Label(content_frame, text=title, font=("Arial", 10, "bold"), 
+                     foreground=title_color, background="#FFFFFF").pack(anchor=tk.W)
+            
+            for line in lines:
+                tk.Label(content_frame, text=line, font=("Arial", 9), 
+                         background="#FFFFFF", anchor=tk.W, justify=tk.LEFT).pack(anchor=tk.W)
+            
+            widget.tooltip = tooltip
+        
+        def on_leave(event):
+            if hasattr(widget, 'tooltip'):
+                widget.tooltip.destroy()
+                del widget.tooltip
+        
+        widget.bind("<Enter>", on_enter)
+        widget.bind("<Leave>", on_leave)
+    
+    def _create_stats_help_tooltip(self, widget):
+        """Tooltip explaining the stats input section"""
+        lines = [
+            "",
+            "Enter your current stats from the game's",
+            "Stats page. These values come from multiple",
+            "sources (stars, upgrades, items, etc).",
+            "",
+            "BASE SPAWN RATES:",
+            "  Star: 1/50 (2%) per floor clear",
+            "  Super Star: 1/100 (1%) when Star spawns",
+            "",
+            "Example at 120 floors/h with 1.0x rates:",
+            "  Stars: 120 × 2% = 2.4 spawns/h",
+            "  Super Stars: 2.4 × 1% = 0.024 spawns/h",
+            "",
+            "Multiplier values (x): Enter as shown",
+            "  Example: 1.16 for 1.16x",
+            "",
+            "Percentage values (%): Enter as shown",
+            "  Example: 25 for 25%",
+        ]
+        self._create_tooltip(widget, "Stats Input Help", lines, "#2E7D32")
+    
+    def _create_super_star_help_tooltip(self, widget):
+        """Tooltip explaining Super Star spawn mechanics"""
+        lines = [
+            "",
+            "Super Stars spawn when a regular Star spawns,",
+            "with an additional chance check:",
+            "",
+            "Base chance: 1/100 (1%)",
+            "",
+            "This is multiplied by your Super Star Spawn",
+            "Rate multiplier from upgrades.",
+            "",
+            "Example: With 1.5x Super Star Spawn Rate,",
+            "you have 1.5% chance per Star spawn.",
+        ]
+        self._create_tooltip(widget, "Super Star Spawn Mechanics", lines, "#E65100")
+    
+    def _create_floor_input_tooltip(self, widget):
+        """Tooltip explaining the floor/time input"""
+        lines = [
+            "",
+            "Enter data from your Offline Gains screen.",
+            "",
+            "Example: If offline gains says:",
+            "  '2,400 floors in 2h 30m'",
+            "",
+            "Enter:",
+            "  Floors: 2400",
+            "  Time: 2h 30m 0s",
+            "",
+            "The calculator will compute:",
+            "  2400 / 2.5h = 960 floors/hour",
+        ]
+        self._create_tooltip(widget, "Offline Gains Input", lines, "#1565C0")
+    
+    def _create_auto_efficiency_tooltip(self, widget):
+        """Tooltip explaining auto-catch efficiency"""
+        lines = [
+            "",
+            "Shows how efficient your auto-catch is",
+            "compared to manually tapping every star.",
+            "",
+            "100% = Same as manual (all stars caught)",
+            "",
+            "Example: 60% auto-catch means you get 60%",
+            "of the stars you would get manually,",
+            "which is 40% slower than manual tapping.",
+            "",
+            "To reach 100%, you need 100% Auto-Catch",
+            "from upgrades, stars, and other sources.",
+        ]
+        self._create_tooltip(widget, "Auto-Catch Efficiency", lines, "#6A1B9A")

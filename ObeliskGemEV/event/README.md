@@ -1,7 +1,15 @@
 # Event Simulator Module
 
-Simulates the bimonthly event mechanics in **Idle Obelisk Miner**.  
-Ported from Lua/LÖVE2D implementation by julk.
+Simulates the bimonthly event mechanics in **Idle Obelisk Miner**.
+Ported from Lua/LOVE2D implementation by julk.
+
+## Features
+
+- **Budget Optimizer**: Input available materials and get optimal upgrade recommendations
+- **Love2D Simulator**: Manual upgrade level adjustment with live simulation results
+- **Monte Carlo Simulation**: 1000 runs for accurate wave/time estimates
+- **Prestige Planning**: Calculate wave requirements for prestige unlocks
+- **Cost Analysis**: Compare upgrade costs across all tiers
 
 ## Module Structure
 
@@ -12,7 +20,7 @@ event/
 ├── constants.py         # Upgrade data, costs, prestige requirements
 ├── simulation.py        # Combat simulation, upgrade application
 ├── utils.py             # Formatting utilities
-├── gui_budget.py        # Budget Optimizer panel (WIP)
+├── gui_budget.py        # Budget Optimizer panel
 ├── gui_love2d.py        # Love2D Simulator panel (original port)
 ├── simulator.py         # Main window with mode toggle
 ├── main.lua             # Original Lua reference
@@ -72,15 +80,6 @@ Main window:
 - Mode toggle between Budget Optimizer and Love2D Simulator
 - Manages active panel switching
 
-## Usage
-
-```python
-from ObeliskGemEV.event import EventSimulatorWindow
-
-# Open from main GUI
-window = EventSimulatorWindow(parent_tk_window)
-```
-
 ## Game Mechanics
 
 ### Upgrade Tiers
@@ -104,8 +103,19 @@ Wave required = (Prestige + 1) × 5
 - ...
 
 ### Enemy Scaling per Wave
-- HP = base_health + health_scaling × wave
-- ATK = max(1, atk + atk_scaling × wave)
-- ATK Speed = atk_speed + 0.02 × wave
+- HP = base_health + health_scaling x wave
+- ATK = max(1, atk + atk_scaling x wave)
+- ATK Speed = atk_speed + 0.02 x wave
 - Crit Chance = crit + wave
-- Crit Dmg = crit_dmg + crit_dmg_scaling × wave
+- Crit Dmg = crit_dmg + crit_dmg_scaling x wave
+
+## Usage
+
+```python
+from ObeliskGemEV.event import EventSimulatorWindow
+
+# Open from main GUI
+window = EventSimulatorWindow(parent_tk_window)
+```
+
+Or launch directly from the main ObeliskGemEV Calculator using the Event button.
