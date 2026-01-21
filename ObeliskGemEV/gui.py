@@ -947,33 +947,30 @@ class ObeliskGemEVGUI:
     def create_archaeology_button(self, parent):
         """Creates the Archaeology button for the Archaeology Simulator"""
         
-        # Try to load a custom icon or use fallback
+        # Try to load archaeology icon
         try:
-            # Try gem.png as icon (could be replaced with a dedicated archaeology icon)
-            icon_path = Path(__file__).parent / "sprites" / "gem.png"
+            icon_path = Path(__file__).parent / "sprites" / "archaeology.png"
             if icon_path.exists():
-                # Load and scale the image - larger for better clickability
+                # Load and scale the image
                 icon_image = Image.open(icon_path)
-                icon_image = icon_image.resize((40, 40), Image.Resampling.LANCZOS)
+                icon_image = icon_image.resize((32, 32), Image.Resampling.LANCZOS)
                 self.archaeology_photo = ImageTk.PhotoImage(icon_image)
                 
-                # Button with image - add padding for larger click area
+                # Button with image
                 archaeology_button = tk.Button(
                     parent,
                     image=self.archaeology_photo,
                     command=self.open_archaeology_simulator,
                     cursor="hand2",
                     relief=tk.RAISED,
-                    borderwidth=2,
-                    padx=8,
-                    pady=4
+                    borderwidth=2
                 )
                 archaeology_button.pack(side=tk.LEFT, padx=(10, 0))
                 
                 # Tooltip for the button
                 self.create_tooltip(
                     archaeology_button,
-                    "Archaeology Simulator\nSimulate archaeology digs and\ncalculate expected values!"
+                    "Archaeology Simulator\nOptimize skill points and upgrades\nfor maximum floors per run!"
                 )
             else:
                 # Fallback: Button with text

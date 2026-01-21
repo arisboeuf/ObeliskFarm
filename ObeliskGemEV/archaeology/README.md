@@ -1,514 +1,287 @@
-# Archaeology Simulator - Feature Documentation
+# Archaeology Skill Point Optimizer
 
-This document describes the Archaeology Simulator feature and its planned implementation.
+A simulation and optimization tool for the Archaeology minigame in Obelisk Idle Miner.
 
 ## Overview
 
-The Archaeology Simulator is a tool to simulate archaeology dig results and calculate expected values for the Obelisk game.
+The Archaeology Simulator helps you make optimal skill point and upgrade decisions by calculating the **expected floors per run** for any given build. It accounts for all combat mechanics including damage, armor penetration, critical hits, one-hit kills, and the Enrage ability.
 
-## Current Status
+## Features
 
-**Status**: Skeleton/Placeholder implemented
+- **Real-time efficiency calculation**: See exactly how much each skill point or upgrade improves your floors/run
+- **Best next point recommendation**: Automatically suggests the optimal next investment
+- **Stage-aware calculations**: Block stats and spawn rates adjust based on selected stage
+- **Enrage toggle**: Enable/disable Enrage ability in calculations
+- **Auto-save**: Your configuration persists between sessions
 
-The basic window structure is in place. The actual simulation logic needs to be implemented based on the game mechanics described below.
+## Core Mechanics
 
-## Planned Features
+### Combat System
 
-### Input Parameters
+| Mechanic | Value | Notes |
+|----------|-------|-------|
+| Base Damage | 10 | Starting damage at level 1 |
+| Base Stamina | 100 | Maximum hits per run |
+| Base Crit Damage | 1.5x | Multiplier on critical hits |
+| Attack Speed | 1/sec | Fixed, 1 stamina per hit |
 
-- [ ] Number of dig attempts
-- [ ] Current archaeology level
-- [ ] Available resources/currency
-- [ ] Unlock status of various artifacts
+**Damage Formula:**
+```
+effective_damage = max(1, floor(total_damage - (block_armor - armor_pen)))
+```
 
-### Simulation Options
+**Important**: Damage is always an integer (floored), creating breakpoints where +1 damage can significantly increase DPS.
 
-- [ ] Single dig simulation
-- [ ] Bulk simulation (1000+ digs)
-- [ ] Expected value calculation
-- [ ] Probability distribution display
+### Enrage Ability
 
-### Results Display
+Enrage provides a buff every 60 seconds that affects the next 5 hits:
+- **+20% Damage** (multiplicative with base)
+- **+100% Crit Damage** (additive, so 1.5x becomes 2.5x)
 
-- [ ] Average gems per dig
-- [ ] Rare item drop rates
-- [ ] Statistical breakdown with charts
-- [ ] Confidence intervals
+**Effective uptime**: 5/60 = 8.33% of all hits
 
-### Strategy Recommendations
+Note: The Crit Damage bonus only matters if you have Crit Chance. At 0% crit, Enrage is only +1.67% average DPS.
 
-- [ ] Optimal dig timing
-- [ ] Resource allocation suggestions
-- [ ] Break-even analysis
+### Skills
 
-## Game Mechanics to Implement
+Each Archaeology level grants 1 skill point to allocate:
 
-*Please provide the following information to complete the implementation:*
+| Skill | Bonuses per Point |
+|-------|-------------------|
+| **Strength** | +1 Flat Damage, +1% Damage, +3% Crit Damage |
+| **Agility** | +5 Max Stamina, +1% Crit Chance, +0.20% Speed Mod Chance |
+| **Intellect** | +5% XP Bonus, +0.30% Exp Mod Chance |
+| **Perception** | +4% Fragment Gain, +0.30% Loot Mod Chance, +2 Armor Penetration |
+| **Luck** | +2% Crit Chance, +0.20% All Mod Chances, +0.04% One-Hit Chance |
 
-### Basic Dig Mechanics
+### Upgrades
 
-1. **Cost per dig**: What resources are required?
-2. **Base rewards**: What are the possible outcomes?
-3. **Probability distribution**: What are the chances for each outcome?
+Two main upgrades are available early:
+- **Flat Damage**: +1 damage per upgrade
+- **Armor Penetration**: +1 armor pen per upgrade
 
-### Modifiers
+### Gem Upgrades
 
-1. **Level bonuses**: How does archaeology level affect rewards?
-2. **Multipliers**: Are there any active multipliers?
-3. **Special events**: Any timed bonuses?
+Premium upgrades purchasable with Gems. These provide both stat bonuses and mod chance increases:
 
-### Rare Drops
+| Upgrade | Effect per Level | Max Level | Starting Cost |
+|---------|-----------------|-----------|---------------|
+| **Stamina** | +2 Max Stamina, +0.05% Stamina Mod Chance | 50 | 300 Gems |
+| **XP Boost** | +5% Arch XP, +0.05% Exp Mod Chance | 25 | 400 Gems |
+| **Fragment** | +2% Fragment Gain, +0.05% Loot Mod Chance | 25 | 500 Gems |
 
-1. **Artifact types**: What rare items can be found?
-2. **Drop rates**: What are the probabilities?
-3. **Value conversion**: How to convert to gem-equivalent?
+**Cost Scaling**: Costs increase by ~5% per level up to level 25, then cap at 1000 Gems per level.
+
+<details>
+<summary>Full Gem Cost Tables</summary>
+
+**Stamina Upgrade (Max 50)**
+| Lvl | Cost | Lvl | Cost | Lvl | Cost | Lvl | Cost | Lvl | Cost |
+|-----|------|-----|------|-----|------|-----|------|-----|------|
+| 1 | 300 | 11 | 488 | 21 | 795 | 31 | 1000 | 41 | 1000 |
+| 2 | 315 | 12 | 513 | 22 | 835 | 32 | 1000 | 42 | 1000 |
+| 3 | 330 | 13 | 538 | 23 | 877 | 33 | 1000 | 43 | 1000 |
+| 4 | 347 | 14 | 565 | 24 | 921 | 34 | 1000 | 44 | 1000 |
+| 5 | 364 | 15 | 593 | 25 | 967 | 35 | 1000 | 45 | 1000 |
+| 6 | 382 | 16 | 623 | 26 | 1000 | 36 | 1000 | 46 | 1000 |
+| 7 | 402 | 17 | 654 | 27 | 1000 | 37 | 1000 | 47 | 1000 |
+| 8 | 422 | 18 | 687 | 28 | 1000 | 38 | 1000 | 48 | 1000 |
+| 9 | 443 | 19 | 721 | 29 | 1000 | 39 | 1000 | 49 | 1000 |
+| 10 | 465 | 20 | 758 | 30 | 1000 | 40 | 1000 | 50 | 1000 |
+
+**XP Boost Upgrade (Max 25)**
+| Lvl | Cost | Lvl | Cost | Lvl | Cost |
+|-----|------|-----|------|-----|------|
+| 1 | 400 | 10 | 620 | 19 | 962 |
+| 2 | 420 | 11 | 651 | 20 | 1000 |
+| 3 | 441 | 12 | 684 | 21 | 1000 |
+| 4 | 463 | 13 | 718 | 22 | 1000 |
+| 5 | 486 | 14 | 754 | 23 | 1000 |
+| 6 | 510 | 15 | 791 | 24 | 1000 |
+| 7 | 536 | 16 | 831 | 25 | 1000 |
+| 8 | 562 | 17 | 873 | | |
+| 9 | 590 | 18 | 916 | | |
+
+**Fragment Upgrade (Max 25)**
+| Lvl | Cost | Lvl | Cost | Lvl | Cost |
+|-----|------|-----|------|-----|------|
+| 1 | 500 | 10 | 775 | 19 | 1000 |
+| 2 | 525 | 11 | 814 | 20 | 1000 |
+| 3 | 551 | 12 | 855 | 21 | 1000 |
+| 4 | 578 | 13 | 897 | 22 | 1000 |
+| 5 | 607 | 14 | 942 | 23 | 1000 |
+| 6 | 638 | 15 | 989 | 24 | 1000 |
+| 7 | 670 | 16 | 1000 | 25 | 1000 |
+| 8 | 703 | 17 | 1000 | | |
+| 9 | 738 | 18 | 1000 | | |
+
+</details>
+
+### Mods (Triggered Effects)
+
+Mods can trigger per block destroyed:
+
+| Mod | Effect | Source Skills |
+|-----|--------|---------------|
+| **Exp Mod** | 3x-5x XP (avg 4x) | Intellect, Luck |
+| **Loot Mod** | 2x-5x Fragments (avg 3.5x) | Perception, Luck |
+| **Speed Mod** | 2x attack speed for 10-110 attacks | Agility, Luck |
+| **Stamina Mod** | +3 to +10 Stamina (avg 6.5) | Luck only |
+
+**Speed Mod Note**: This is purely QoL (faster run completion). Stamina drains faster too, so there's no floors/run advantage.
+
+**Stamina Mod**: The only mod that affects floors/run by effectively giving you more stamina.
+
+## Block System
+
+### Block Types
+
+Six block types exist, unlocking at different stages:
+
+| Type | Unlock Stage | Characteristics |
+|------|--------------|-----------------|
+| Dirt | 1 | No armor, low HP |
+| Common | 1 | Low armor |
+| Rare | 3 | Medium armor |
+| Epic | 6 | High armor |
+| Legendary | 12 | Very high armor |
+| Mythic | 20 | Extreme armor |
+
+### Block Tiers
+
+Each block type has 3 tiers that become available at higher floors:
+
+**Tier 1 (Early Game)**
+| Type | HP | Armor | XP | Floors |
+|------|---:|------:|---:|--------|
+| Dirt | 100 | 0 | 0.05 | 1-11 |
+| Common | 250 | 5 | 0.15 | 1-17 |
+| Rare | 550 | 12 | 0.35 | 3-25 |
+| Epic | 1,150 | 25 | 1.00 | 6-29 |
+| Legendary | 1,950 | 50 | 3.50 | 12-31 |
+| Mythic | 3,500 | 150 | 7.50 | 20-34 |
+
+**Tier 2 (Mid Game)**
+| Type | HP | Armor | XP | Floors |
+|------|---:|------:|---:|--------|
+| Dirt | 300 | 0 | 0.15 | 12-23 |
+| Common | 600 | 9 | 0.45 | 18-28 |
+| Rare | 1,650 | 21 | 1.05 | 26-35 |
+| Epic | 3,450 | 44 | 3.00 | 30-41 |
+| Legendary | 5,850 | 88 | 10.50 | 32-44 |
+| Mythic | 10,500 | 262 | 22.50 | 36-49 |
+
+**Tier 3 (Late Game)**
+| Type | HP | Armor | XP | Floors |
+|------|---:|------:|---:|--------|
+| Dirt | 900 | 0 | 0.45 | 24+ |
+| Common | 2,250 | 15 | 1.35 | 30+ |
+| Rare | 4,950 | 37 | 3.15 | 36+ |
+| Epic | 10,350 | 77 | 9.00 | 42+ |
+| Legendary | 17,500 | 153 | 31.50 | 45+ |
+| Mythic | 31,500 | 459 | 67.50 | 50+ |
+
+### Spawn Rates by Stage
+
+Block spawn rates change as you progress:
+
+| Stage | Dirt | Common | Rare | Epic | Legendary | Mythic |
+|-------|-----:|-------:|-----:|-----:|----------:|-------:|
+| 1-2 | 66.7% | 33.3% | - | - | - | - |
+| 3-4 | 51.6% | 25.8% | 22.6% | - | - | - |
+| 6-9 | 42.5% | 18.2% | 20.8% | 18.5% | - | - |
+| 12-14 | 38.5% | 14.4% | 16.2% | 18.3% | 12.6% | - |
+| 20-24 | 32.0% | 12.0% | 13.5% | 20.2% | 14.2% | 8.2% |
+| 50-75 | 25.5% | 12.7% | 14.9% | 20.8% | 17.9% | 8.4% |
+| 75+ | 25.4% | 15.2% | 15.2% | 17.8% | 17.8% | 8.9% |
+
+*Note: Percentages are normalized spawn probabilities.*
+
+## Optimization Strategy
+
+### Early Game Priority
+
+**Primary Goal**: Maximize blocks/floors per run
+
+1. **Strength** dominates early because:
+   - Reduces hits per block (stamina efficiency)
+   - Benefits from integer damage breakpoints
+   - Works on ALL blocks (including Dirt)
+
+2. **Flat Damage upgrades** are extremely valuable when:
+   - Your damage is low
+   - You're near a breakpoint (e.g., 5 → 6 damage = 20% DPS increase)
+
+3. **Armor Penetration** becomes valuable when:
+   - Rare+ blocks start spawning (Stage 3+)
+   - Block armor exceeds your current pen
+   - You can't one-shot Dirt anymore
+
+### General Decision Framework
+
+For each potential +1 point:
+1. Calculate new effective damage
+2. Calculate new hits per block (weighted by spawn rates)
+3. Calculate new floors per run
+4. Choose the option with highest % improvement
+
+The simulator does this automatically and shows the efficiency of each option.
+
+### When to Invest in Each Skill
+
+| Skill | Best When |
+|-------|-----------|
+| Strength | Always good early; damage breakpoints matter |
+| Agility | Need more stamina OR building crit |
+| Intellect | Floor progress is stable, want faster leveling |
+| Perception | Need armor pen OR want fragments |
+| Luck | Building crit OR want one-hit chance |
+
+## File Structure
+
+```
+archaeology/
+├── __init__.py           # Package exports
+├── README.md             # This documentation
+├── simulator.py          # Main GUI and calculations
+├── block_stats.py        # Block HP/Armor/XP data by tier
+└── block_spawn_rates.py  # Spawn rates by stage
+```
+
+## Usage
+
+1. Launch from the main ObeliskGemEV Calculator (Archaeology button)
+2. Select your current stage from the dropdown
+3. Add skill points and upgrades to match your character
+4. The "Best Next Point" recommendation shows optimal investment
+5. Use efficiency percentages to compare options
+6. Toggle Enrage on/off to see its impact
+
+Your configuration is automatically saved when closing the window.
 
 ## Technical Notes
 
-### Window Class
+### Calculation Details
 
-`ArchaeologySimulatorWindow` in `gui.py`
+**Floors per Run** is calculated by:
+1. Getting weighted average hits/block for current stage
+2. Accounting for Stamina Mod (adds expected stamina per block)
+3. Simulating floor-by-floor stamina consumption
+4. Block stats update as tiers change at higher floors
 
-- Follows the same pattern as `OptionAnalyzerWindow`
-- Uses modern tooltip styling from DESIGN_GUIDELINES.md
-- Resizable window with minimum size 650x500
+**Expected Hits** accounts for:
+- Base damage with armor penetration
+- Critical hit chance and damage
+- One-hit kill chance
+- Enrage uptime (if enabled)
 
-### Integration
+### Assumptions
 
-- Button in main window header (next to Lootbug button)
-- Uses gem.png as temporary icon (can be replaced)
-- Receives calculator instance from main GUI
-
-## How to Use (Future)
-
-1. Click the Archaeology button in the main window
-2. Configure simulation parameters
-3. Run simulation
-4. View results and recommendations
-
-## Contributing
-
-To implement the full feature:
-
-1. Document the exact game mechanics (see sections above)
-2. Implement the probability calculations in `freebie_ev_calculator.py`
-3. Build the GUI components in `ArchaeologySimulatorWindow`
-4. Add unit tests for the calculations
+- 15 blocks per floor (configurable in code)
+- Optimal play (no wasted hits)
+- Average mod rolls (not min/max)
+- No boss floors (standard spawn rates)
 
 ## Version History
 
-- **v0.1** (2026-01-20): Initial skeleton implementation
-
-
-Infos von ChatGPT dazu:
-README — Obelisk Idle Miner
-Archaeology: Progression, Damage & Upgrade-Entscheidungen (Early Game)
-
-Diese Datei fasst alle aktuell bekannten Regeln, Annahmen und Entscheidungsheuristiken zur Archaeology-Mechanik zusammen.
-Ziel ist es, für jeden Zeitpunkt entscheiden zu können, welcher +1 Punkt (Skill oder Upgrade) den größten prozentualen Progress bringt.
-
-1. Grunddefinition: Was ist „Progress“?
-
-Im aktuellen Early Game ist Progress primär:
-
-Blöcke / Floors pro Run
-
-Tiefe (Unlock neuer Floors → neue Block-Tiers)
-
-Sekundär (aber wichtig):
-
-XP pro Zeit (Archaeology Level)
-
-Fragments / Loot (später relevant)
-
-Wichtig:
-XP, Loot oder Mods bringen keinen Fortschritt, wenn du Floors nicht erreichst, die neue Tiers freischalten.
-
-2. Harte Spielregeln (fix)
-Combat & Ressourcen
-
-1 Schlag = 1 Stamina
-
-1 Schlag = 1 Sekunde
-
-Aktuell: 1 Schlag / Sekunde
-
-Aktueller Stamina-Pool: 100
-
-Run endet sofort, wenn Stamina = 0
-
-➡️ Ein Run besteht effektiv aus 100 Schlägen.
-
-Damage & Defense (sehr wichtig)
-
-Schaden ist integer
-
-Es gibt keine Dezimalwerte
-
-Effektiver Schaden wird abgerundet
-
-Formel:
-
-effective_damage = max(1, floor(damage − armor + armor_pen))
-
-
-➡️ Das erzeugt Breakpoints
-(+1 Schaden kann +20 % realen DPS bedeuten)
-
-3. Enrage (Rage)
-
-Triggert alle 60 Sekunden
-
-Betrifft die nächsten 5 Schläge
-
-Effekte:
-
-+20 % Damage
-
-+100 % Crit Damage
-
-Wichtige Konsequenz
-
-Enrage wirkt nur auf 5 von 60 Schlägen → 8.33 % Uptime
-
-Ohne Crit Chance ist der Crit-Teil wertlos
-
-Ohne Crit:
-
-Enrage ≈ +1.67 % DPS
-
-➡️ Enrage ist EARLY kein Build-Definer
-Es skaliert erst, wenn Crit Chance steigt.
-
-4. Aktueller Block-Pool (Status quo)
-
-Du bist aktuell effektiv bei Floor 1 und schaffst noch nicht alle Blöcke.
-
-Annahme (realistisch):
-
-50 % Tier 1 Dirt
-
-50 % Tier 1 Common
-
-Blockwerte
-
-Tier 1 Dirt
-
-HP: 100
-
-Armor: 0
-
-Tier 1 Common
-
-HP: 250
-
-Armor: 5
-
-5. Spawn-Logik (warum Tiefe so wichtig ist)
-
-Neue Blocktypen erscheinen erst ab bestimmten Floors:
-
-Tier 1 Rare: ab Floor 3
-
-Tier 1 Epic: ab Floor 6
-
-Tier 1 Legendary: ab Floor 12
-
-Tier 1 Mythic: ab Floor 20
-
-➡️ Solange du Floor 1–2 nicht zuverlässig schaffst, existieren viele Systeme praktisch nicht.
-
-6. Aktueller Spielerstatus (zusammengeführt)
-
-Base Damage: 10
-
-Bonus Base Damage: +1
-
-Armor Penetration: +2
-
-Crit Chance: ~0 %
-
-Stamina: 100
-
-Effektive Armor
-
-Dirt: 0
-
-Common: 5 − 2 = 3
-
-7. Skillpunkte (Archaeology Level)
-Strength
-
-+1 Flat Damage
-
-+1 % Damage
-
-+3 % Crit Damage (nur relevant mit Crit Chance)
-
-Agility
-
-+5 Max Stamina
-
-+1 % Crit Chance
-
-+0.20 % Speed Mod Chance
-
-Intellect
-
-+5 % Archaeology XP
-
-+0.30 % Exp Mod Chance
-
-Perception
-
-+4 % Fragment Gain
-
-+0.30 % Loot Mod Chance
-
-+2 Armor Penetration
-
-Luck
-
-+2 % Crit Chance
-
-+0.20 % All Mod Chances
-
-+0.04 % One-Hit Chance
-
-8. Upgrade-Routen (früh verfügbar)
-
-Aktuell realistisch verfügbar:
-
-Flat Damage +1
-
-Armor Penetration +1
-
-Viele andere Upgrades sind an Stage/Floor gebunden
-(„Stage“ entspricht hier faktisch Floor-Progress).
-
-9. Warum Strength im Early Game dominiert
-Zentrale Einsicht
-
-Stamina ist ein harter Cap →
-Progress = Blöcke pro 100 Schläge
-
-Strength:
-
-reduziert Hits pro Block
-
-reduziert Zeit pro Block
-
-reduziert Stamina pro Block
-
-Beispiel (Common Block)
-
-Effektiver Schaden: 5
-
-+1 Damage → 6
-➡️ +20 % DPS gegen Common
-
-➡️ Dieser Effekt wirkt gleichzeitig auf:
-
-Tiefe
-
-XP pro Run
-
-Mods pro Zeit
-
-Enrage-Nutzen (indirekt)
-
-10. Flat Damage vs Armor Penetration
-Flat Damage
-
-Wirkt auf alle Blocks
-
-Extrem stark bei:
-
-niedrigem Damage
-
-integer Breakpoints
-
-Dirt + Common Dominanz
-
-Armor Penetration
-
-Wirkt nur, wenn Armor > 0
-
-Kein Effekt auf Dirt
-
-Wird stark, wenn:
-
-Rare / Epic Blocks erscheinen
-
-Armor ≥ 12
-
-Damage bereits hoch ist
-
-Faustregel:
-
-Early: Flat Damage > Armor Pen
-
-Mid: Mix
-
-Later: Armor Pen skaliert besser
-
-11. Agility & Enrage – richtige Einordnung
-
-Agility ist der erste Enrage-Enabler, weil es Crit Chance gibt
-
-Aber:
-
-Enrage betrifft nur 5 Schläge
-
-1 % Crit = sehr kleiner Effekt
-
-+5 Stamina ≈ +5 % Tiefe
-
-➡️ Agility ist gut, aber kein Early-Carry
-
-12. Intellect – wann sinnvoll?
-
-Intellect erhöht nur XP
-
-Keine Auswirkung auf:
-
-Hits pro Block
-
-Tiefe
-
-Unlocks
-
-➡️ Sinnvoll erst, wenn:
-
-Floor-Progress nicht mehr bottlenecked
-
-du stabil tief bist
-
-13. Allgemeines Entscheidungsprinzip (immer gültig)
-
-Für jeden +1 Punkt gilt:
-
-Rechne effektiven Schaden neu
-
-Rechne Hits pro Block neu
-
-Rechne Blöcke pro Run neu
-
-Vergleiche %-Änderung
-
-Primärer KPI:
-
-% mehr Blöcke pro Run
-
-Sekundär:
-
-XP-Multiplikatoren
-
-14. Aktuelle Empfehlung (Status jetzt)
-
-Du bist Level 3, hast:
-
-+1 Base Damage
-
-+2 Armor Pen
-
-➡️ 3× Strength ist aktuell optimal
-
-Warum:
-
-Du willst Floor 1 zuverlässig clearen
-
-Du willst schnell zu Floor 3 → Rare freischalten
-
-Strength nutzt:
-
-integer damage
-
-armor pen
-
-stamina cap
-
-Nächster Umschaltpunkt:
-
-sobald Rare-Blocks dominieren
-
-oder du Floor 1 problemlos schaffst
-
-Dann:
-
-Agility oder Perception neu bewerten
-
-15. Mentales Kurzmodell
-
-Early Game = Damage reduziert Stamina-Kosten
-Mid Game = Mods + Speed verlängern Runs
-Late Game = Crit, Enrage, Scaling
-
-
-Archaeology – Charakterwerte auf Level 1
-Grundstatus
-
-Archaeology Level: 1
-
-Highest Stage: 1
-
-Max Stamina: 100
-
-Current Stamina: 30 (situativ, nicht relevant für Baseline)
-
-Kampfwerte
-
-Damage: 10
-
-Armor Penetration: 0
-
-Attack Speed: 1 / sec
-
-Crit Chance: 0%
-
-Crit Damage: 1.50×
-
-One-Hit-KO Chance: 0%
-
-Ability Instacharge: 0%
-
-XP / Loot / Mods
-
-Experience Gain: 1×
-
-Fragment Gain: 1×
-
-Experience Mods
-
-Exp Mod Chance: 0%
-
-Exp Mod Gain: 3×
-
-Loot Mods
-
-Loot Mod Chance: 0%
-
-Loot Mod Gain: 2×
-
-Speed Mods
-
-Speed Mod Chance: 0%
-
-Speed Mod Gain: +10
-
-Speed Mod Attack Rate: 2×
-
-Stamina Mods
-
-Stamina Mod Chance: 0%
-
-Stamina Mod Gain: +3
-
-
-Enrage auf Level 1
-
-Mit diesen Stats bedeutet Enrage:
-
-+20% Damage für 5 Hits
-
-+100% Crit Damage → irrelevant, da Crit Chance = 0%
+- **v1.0** (2026-01-20): Full implementation with skill optimization, block data, spawn rates, and save/load functionality
