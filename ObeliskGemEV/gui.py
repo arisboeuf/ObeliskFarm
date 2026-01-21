@@ -29,6 +29,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from freebie_ev_calculator import FreebieEVCalculator, GameParameters
 from archaeology import ArchaeologySimulatorWindow
+from ui_utils import create_tooltip as _create_tooltip
 
 
 class OptionAnalyzerWindow:
@@ -288,70 +289,7 @@ class OptionAnalyzerWindow:
     
     def create_tooltip(self, widget, text):
         """Creates a modern styled tooltip with rich formatting"""
-        def on_enter(event):
-            tooltip = tk.Toplevel()
-            tooltip.wm_overrideredirect(True)
-            tooltip.wm_geometry(f"+{event.x_root+10}+{event.y_root+10}")
-            
-            # Äußerer Rahmen für Schatten-Effekt
-            outer_frame = tk.Frame(
-                tooltip,
-                background="#2C3E50",
-                relief=tk.FLAT,
-                borderwidth=0
-            )
-            outer_frame.pack(padx=2, pady=2)
-            
-            # Innerer Rahmen mit Inhalt
-            inner_frame = tk.Frame(
-                outer_frame,
-                background="#FFFFFF",
-                relief=tk.FLAT,
-                borderwidth=0
-            )
-            inner_frame.pack(padx=1, pady=1)
-            
-            # Text-Widget für Rich-Text-Formatierung
-            text_widget = tk.Text(
-                inner_frame,
-                background="#FFFFFF",
-                foreground="#2C3E50",
-                font=("Arial", 9),
-                wrap=tk.WORD,
-                padx=12,
-                pady=8,
-                relief=tk.FLAT,
-                borderwidth=0,
-                highlightthickness=0
-            )
-            
-            # Tags für Formatierung
-            text_widget.tag_config("bold", font=("Arial", 9, "bold"))
-            text_widget.tag_config("header", font=("Arial", 10, "bold"), foreground="#1976D2")
-            
-            # Text verarbeiten und formatieren
-            lines = text.split('\n')
-            for line in lines:
-                # Erste Zeile oder Zeilen mit ":" am Ende als Header
-                if lines.index(line) == 0 or (line.endswith(':') and not line.startswith('   ')):
-                    text_widget.insert(tk.END, line + '\n', "header")
-                else:
-                    text_widget.insert(tk.END, line + '\n')
-            
-            # Höhe anpassen
-            text_widget.config(height=len(lines), width=max(len(line) for line in lines))
-            text_widget.config(state=tk.DISABLED)  # Read-only
-            text_widget.pack()
-            
-            widget.tooltip = tooltip
-        
-        def on_leave(event):
-            if hasattr(widget, 'tooltip'):
-                widget.tooltip.destroy()
-                del widget.tooltip
-        
-        widget.bind("<Enter>", on_enter)
-        widget.bind("<Leave>", on_leave)
+        _create_tooltip(widget, text)
     
     def calculate_speed_option_worth(self):
         """
@@ -1023,70 +961,7 @@ class ObeliskGemEVGUI:
     
     def create_tooltip(self, widget, text):
         """Creates a modern styled tooltip with rich formatting"""
-        def on_enter(event):
-            tooltip = tk.Toplevel()
-            tooltip.wm_overrideredirect(True)
-            tooltip.wm_geometry(f"+{event.x_root+10}+{event.y_root+10}")
-            
-            # Äußerer Rahmen für Schatten-Effekt
-            outer_frame = tk.Frame(
-                tooltip,
-                background="#2C3E50",
-                relief=tk.FLAT,
-                borderwidth=0
-            )
-            outer_frame.pack(padx=2, pady=2)
-            
-            # Innerer Rahmen mit Inhalt
-            inner_frame = tk.Frame(
-                outer_frame,
-                background="#FFFFFF",
-                relief=tk.FLAT,
-                borderwidth=0
-            )
-            inner_frame.pack(padx=1, pady=1)
-            
-            # Text-Widget für Rich-Text-Formatierung
-            text_widget = tk.Text(
-                inner_frame,
-                background="#FFFFFF",
-                foreground="#2C3E50",
-                font=("Arial", 9),
-                wrap=tk.WORD,
-                padx=12,
-                pady=8,
-                relief=tk.FLAT,
-                borderwidth=0,
-                highlightthickness=0
-            )
-            
-            # Tags für Formatierung
-            text_widget.tag_config("bold", font=("Arial", 9, "bold"))
-            text_widget.tag_config("header", font=("Arial", 10, "bold"), foreground="#1976D2")
-            
-            # Text verarbeiten und formatieren
-            lines = text.split('\n')
-            for line in lines:
-                # Erste Zeile oder Zeilen mit ":" am Ende als Header
-                if lines.index(line) == 0 or (line.endswith(':') and not line.startswith('   ')):
-                    text_widget.insert(tk.END, line + '\n', "header")
-                else:
-                    text_widget.insert(tk.END, line + '\n')
-            
-            # Höhe anpassen
-            text_widget.config(height=len(lines), width=max(len(line) for line in lines))
-            text_widget.config(state=tk.DISABLED)  # Read-only
-            text_widget.pack()
-            
-            widget.tooltip = tooltip
-        
-        def on_leave(event):
-            if hasattr(widget, 'tooltip'):
-                widget.tooltip.destroy()
-                del widget.tooltip
-        
-        widget.bind("<Enter>", on_enter)
-        widget.bind("<Leave>", on_leave)
+        _create_tooltip(widget, text)
     
     def create_dynamic_gift_tooltip(self, widget):
         """Creates a modern styled dynamic tooltip for Gift-EV with contributions and percentages"""
