@@ -30,6 +30,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from freebie_ev_calculator import FreebieEVCalculator, GameParameters
 from archaeology import ArchaeologySimulatorWindow
 from lootbug import LootbugWindow
+from event import EventSimulatorWindow
 from ui_utils import create_tooltip as _create_tooltip
 
 
@@ -168,6 +169,9 @@ class ObeliskGemEVGUI:
         
         # Archaeology-Button daneben
         self.create_archaeology_button(title_frame)
+        
+        # Event-Button daneben
+        self.create_event_button(title_frame)
         
         # Linke Spalte: Parameter
         self.create_parameter_section(main_frame)
@@ -632,6 +636,62 @@ class ObeliskGemEVGUI:
             messagebox.showerror(
                 "Error",
                 f"Error opening Archaeology Simulator:\n{str(e)}"
+            )
+    
+    def create_event_button(self, parent):
+        """Creates the Event button for the Event Simulator"""
+        
+        # Try to load event icon (use gem.png as fallback since no specific event icon exists)
+        try:
+            icon_path = Path(__file__).parent / "sprites" / "gem.png"
+            if icon_path.exists():
+                # Load and scale the image
+                icon_image = Image.open(icon_path)
+                icon_image = icon_image.resize((32, 32), Image.Resampling.LANCZOS)
+                self.event_photo = ImageTk.PhotoImage(icon_image)
+                
+                # Button with image
+                event_button = tk.Button(
+                    parent,
+                    image=self.event_photo,
+                    command=self.open_event_simulator,
+                    cursor="hand2",
+                    relief=tk.RAISED,
+                    borderwidth=2
+                )
+                event_button.pack(side=tk.LEFT, padx=(10, 0))
+                
+                # Tooltip for the button
+                self.create_tooltip(
+                    event_button,
+                    "Event Simulator\nSimulate bimonthly event runs\nand optimize upgrade paths!"
+                )
+            else:
+                # Fallback: Button with text
+                event_button = ttk.Button(
+                    parent,
+                    text="Event Sim",
+                    command=self.open_event_simulator
+                )
+                event_button.pack(side=tk.LEFT, padx=(10, 0))
+        except Exception as e:
+            # Fallback: Button with text
+            event_button = ttk.Button(
+                parent,
+                text="Event Sim",
+                command=self.open_event_simulator
+            )
+            event_button.pack(side=tk.LEFT, padx=(10, 0))
+    
+    def open_event_simulator(self):
+        """Opens the Event Simulator window"""
+        try:
+            # Open the Event Simulator window
+            EventSimulatorWindow(self.root)
+        except Exception as e:
+            messagebox.showerror(
+                "Error",
+                f"Error opening Event Simulator:\n{str(e)}"
             )
     
     def open_option_analyzer(self):

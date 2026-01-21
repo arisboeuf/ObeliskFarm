@@ -196,6 +196,7 @@ class ArchaeologySimulatorWindow:
             'enrage_enabled': self.enrage_enabled.get() if hasattr(self, 'enrage_enabled') else True,
             'forecast_levels_1': self.forecast_levels_1.get() if hasattr(self, 'forecast_levels_1') else 5,
             'forecast_levels_2': self.forecast_levels_2.get() if hasattr(self, 'forecast_levels_2') else 10,
+            'budget_points': self.budget_points.get() if hasattr(self, 'budget_points') else 20,
         }
         try:
             SAVE_DIR.mkdir(parents=True, exist_ok=True)
@@ -246,6 +247,11 @@ class ArchaeologySimulatorWindow:
             if hasattr(self, 'forecast_levels_2'):
                 self.forecast_levels_2.set(state.get('forecast_levels_2', 10))
                 self.forecast_2_level_label.config(text=f"+{self.forecast_levels_2.get()}")
+            
+            # Update budget points
+            if hasattr(self, 'budget_points'):
+                self.budget_points.set(state.get('budget_points', 20))
+                self.budget_points_label.config(text=str(self.budget_points.get()))
         except Exception as e:
             print(f"Warning: Could not load state: {e}")
     
@@ -2276,6 +2282,159 @@ class ArchaeologySimulatorWindow:
         self.forecast_2_path_label = tk.Label(row_2_path, text="—", font=("Arial", 8), 
                                               background="#E8F5E9", foreground="#333333")
         self.forecast_2_path_label.pack(side=tk.LEFT, padx=(3, 0))
+        
+        ttk.Separator(col_frame, orient='horizontal').pack(fill=tk.X, pady=5, padx=5)
+        
+        # === BUDGET PLANNER SECTION ===
+        budget_header = tk.Frame(col_frame, background="#FFF3E0")
+        budget_header.pack(fill=tk.X, padx=5)
+        
+        tk.Label(budget_header, text="Skill Budget Planner", font=("Arial", 10, "bold"), 
+                background="#FFF3E0").pack(side=tk.LEFT)
+        
+        budget_help_label = tk.Label(budget_header, text="?", font=("Arial", 9, "bold"), 
+                                    cursor="hand2", foreground="#9932CC", background="#FFF3E0")
+        budget_help_label.pack(side=tk.LEFT, padx=(5, 0))
+        self._create_budget_help_tooltip(budget_help_label)
+        
+        # Budget frame with purple theme
+        budget_frame = tk.Frame(col_frame, background="#F3E5F5", relief=tk.GROOVE, borderwidth=1)
+        budget_frame.pack(fill=tk.X, padx=5, pady=(3, 5))
+        
+        budget_inner = tk.Frame(budget_frame, background="#F3E5F5", padx=8, pady=5)
+        budget_inner.pack(fill=tk.X)
+        
+        # Initialize budget variable
+        self.budget_points = tk.IntVar(value=20)
+        
+        # Input row: Points selector
+        input_row = tk.Frame(budget_inner, background="#F3E5F5")
+        input_row.pack(fill=tk.X)
+        
+        tk.Label(input_row, text="Available Points:", font=("Arial", 9, "bold"), 
+                background="#F3E5F5", foreground="#7B1FA2").pack(side=tk.LEFT)
+        
+        # Points adjuster with +/- buttons
+        points_frame = tk.Frame(input_row, background="#F3E5F5")
+        points_frame.pack(side=tk.LEFT, padx=(8, 0))
+        
+        tk.Button(points_frame, text="-5", width=2, font=("Arial", 7, "bold"),
+                 command=lambda: self._adjust_budget(-5)).pack(side=tk.LEFT)
+        tk.Button(points_frame, text="-", width=1, font=("Arial", 7, "bold"),
+                 command=lambda: self._adjust_budget(-1)).pack(side=tk.LEFT)
+        self.budget_points_label = tk.Label(points_frame, text="20", font=("Arial", 11, "bold"), 
+                                           background="#F3E5F5", foreground="#7B1FA2", width=4)
+        self.budget_points_label.pack(side=tk.LEFT)
+        tk.Button(points_frame, text="+", width=1, font=("Arial", 7, "bold"),
+                 command=lambda: self._adjust_budget(1)).pack(side=tk.LEFT)
+        tk.Button(points_frame, text="+5", width=2, font=("Arial", 7, "bold"),
+                 command=lambda: self._adjust_budget(5)).pack(side=tk.LEFT)
+        
+        # Header row for results
+        header_row = tk.Frame(budget_inner, background="#F3E5F5")
+        header_row.pack(fill=tk.X, pady=(5, 0))
+        
+        tk.Label(header_row, text="Optimal Distribution", font=("Arial", 8, "bold"), 
+                background="#F3E5F5", width=18, anchor=tk.W).pack(side=tk.LEFT)
+        tk.Label(header_row, text="Floors", font=("Arial", 8, "bold"), 
+                background="#F3E5F5", width=6, anchor=tk.E).pack(side=tk.LEFT)
+        tk.Label(header_row, text="Gain", font=("Arial", 8, "bold"), 
+                background="#F3E5F5", anchor=tk.E).pack(side=tk.RIGHT)
+        
+        # Result row
+        result_row = tk.Frame(budget_inner, background="#E1BEE7")
+        result_row.pack(fill=tk.X, pady=(3, 0))
+        
+        result_inner = tk.Frame(result_row, background="#E1BEE7", padx=5, pady=4)
+        result_inner.pack(fill=tk.X)
+        
+        self.budget_dist_label = tk.Label(result_inner, text="—", font=("Arial", 10, "bold"), 
+                                         background="#E1BEE7", foreground="#4A148C", 
+                                         width=18, anchor=tk.W)
+        self.budget_dist_label.pack(side=tk.LEFT)
+        self.budget_floors_label = tk.Label(result_inner, text="—", font=("Arial", 10, "bold"), 
+                                           background="#E1BEE7", foreground="#2E7D32", 
+                                           width=6, anchor=tk.E)
+        self.budget_floors_label.pack(side=tk.LEFT)
+        self.budget_gain_label = tk.Label(result_inner, text="—", font=("Arial", 10, "bold"), 
+                                         background="#E1BEE7", foreground="#2E7D32", anchor=tk.E)
+        self.budget_gain_label.pack(side=tk.RIGHT)
+        
+        # Detailed breakdown row
+        breakdown_row = tk.Frame(budget_inner, background="#F3E5F5")
+        breakdown_row.pack(fill=tk.X, pady=(3, 0))
+        
+        tk.Label(breakdown_row, text="Details:", font=("Arial", 7), 
+                background="#F3E5F5", foreground="#555555").pack(side=tk.LEFT)
+        self.budget_breakdown_label = tk.Label(breakdown_row, text="—", font=("Arial", 8), 
+                                              background="#F3E5F5", foreground="#333333")
+        self.budget_breakdown_label.pack(side=tk.LEFT, padx=(3, 0))
+    
+    def _adjust_budget(self, delta: int):
+        """Adjust the budget points and recalculate"""
+        new_val = max(1, min(100, self.budget_points.get() + delta))
+        self.budget_points.set(new_val)
+        self.budget_points_label.config(text=str(new_val))
+        self.update_budget_display()
+    
+    def _create_budget_help_tooltip(self, widget):
+        """Creates a tooltip explaining the Budget Planner feature"""
+        def on_enter(event):
+            tooltip = tk.Toplevel()
+            tooltip.wm_overrideredirect(True)
+            
+            tooltip_width = 320
+            x = event.x_root - tooltip_width - 10
+            if x < 10:
+                x = event.x_root + 20
+            y = event.y_root - 20
+            
+            tooltip.wm_geometry(f"+{x}+{y}")
+            
+            outer_frame = tk.Frame(tooltip, background="#7B1FA2", relief=tk.FLAT)
+            outer_frame.pack(padx=2, pady=2)
+            
+            inner_frame = tk.Frame(outer_frame, background="#FFFFFF")
+            inner_frame.pack(padx=1, pady=1)
+            
+            content_frame = tk.Frame(inner_frame, background="#FFFFFF", padx=10, pady=8)
+            content_frame.pack()
+            
+            tk.Label(content_frame, text="Skill Budget Planner", 
+                    font=("Arial", 10, "bold"), foreground="#7B1FA2", 
+                    background="#FFFFFF").pack(anchor=tk.W)
+            
+            lines = [
+                "",
+                "Plan how to spend a fixed pool of points.",
+                "",
+                "Unlike Forecast (which adds to current stats),",
+                "Budget Planner helps when you have unspent",
+                "points and want to distribute them optimally.",
+                "",
+                "Use case: You saved up 20 skill points and",
+                "want to know the best way to spend them all.",
+                "",
+                "Since you're spending them all at once,",
+                "the order doesn't matter - only the final",
+                "distribution counts.",
+                "",
+                "Legend: S=Str, A=Agi, I=Int, P=Per, L=Luck",
+            ]
+            
+            for line in lines:
+                tk.Label(content_frame, text=line, font=("Arial", 9), 
+                        background="#FFFFFF", anchor=tk.W).pack(anchor=tk.W)
+            
+            widget.tooltip = tooltip
+        
+        def on_leave(event):
+            if hasattr(widget, 'tooltip'):
+                widget.tooltip.destroy()
+                del widget.tooltip
+        
+        widget.bind("<Enter>", on_enter)
+        widget.bind("<Leave>", on_leave)
     
     def _adjust_forecast_level(self, row: int, delta: int):
         """Adjust the forecast level for a row and recalculate"""
@@ -3026,6 +3185,38 @@ class ArchaeologySimulatorWindow:
             self.forecast_2_path_label.config(text=path_2_str)
         else:
             self.forecast_2_path_label.config(text="—")
+        
+        # Update budget planner too
+        self.update_budget_display()
+    
+    def update_budget_display(self):
+        """Update the budget planner with optimal distribution for fixed points"""
+        if not hasattr(self, 'budget_dist_label'):
+            return
+        
+        budget = self.budget_points.get()
+        
+        # Calculate optimal distribution for the budget
+        # This uses the same algorithm as forecast
+        result = self.calculate_forecast(budget)
+        
+        # Format and display
+        dist_str = self.format_distribution(result['distribution'])
+        self.budget_dist_label.config(text=dist_str)
+        self.budget_floors_label.config(text=f"{result['floors_per_run']:.2f}")
+        self.budget_gain_label.config(text=f"+{result['improvement_pct']:.1f}%")
+        
+        # Detailed breakdown showing exact values
+        abbrev = {'strength': 'STR', 'agility': 'AGI', 'intellect': 'INT', 'perception': 'PER', 'luck': 'LUK'}
+        parts = []
+        for skill in ['strength', 'agility', 'intellect', 'perception', 'luck']:
+            points = result['distribution'].get(skill, 0)
+            if points > 0:
+                current = self.skill_points[skill]
+                parts.append(f"{abbrev[skill]}: {current} → {current + points}")
+        
+        breakdown = ', '.join(parts) if parts else "No changes"
+        self.budget_breakdown_label.config(text=breakdown)
     
     def reset_and_update(self):
         self.reset_to_level1()
