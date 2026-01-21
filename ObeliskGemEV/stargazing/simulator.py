@@ -1103,16 +1103,23 @@ class StargazingWindow:
         """Tooltip explaining Super Star spawn mechanics"""
         lines = [
             "",
-            "Super Stars spawn when a regular Star spawns,",
-            "with an additional chance check:",
+            "Each individual Star that spawns has a chance",
+            "to be a Super Star:",
             "",
-            "Base chance: 1/100 (1%)",
+            "Base chance: 1/100 (1%) per Star",
             "",
             "This is multiplied by your Super Star Spawn",
             "Rate multiplier from upgrades.",
             "",
-            "Example: With 1.5x Super Star Spawn Rate,",
-            "you have 1.5% chance per Star spawn.",
+            "IMPORTANT: Double/Triple Star spawns increase",
+            "Super Star income! When 2-3 Stars spawn at",
+            "once, each has an independent chance to be",
+            "a Super Star.",
+            "",
+            "Example: With 50% Double Star chance and",
+            "1.5x Super Star Spawn Rate:",
+            "  E[Stars/spawn] = 1×0.5 + 2×0.5 = 1.5",
+            "  SS chance = 1.5 × 1.5% = 2.25% per spawn",
         ]
         self._create_tooltip(widget, "Super Star Spawn Mechanics", lines, "#E65100")
     

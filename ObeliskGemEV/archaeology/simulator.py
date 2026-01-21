@@ -12,6 +12,7 @@ from PIL import Image, ImageTk
 
 from .block_spawn_rates import get_block_mix_for_stage, get_stage_range_label, STAGE_RANGES, get_normalized_spawn_rates
 from .block_stats import get_block_at_floor, get_block_mix_for_floor, BlockData, BLOCK_TYPES
+from .upgrade_costs import get_upgrade_cost, get_total_cost, get_max_level
 
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -59,6 +60,11 @@ class ArchaeologySimulatorWindow:
     ENRAGE_COOLDOWN = 60  # seconds
     ENRAGE_DAMAGE_BONUS = 0.20  # +20%
     ENRAGE_CRIT_DAMAGE_BONUS = 1.00  # +100% crit damage (additive)
+    
+    # Flurry ability constants
+    # +100% attack speed (QoL), +5 stamina on cast, 120s cooldown
+    FLURRY_COOLDOWN = 120  # seconds
+    FLURRY_STAMINA_BONUS = 5  # +5 stamina on cast (one time per activation)
     
     # Mod effects (applied per block when triggered)
     # Exp Mod: 3x to 5x XP (avg 4x)
@@ -379,7 +385,10 @@ class ArchaeologySimulatorWindow:
     }
     
     # Game constants
-    BLOCKS_PER_FLOOR = 15
+    # Blocks per floor varies between 8-12, average ~10
+    BLOCKS_PER_FLOOR_MIN = 8
+    BLOCKS_PER_FLOOR_MAX = 12
+    BLOCKS_PER_FLOOR = 10  # Average for calculations
     
     def __init__(self, parent):
         self.parent = parent
@@ -426,6 +435,7 @@ class ArchaeologySimulatorWindow:
             'fragment_upgrade_levels': getattr(self, 'fragment_upgrade_levels', {}),
             'block_cards': self.block_cards,
             'enrage_enabled': self.enrage_enabled.get() if hasattr(self, 'enrage_enabled') else True,
+            'flurry_enabled': self.flurry_enabled.get() if hasattr(self, 'flurry_enabled') else True,
             'forecast_levels_1': self.forecast_levels_1.get() if hasattr(self, 'forecast_levels_1') else 5,
             'budget_points': self.budget_points.get() if hasattr(self, 'budget_points') else 20,
             'xp_budget_points': self.xp_budget_points.get() if hasattr(self, 'xp_budget_points') else 20,
@@ -472,6 +482,8 @@ class ArchaeologySimulatorWindow:
             # Update enrage checkbox
             if hasattr(self, 'enrage_enabled'):
                 self.enrage_enabled.set(state.get('enrage_enabled', True))
+            if hasattr(self, 'flurry_enabled'):
+                self.flurry_enabled.set(state.get('flurry_enabled', True))
             
             # Update stage combo
             stage_map_reverse = {
@@ -866,6 +878,7 @@ class ArchaeologySimulatorWindow:
         """
         Calculate floors per run, accounting for:
         - Stamina Mod: Each block has a chance to give +6.5 stamina (avg of 3-10)
+        - Flurry ability: 5 charges × 5 stamina every 120 seconds (if enabled)
         """
         max_stamina = stats['max_stamina']
         stamina_remaining = max_stamina
@@ -874,7 +887,28 @@ class ArchaeologySimulatorWindow:
         
         # Stamina mod: each block has stamina_mod_chance to give avg +6.5 stamina
         stamina_mod_chance = stats.get('stamina_mod_chance', 0)
-        avg_stamina_per_block = stamina_mod_chance * self.MOD_STAMINA_BONUS_AVG
+        stamina_mod_gain = stats.get('stamina_mod_gain', self.MOD_STAMINA_BONUS_AVG)
+        avg_stamina_per_block = stamina_mod_chance * stamina_mod_gain
+        
+        # Flurry: +5 stamina on cast (once), 120s cooldown
+        # Approximation: assume ~1 hit per second, so flurry stamina per hit = stamina / cooldown
+        flurry_active = getattr(self, 'flurry_enabled', None)
+        flurry_stamina_per_hit = 0
+        if flurry_active is not None and flurry_active.get():
+            # Get flurry upgrades from fragment bonuses
+            frag_bonuses = self._get_fragment_upgrade_bonuses()
+            flurry_stamina_bonus = frag_bonuses.get('flurry_stamina', 0)
+            flurry_cooldown_reduction = frag_bonuses.get('flurry_cooldown', 0)
+            
+            # Calculate effective values
+            stamina_on_cast = self.FLURRY_STAMINA_BONUS + flurry_stamina_bonus
+            effective_cooldown = max(10, self.FLURRY_COOLDOWN + flurry_cooldown_reduction)  # min 10s
+            
+            # Stamina gained per hit (assuming ~1 hit per second)
+            flurry_stamina_per_hit = stamina_on_cast / effective_cooldown
+        
+        # Add flurry stamina to the per-block stamina gain
+        avg_stamina_per_block += flurry_stamina_per_hit
         
         for _ in range(100):
             spawn_rates = get_normalized_spawn_rates(current_floor)
@@ -1367,7 +1401,17 @@ class ArchaeologySimulatorWindow:
             variable=self.enrage_enabled,
             command=self.update_display
         )
-        enrage_checkbox.pack(side=tk.LEFT, padx=(0, 10))
+        enrage_checkbox.pack(side=tk.LEFT, padx=(0, 5))
+        
+        # Flurry toggle checkbox
+        self.flurry_enabled = tk.BooleanVar(value=True)
+        flurry_checkbox = ttk.Checkbutton(
+            controls_frame,
+            text="Flurry",
+            variable=self.flurry_enabled,
+            command=self.update_display
+        )
+        flurry_checkbox.pack(side=tk.LEFT, padx=(0, 10))
         
         reset_btn = ttk.Button(controls_frame, text="Reset", command=self.reset_and_update, width=8)
         reset_btn.pack(side=tk.LEFT)
@@ -1773,11 +1817,23 @@ class ArchaeologySimulatorWindow:
         tk.Label(row_frame, text=display_name, background="#E8F5E9", 
                 font=("Arial", 8), width=15, anchor=tk.W).pack(side=tk.LEFT)
         
+        # Help ? label with tooltip
+        help_label = tk.Label(row_frame, text="?", background="#E8F5E9",
+                             font=("Arial", 7, "bold"), foreground="#888888", cursor="hand2")
+        help_label.pack(side=tk.LEFT, padx=(0, 2))
+        self._create_fragment_upgrade_tooltip(help_label, upgrade_key, upgrade_info, color)
+        
         # Efficiency label (+X.XX% floors/run)
         eff_label = tk.Label(row_frame, text="+0.00%", background="#E8F5E9",
                             font=("Arial", 8), foreground="#2E7D32", width=8, anchor=tk.E)
         eff_label.pack(side=tk.LEFT, padx=(2, 0))
         self.upgrade_efficiency_labels[upgrade_key] = eff_label
+        
+        # Efficiency per fragment label (%/frag)
+        eff_per_frag_label = tk.Label(row_frame, text="", background="#E8F5E9",
+                                     font=("Arial", 7), foreground="#666666", width=10, anchor=tk.E)
+        eff_per_frag_label.pack(side=tk.LEFT, padx=(1, 0))
+        self.upgrade_cost_labels[upgrade_key] = eff_per_frag_label
         
         # Stage unlock indicator (small text)
         stage_unlock = upgrade_info.get('stage_unlock', 0)
@@ -1813,6 +1869,182 @@ class ArchaeologySimulatorWindow:
                 self.upgrade_level_labels[upgrade_key].config(
                     text=str(self.fragment_upgrade_levels[upgrade_key]))
             self.update_display()
+    
+    def _create_fragment_upgrade_tooltip(self, widget, upgrade_key, upgrade_info, color):
+        """Creates a tooltip for a fragment upgrade showing details and current bonuses"""
+        
+        # Map bonus keys to human-readable descriptions
+        bonus_descriptions = {
+            'flat_damage': ('Flat Damage', '+{:.0f}', ''),
+            'armor_pen': ('Armor Penetration', '+{:.0f}', ''),
+            'crit_chance': ('Crit Chance', '+{:.2f}', '%'),
+            'crit_damage': ('Crit Damage', '+{:.0f}', '%'),
+            'super_crit_chance': ('Super Crit Chance', '+{:.2f}', '%'),
+            'super_crit_damage': ('Super Crit Damage', '+{:.0f}', '%'),
+            'ultra_crit_chance': ('Ultra Crit Chance', '+{:.1f}', '%'),
+            'max_stamina': ('Max Stamina', '+{:.0f}', ''),
+            'max_stamina_percent': ('Max Stamina', '+{:.0f}', '%'),
+            'stamina_mod_chance': ('Stamina Mod Chance', '+{:.2f}', '%'),
+            'stamina_mod_gain': ('Stamina Mod Bonus', '+{:.1f}', ''),
+            'arch_xp_bonus': ('Archaeology Exp', '+{:.0f}', '%'),
+            'xp_bonus_skill': ('XP per INT point', '+{:.0f}', '%'),
+            'xp_bonus_mult': ('XP Multiplier', '{:.1f}', 'x'),
+            'fragment_gain': ('Fragment Gain', '+{:.0f}', '%'),
+            'fragment_gain_mult': ('Fragment Multiplier', '{:.2f}', 'x'),
+            'exp_mod_chance': ('Exp Mod Chance', '+{:.2f}', '%'),
+            'exp_mod_gain': ('Exp Mod Bonus', '+{:.2f}', 'x'),
+            'loot_mod_multiplier': ('Loot Mod Bonus', '+{:.2f}', 'x'),
+            'all_mod_chance': ('All Mod Chances', '+{:.2f}', '%'),
+            'mod_chance_skill': ('Mod Chance per skill pt', '+{:.2f}', '%'),
+            'percent_damage': ('Percent Damage', '+{:.0f}', '%'),
+            'flat_damage_skill': ('Flat Dmg per STR pt', '+{:.1f}', ''),
+            'percent_damage_skill': ('% Dmg per STR pt', '+{:.1f}', '%'),
+            'armor_pen_skill': ('Armor Pen per PER pt', '+{:.0f}', ''),
+            'armor_pen_percent': ('Armor Pen %', '+{:.0f}', '%'),
+            'max_stamina_skill': ('Stamina per AGI pt', '+{:.0f}', ''),
+            'enrage_damage': ('Enrage Damage', '+{:.0f}', '%'),
+            'enrage_crit_damage': ('Enrage Crit Damage', '+{:.0f}', '%'),
+            'enrage_cooldown': ('Enrage Cooldown', '{:.0f}', 's'),
+            'flurry_stamina': ('Flurry Stamina', '+{:.0f}', ''),
+            'flurry_cooldown': ('Flurry Cooldown', '{:.0f}', 's'),
+            'flurry_stamina': ('Flurry Stamina Cost', '-{:.0f}', ''),
+            'flurry_cooldown': ('Flurry Cooldown', '{:.0f}', 's'),
+            'quake_attacks': ('Quake Extra Attacks', '+{:.0f}', ''),
+            'quake_cooldown': ('Quake Cooldown', '{:.0f}', 's'),
+            'ability_cooldown': ('Ability Cooldown', '{:.0f}', 's'),
+            'ability_instacharge': ('Ability Insta-Charge', '+{:.2f}', '%'),
+            'polychrome_bonus': ('Polychrome Bonus', '+{:.0f}', '%'),
+            'all_stat_cap': ('All Stat Caps', '+{:.0f}', ''),
+        }
+        
+        # Type colors for border
+        type_colors = {
+            'common': '#808080',
+            'rare': '#4169E1',
+            'epic': '#9932CC',
+            'legendary': '#FFD700',
+            'mythic': '#FF4500',
+        }
+        
+        def on_enter(event):
+            current_level = self.fragment_upgrade_levels.get(upgrade_key, 0)
+            max_level = upgrade_info.get('max_level', 25)
+            cost_type = upgrade_info.get('cost_type', 'common')
+            display_name = upgrade_info.get('display_name', upgrade_key)
+            stage_unlock = upgrade_info.get('stage_unlock', 0)
+            border_color = type_colors.get(cost_type, '#808080')
+            
+            tooltip = tk.Toplevel()
+            tooltip.wm_overrideredirect(True)
+            
+            tooltip_width = 280
+            tooltip_height = 200
+            screen_width = tooltip.winfo_screenwidth()
+            screen_height = tooltip.winfo_screenheight()
+            x, y = calculate_tooltip_position(event, tooltip_width, tooltip_height, screen_width, screen_height)
+            tooltip.wm_geometry(f"+{x}+{y}")
+            
+            # Outer frame for shadow effect
+            outer_frame = tk.Frame(tooltip, background=border_color, relief=tk.FLAT, borderwidth=0)
+            outer_frame.pack(padx=2, pady=2)
+            
+            # Inner frame
+            inner_frame = tk.Frame(outer_frame, background="#FFFFFF", relief=tk.FLAT, borderwidth=0)
+            inner_frame.pack(padx=1, pady=1)
+            
+            content_frame = tk.Frame(inner_frame, background="#FFFFFF", padx=10, pady=8)
+            content_frame.pack()
+            
+            # Title with icon
+            title_frame = tk.Frame(content_frame, background="#FFFFFF")
+            title_frame.pack(anchor=tk.W)
+            
+            # Try to load fragment icon
+            try:
+                icon_name = f"fragment{cost_type}.png"
+                icon_path = Path(__file__).parent.parent / "sprites" / "archaeology" / icon_name
+                if icon_path.exists():
+                    icon_image = Image.open(icon_path)
+                    icon_image = icon_image.resize((16, 16), Image.Resampling.LANCZOS)
+                    tooltip.icon_photo = ImageTk.PhotoImage(icon_image)
+                    tk.Label(title_frame, image=tooltip.icon_photo, background="#FFFFFF").pack(side=tk.LEFT, padx=(0, 5))
+            except:
+                pass
+            
+            tk.Label(title_frame, text=f"{cost_type.capitalize()}: {display_name}", 
+                    font=("Arial", 10, "bold"), foreground=border_color, 
+                    background="#FFFFFF").pack(side=tk.LEFT)
+            
+            # Stage unlock
+            if stage_unlock > 0:
+                tk.Label(content_frame, text=f"Unlocks at Stage {stage_unlock}", 
+                        font=("Arial", 8), foreground="#999999",
+                        background="#FFFFFF").pack(anchor=tk.W)
+            
+            # Effects per level
+            tk.Label(content_frame, text="Per Level:", 
+                    font=("Arial", 9, "bold"), background="#FFFFFF").pack(anchor=tk.W, pady=(5, 2))
+            
+            for bonus_key, bonus_value in upgrade_info.items():
+                if bonus_key in ('max_level', 'stage_unlock', 'cost_type', 'display_name'):
+                    continue
+                
+                if bonus_key in bonus_descriptions:
+                    name, fmt, suffix = bonus_descriptions[bonus_key]
+                    # Handle percentage display (multiply by 100 for chances)
+                    if 'chance' in bonus_key or bonus_key in ('percent_damage', 'crit_damage', 'super_crit_damage', 
+                            'arch_xp_bonus', 'fragment_gain', 'enrage_damage', 'enrage_crit_damage',
+                            'armor_pen_percent', 'max_stamina_percent', 'xp_bonus_skill', 'percent_damage_skill',
+                            'polychrome_bonus', 'ability_instacharge', 'mod_chance_skill'):
+                        display_value = bonus_value * 100
+                    else:
+                        display_value = bonus_value
+                    value_str = fmt.format(display_value) + suffix
+                    tk.Label(content_frame, text=f"  • {name}: {value_str}", 
+                            font=("Arial", 9), background="#FFFFFF").pack(anchor=tk.W)
+                else:
+                    # Fallback for unknown bonuses
+                    tk.Label(content_frame, text=f"  • {bonus_key}: {bonus_value}", 
+                            font=("Arial", 9), background="#FFFFFF").pack(anchor=tk.W)
+            
+            # Current level and total bonus
+            tk.Label(content_frame, text=f"\nLevel: {current_level} / {max_level}", 
+                    font=("Arial", 9, "bold"), background="#FFFFFF").pack(anchor=tk.W)
+            
+            # Current total bonuses
+            if current_level > 0:
+                tk.Label(content_frame, text="Current Total:", 
+                        font=("Arial", 9, "bold"), foreground="#2E7D32",
+                        background="#FFFFFF").pack(anchor=tk.W, pady=(3, 2))
+                
+                for bonus_key, bonus_value in upgrade_info.items():
+                    if bonus_key in ('max_level', 'stage_unlock', 'cost_type', 'display_name'):
+                        continue
+                    
+                    total_value = bonus_value * current_level
+                    if bonus_key in bonus_descriptions:
+                        name, fmt, suffix = bonus_descriptions[bonus_key]
+                        if 'chance' in bonus_key or bonus_key in ('percent_damage', 'crit_damage', 'super_crit_damage', 
+                                'arch_xp_bonus', 'fragment_gain', 'enrage_damage', 'enrage_crit_damage',
+                                'armor_pen_percent', 'max_stamina_percent', 'xp_bonus_skill', 'percent_damage_skill',
+                                'polychrome_bonus', 'ability_instacharge', 'mod_chance_skill'):
+                            display_value = total_value * 100
+                        else:
+                            display_value = total_value
+                        value_str = fmt.format(display_value) + suffix
+                        tk.Label(content_frame, text=f"  • {name}: {value_str}", 
+                                font=("Arial", 9), foreground="#2E7D32",
+                                background="#FFFFFF").pack(anchor=tk.W)
+            
+            widget.tooltip = tooltip
+        
+        def on_leave(event):
+            if hasattr(widget, 'tooltip'):
+                widget.tooltip.destroy()
+                del widget.tooltip
+        
+        widget.bind("<Enter>", on_enter)
+        widget.bind("<Leave>", on_leave)
     
     def _create_arch_xp_tooltip(self, widget):
         """Creates a tooltip for the Archaeology Exp Gain upgrade"""
@@ -3813,10 +4045,26 @@ class ArchaeologySimulatorWindow:
                 
                 if current_level >= max_level:
                     self.upgrade_efficiency_labels[upgrade_key].config(text="MAX", foreground="#C73E1D")
+                    # Also update cost label
+                    if hasattr(self, 'upgrade_cost_labels') and upgrade_key in self.upgrade_cost_labels:
+                        self.upgrade_cost_labels[upgrade_key].config(text="", foreground="#666666")
                 else:
                     _, improvement = self.calculate_fragment_upgrade_efficiency(upgrade_key)
                     self.upgrade_efficiency_labels[upgrade_key].config(
                         text=f"+{improvement:.2f}%", foreground="#2E7D32")
+                    
+                    # Calculate efficiency per fragment cost
+                    if hasattr(self, 'upgrade_cost_labels') and upgrade_key in self.upgrade_cost_labels:
+                        next_cost = get_upgrade_cost(upgrade_key, current_level)
+                        if next_cost and next_cost > 0 and improvement > 0:
+                            eff_per_frag = improvement / next_cost
+                            self.upgrade_cost_labels[upgrade_key].config(
+                                text=f"({eff_per_frag:.3f}%/f)", foreground="#666666")
+                        elif next_cost:
+                            self.upgrade_cost_labels[upgrade_key].config(
+                                text=f"({next_cost:.1f}f)", foreground="#999999")
+                        else:
+                            self.upgrade_cost_labels[upgrade_key].config(text="", foreground="#666666")
         
         # Note: Greedy recommendation removed - use Planner/Forecaster on the right instead
         

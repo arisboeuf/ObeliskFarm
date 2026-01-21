@@ -11,9 +11,28 @@ Block types:
 - Epic: Epic block (unlocks at stage 6)
 - Legendary: Legendary block (unlocks at stage 12)
 - Mythic: Mythic block (unlocks at stage 20)
+
+Boss Floors:
+Special floors where only one block type spawns (100% chance).
+These override the normal spawn rates.
 """
 
 from typing import Dict, Tuple, Optional
+
+# Boss floors with 100% spawn rate for a single block type
+# Format: floor -> block_type
+BOSS_FLOORS: Dict[int, str] = {
+    11: 'dirt',
+    17: 'common',
+    23: 'dirt',
+    25: 'rare',
+    29: 'epic',
+    31: 'legendary',
+    35: 'rare',
+    41: 'epic',
+    44: 'legendary',
+    99: 'mythic',
+}
 
 # Block spawn rates by stage range
 # Format: (min_stage, max_stage): {'dirt': %, 'common': %, 'rare': %, 'epic': %, 'legendary': %, 'mythic': %}
@@ -129,24 +148,49 @@ STAGE_RANGES = [
 ]
 
 
-def get_spawn_rates_for_stage(stage: int) -> Dict[str, float]:
+def is_boss_floor(floor: int) -> bool:
+    """Check if a floor is a boss floor."""
+    return floor in BOSS_FLOORS
+
+
+def get_boss_floor_block(floor: int) -> Optional[str]:
+    """Get the block type for a boss floor, or None if not a boss floor."""
+    return BOSS_FLOORS.get(floor)
+
+
+def get_spawn_rates_for_stage(stage: int, ignore_boss: bool = False) -> Dict[str, float]:
     """
     Get block spawn rates for a specific stage.
     
     Args:
         stage: The current floor/stage number (1-based)
+        ignore_boss: If True, return normal rates even for boss floors
     
     Returns:
         Dictionary mapping block types to their spawn percentages.
         Values are raw percentages (e.g., 28.57 means 28.57%).
+        For boss floors, returns 100% for the boss block type.
     
     Example:
         >>> rates = get_spawn_rates_for_stage(1)
         >>> rates['dirt']
         28.57
-        >>> rates['rare']
-        0.0
+        >>> rates = get_spawn_rates_for_stage(11)  # Boss floor
+        >>> rates['dirt']
+        100.0
     """
+    # Check for boss floor
+    if not ignore_boss and stage in BOSS_FLOORS:
+        boss_block = BOSS_FLOORS[stage]
+        return {
+            'dirt': 100.0 if boss_block == 'dirt' else 0.0,
+            'common': 100.0 if boss_block == 'common' else 0.0,
+            'rare': 100.0 if boss_block == 'rare' else 0.0,
+            'epic': 100.0 if boss_block == 'epic' else 0.0,
+            'legendary': 100.0 if boss_block == 'legendary' else 0.0,
+            'mythic': 100.0 if boss_block == 'mythic' else 0.0,
+        }
+    
     for (min_stage, max_stage), rates in SPAWN_RATES_BY_STAGE.items():
         if min_stage <= stage <= max_stage:
             return rates.copy()
@@ -155,23 +199,28 @@ def get_spawn_rates_for_stage(stage: int) -> Dict[str, float]:
     return SPAWN_RATES_BY_STAGE[(76, float('inf'))].copy()
 
 
-def get_normalized_spawn_rates(stage: int) -> Dict[str, float]:
+def get_normalized_spawn_rates(stage: int, ignore_boss: bool = False) -> Dict[str, float]:
     """
     Get normalized spawn rates that sum to 1.0 (for use as probabilities).
     
     Args:
         stage: The current floor/stage number (1-based)
+        ignore_boss: If True, return normal rates even for boss floors
     
     Returns:
         Dictionary mapping block types to their normalized spawn probabilities.
         Only includes block types with non-zero spawn rates.
+        For boss floors, returns 1.0 for the boss block type only.
     
     Example:
         >>> rates = get_normalized_spawn_rates(1)
         >>> sum(rates.values())
         1.0
+        >>> rates = get_normalized_spawn_rates(11)  # Boss floor
+        >>> rates
+        {'dirt': 1.0}
     """
-    raw_rates = get_spawn_rates_for_stage(stage)
+    raw_rates = get_spawn_rates_for_stage(stage, ignore_boss)
     
     # Filter out zero values and calculate total
     active_rates = {k: v for k, v in raw_rates.items() if v > 0}
@@ -260,6 +309,11 @@ def get_stage_range_label(stage: int) -> str:
     return "75+"
 
 
+def get_all_boss_floors() -> Dict[int, str]:
+    """Get all boss floors and their block types."""
+    return BOSS_FLOORS.copy()
+
+
 def print_spawn_table():
     """Print a formatted spawn rate table (for debugging/documentation)."""
     print("Block Spawn Chance by Stage")
@@ -281,6 +335,11 @@ def print_spawn_table():
             value = rates[block_type]
             row += f" {value:>7.2f}%"
         print(row)
+    
+    print("\nBoss Floors (100% single block type):")
+    print("-" * 40)
+    for floor, block_type in sorted(BOSS_FLOORS.items()):
+        print(f"  Floor {floor:>3}: {block_type.capitalize()}")
 
 
 if __name__ == "__main__":

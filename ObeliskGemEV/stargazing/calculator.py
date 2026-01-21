@@ -247,14 +247,26 @@ class StargazingCalculator:
         
         Super stars spawn when a regular star spawns, with an additional 1/100 base chance.
         The Star Spawn Rate Multiplier increases super star spawns too.
-        """
-        # Super stars spawn when stars spawn, with 1/100 base chance
-        star_spawns = self.calculate_star_spawn_rate_per_hour()
         
+        IMPORTANT: Double/Triple Star spawns mean each individual star in the spawn
+        has a chance to be a Super Star. So if 2 stars spawn (double), there are 
+        2 independent chances for a Super Star.
+        """
+        # Number of star spawn events per hour
+        star_spawn_events = self.calculate_star_spawn_rate_per_hour()
+        
+        # Number of individual stars per spawn event (1-3 from double/triple)
+        stars_per_spawn = self.calculate_stars_per_spawn()
+        
+        # Total individual stars spawning per hour
+        total_stars_spawning = star_spawn_events * stars_per_spawn
+        
+        # Each individual star has a chance to be a Super Star
         base_super_chance = BASE_SUPER_STAR_SPAWN_CHANCE  # 1/100 = 0.01
         modified_super_chance = base_super_chance * self.stats.super_star_spawn_rate_mult
         
-        super_spawns_per_hour = star_spawns * modified_super_chance
+        # Super star spawns = total individual stars * chance per star
+        super_spawns_per_hour = total_stars_spawning * modified_super_chance
         return super_spawns_per_hour
     
     def calculate_super_stars_per_hour(self) -> float:
