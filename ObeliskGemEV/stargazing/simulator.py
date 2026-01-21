@@ -20,6 +20,10 @@ from .calculator import (
     StargazingCalculator, PlayerStargazingStats, create_calculator_from_upgrades
 )
 
+import sys
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from ui_utils import calculate_tooltip_position
+
 # Save file path
 SAVE_DIR = Path(__file__).parent.parent / "save"
 SAVE_FILE = SAVE_DIR / "stargazing_save.json"
@@ -76,6 +80,8 @@ class StargazingWindow:
     def load_sprites(self):
         """Load all sprite icons"""
         self.sprites = {}
+        
+        # Upgrade sprites
         sprite_files = {
             'telescope': 'Telescope.png',
             'auto_catch': 'Auto-Catch_Chance.png',
@@ -91,13 +97,66 @@ class StargazingWindow:
             'super_radiant': 'Super_Star_Radiant_Chance.png',
         }
         
+        # Star icons
+        star_sprites = {
+            'aries': 'Aries.png',
+            'taurus': 'Taurus.png',
+            'gemini': 'Gemini.png',
+            'cancer': 'Cancer.png',
+            'leo': 'Leo.png',
+            'virgo': 'Virgo.png',
+            'libra': 'Libra.png',
+            'scorpio': 'Scorpio.png',
+            'sagittarius': 'Sagittarius.png',
+            'capricorn': 'Capricorn.png',
+            'aquarius': 'Aquarius.png',
+            'pisces': 'Pisces.png',
+            'ophiuchus': 'Ophiuchus.png',
+            'orion': 'Orion.png',
+            'hercules': 'Hercules.png',
+            'draco': 'Draco.png',
+            'cetus': 'Cetus.png',
+            'phoenix': 'Phoenix.png',
+            'eridanus': 'Eridanus.png',
+        }
+        
+        # Generic star/super star icons
+        generic_sprites = {
+            'star_generic': 'star.png',
+            'super_star_generic': 'super_star.png',
+        }
+        
         sprites_dir = Path(__file__).parent.parent / "sprites" / "stargazing"
+        
+        # Load upgrade sprites (18x18)
         for key, filename in sprite_files.items():
             try:
                 path = sprites_dir / filename
                 if path.exists():
                     img = Image.open(path)
                     img = img.resize((18, 18), Image.Resampling.LANCZOS)
+                    self.sprites[key] = ImageTk.PhotoImage(img)
+            except:
+                pass
+        
+        # Load star sprites (16x16)
+        for key, filename in star_sprites.items():
+            try:
+                path = sprites_dir / filename
+                if path.exists():
+                    img = Image.open(path)
+                    img = img.resize((16, 16), Image.Resampling.LANCZOS)
+                    self.sprites[f'star_{key}'] = ImageTk.PhotoImage(img)
+            except:
+                pass
+        
+        # Load generic star/super star icons (16x16)
+        for key, filename in generic_sprites.items():
+            try:
+                path = sprites_dir / filename
+                if path.exists():
+                    img = Image.open(path)
+                    img = img.resize((16, 16), Image.Resampling.LANCZOS)
                     self.sprites[key] = ImageTk.PhotoImage(img)
             except:
                 pass
@@ -501,7 +560,35 @@ class StargazingWindow:
         canvas.bind_all("<MouseWheel>", on_mousewheel)
         
         self.upgrade_level_labels = {}
-        self.upgrade_benefit_labels = {}
+        self.upgrade_benefit_labels = {}  # Now stores tuples: (star_label, super_label)
+        
+        # Header row for benefit columns
+        header_row = tk.Frame(scrollable, background=COLOR_UPGRADES)
+        header_row.pack(fill=tk.X, pady=(0, 3))
+        tk.Label(header_row, text="Upgrade", background=COLOR_UPGRADES, 
+                 font=("Arial", 8, "bold"), width=28, anchor=tk.W).pack(side=tk.LEFT)
+        tk.Label(header_row, text="Lvl", background=COLOR_UPGRADES, 
+                 font=("Arial", 8, "bold"), width=6).pack(side=tk.LEFT)
+        
+        # Super Star header with icon
+        super_header = tk.Frame(header_row, background=COLOR_UPGRADES)
+        super_header.pack(side=tk.RIGHT)
+        if 'super_star_generic' in self.sprites:
+            tk.Label(super_header, image=self.sprites['super_star_generic'], 
+                     background=COLOR_UPGRADES).pack(side=tk.LEFT)
+        tk.Label(super_header, text="+%", background=COLOR_UPGRADES, 
+                 font=("Arial", 8, "bold"), fg="#E65100", width=5).pack(side=tk.LEFT)
+        
+        # Star header with icon
+        star_header = tk.Frame(header_row, background=COLOR_UPGRADES)
+        star_header.pack(side=tk.RIGHT, padx=(0, 5))
+        if 'star_generic' in self.sprites:
+            tk.Label(star_header, image=self.sprites['star_generic'], 
+                     background=COLOR_UPGRADES).pack(side=tk.LEFT)
+        tk.Label(star_header, text="+%", background=COLOR_UPGRADES, 
+                 font=("Arial", 8, "bold"), fg="#1565C0", width=5).pack(side=tk.LEFT)
+        
+        ttk.Separator(scrollable, orient='horizontal').pack(fill=tk.X, pady=2)
         
         # Upgrades with their display names
         important_upgrades = [
@@ -531,33 +618,39 @@ class StargazingWindow:
             
             # Label with effect
             tk.Label(row, text=f"{label} ({effect})", background=COLOR_UPGRADES, 
-                     font=("Arial", 9), width=22, anchor=tk.W).pack(side=tk.LEFT)
+                     font=("Arial", 8), width=22, anchor=tk.W).pack(side=tk.LEFT)
             
             # - Button
-            minus_btn = tk.Button(row, text="-", width=2, font=("Arial", 8, "bold"), 
+            minus_btn = tk.Button(row, text="-", width=2, font=("Arial", 7, "bold"), 
                                   command=lambda k=key: self.change_upgrade(k, -1))
             minus_btn.pack(side=tk.LEFT, padx=1)
             
             # Level label
             level_label = tk.Label(row, text=str(self.stargazing_upgrades.get(key, 0)), 
-                                   background=COLOR_UPGRADES, font=("Arial", 10, "bold"), width=3)
+                                   background=COLOR_UPGRADES, font=("Arial", 9, "bold"), width=3)
             level_label.pack(side=tk.LEFT)
             self.upgrade_level_labels[key] = level_label
             
             # + Button
-            plus_btn = tk.Button(row, text="+", width=2, font=("Arial", 8, "bold"),
+            plus_btn = tk.Button(row, text="+", width=2, font=("Arial", 7, "bold"),
                                 command=lambda k=key: self.change_upgrade(k, 1))
             plus_btn.pack(side=tk.LEFT, padx=1)
             
             # Max level
             tk.Label(row, text=f"/{upgrade['max_level']}", background=COLOR_UPGRADES, 
-                     font=("Arial", 9), fg="gray").pack(side=tk.LEFT)
+                     font=("Arial", 8), fg="gray").pack(side=tk.LEFT)
             
-            # Benefit label (will show +X% Stars/h)
-            benefit_label = tk.Label(row, text="", background=COLOR_UPGRADES, 
-                                     font=("Arial", 9, "bold"), fg="#2E7D32")
-            benefit_label.pack(side=tk.RIGHT, padx=(5, 0))
-            self.upgrade_benefit_labels[key] = benefit_label
+            # Super Star benefit label (right-most)
+            super_benefit_label = tk.Label(row, text="", background=COLOR_UPGRADES, 
+                                           font=("Arial", 8, "bold"), fg="#E65100", width=8)
+            super_benefit_label.pack(side=tk.RIGHT)
+            
+            # Star benefit label
+            star_benefit_label = tk.Label(row, text="", background=COLOR_UPGRADES, 
+                                          font=("Arial", 8, "bold"), fg="#1565C0", width=8)
+            star_benefit_label.pack(side=tk.RIGHT)
+            
+            self.upgrade_benefit_labels[key] = (star_benefit_label, super_benefit_label)
     
     def create_star_controls(self, parent):
         """Create star toggle and level controls"""
@@ -595,9 +688,14 @@ class StargazingWindow:
             cb = ttk.Checkbutton(row, variable=owned_var, command=lambda k=key: self.on_star_owned_changed(k))
             cb.pack(side=tk.LEFT)
             
+            # Star icon
+            sprite_key = f'star_{key}'
+            if sprite_key in self.sprites:
+                tk.Label(row, image=self.sprites[sprite_key], background=COLOR_STARS).pack(side=tk.LEFT, padx=(0, 3))
+            
             # Name
             tk.Label(row, text=star.name, background=COLOR_STARS, 
-                     font=("Arial", 10), width=12, anchor=tk.W).pack(side=tk.LEFT)
+                     font=("Arial", 10), width=10, anchor=tk.W).pack(side=tk.LEFT)
             
             # - Button
             minus_btn = tk.Button(row, text="-", width=2, font=("Arial", 8, "bold"),
@@ -877,22 +975,26 @@ class StargazingWindow:
             'super_star_radiant_chance': ('super_star_radiant_chance', 0.0015, 'super'),
         }
         
-        for key, benefit_label in self.upgrade_benefit_labels.items():
+        import copy
+        
+        for key, benefit_labels in self.upgrade_benefit_labels.items():
+            star_label, super_label = benefit_labels
             current_level = self.stargazing_upgrades.get(key, 0)
             max_level = STARGAZING_UPGRADES.get(key, {}).get('max_level', 0)
             
             if current_level >= max_level:
-                benefit_label.config(text="MAX", fg="#888")
+                star_label.config(text="MAX", fg="#888")
+                super_label.config(text="MAX", fg="#888")
                 continue
             
             if key not in upgrade_effects:
-                benefit_label.config(text="")
+                star_label.config(text="—")
+                super_label.config(text="—")
                 continue
             
-            stat_key, effect_per_level, affects = upgrade_effects[key]
+            stat_key, effect_per_level, _ = upgrade_effects[key]
             
             # Simulate +1 upgrade
-            import copy
             new_stats = copy.copy(calc.stats)
             
             # Apply the upgrade effect
@@ -921,19 +1023,18 @@ class StargazingWindow:
             new_stars = new_calc.calculate_stars_per_hour()
             new_super = new_calc.calculate_super_stars_per_hour()
             
-            # Calculate percentage gain
-            if affects == 'stars' and current_stars > 0:
-                gain_pct = ((new_stars - current_stars) / current_stars) * 100
-                benefit_label.config(text=f"+{gain_pct:.2f}% Stars", fg="#2E7D32")
-            elif affects == 'super' and current_super > 0:
-                gain_pct = ((new_super - current_super) / current_super) * 100
-                benefit_label.config(text=f"+{gain_pct:.2f}% Super", fg="#E65100")
-            elif affects == 'both':
-                star_gain = ((new_stars - current_stars) / current_stars) * 100 if current_stars > 0 else 0
-                super_gain = ((new_super - current_super) / current_super) * 100 if current_super > 0 else 0
-                benefit_label.config(text=f"+{star_gain:.2f}%/+{super_gain:.2f}%", fg="#6A1B9A")
+            # Calculate percentage gains for both Stars and Super Stars
+            if current_stars > 0:
+                star_gain = ((new_stars - current_stars) / current_stars) * 100
+                star_label.config(text=f"+{star_gain:.2f}%", fg="#1565C0")
             else:
-                benefit_label.config(text="", fg="#888")
+                star_label.config(text="—", fg="#888")
+            
+            if current_super > 0:
+                super_gain = ((new_super - current_super) / current_super) * 100
+                super_label.config(text=f"+{super_gain:.2f}%", fg="#E65100")
+            else:
+                super_label.config(text="—", fg="#888")
     
     def _create_tooltip(self, widget, title, lines, title_color="#1565C0"):
         """Generic tooltip creator"""
@@ -942,11 +1043,10 @@ class StargazingWindow:
             tooltip.wm_overrideredirect(True)
             
             tooltip_width = 320
-            x = event.x_root - tooltip_width - 10
-            if x < 10:
-                x = event.x_root + 20
-            y = event.y_root - 20
-            
+            tooltip_height = 50 + len(lines) * 18
+            screen_width = tooltip.winfo_screenwidth()
+            screen_height = tooltip.winfo_screenheight()
+            x, y = calculate_tooltip_position(event, tooltip_width, tooltip_height, screen_width, screen_height)
             tooltip.wm_geometry(f"+{x}+{y}")
             
             outer_frame = tk.Frame(tooltip, background=title_color, relief=tk.FLAT)

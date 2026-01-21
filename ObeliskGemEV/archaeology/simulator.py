@@ -72,26 +72,269 @@ class ArchaeologySimulatorWindow:
     MOD_SPEED_ATTACKS_AVG = 60.0  # Average of 10-110 attacks (QoL only, no EV impact)
     MOD_STAMINA_BONUS_AVG = 6.5  # Average of 3-10
     
-    # Gem Upgrade bonuses per level
+    # Gem Upgrade bonuses per level (purchased with Gems, N/A = always unlocked)
     GEM_UPGRADE_BONUSES = {
         'stamina': {
             'max_stamina': 2,
             'stamina_mod_chance': 0.0005,  # +0.05%
             'max_level': 50,
+            'stage_unlock': 0,  # N/A - always unlocked
         },
         'xp': {
             'xp_bonus': 0.05,  # +5%
             'exp_mod_chance': 0.0005,  # +0.05%
             'max_level': 25,
+            'stage_unlock': 0,  # N/A - always unlocked
         },
         'fragment': {
             'fragment_gain': 0.02,  # +2%
             'loot_mod_chance': 0.0005,  # +0.05%
             'max_level': 25,
+            'stage_unlock': 0,  # N/A - always unlocked
         },
         'arch_xp': {
             'arch_xp_bonus': 0.02,  # +2% Archaeology Exp
             'max_level': 25,
+            'stage_unlock': 3,  # Unlocks at stage 3
+        },
+    }
+    
+    # Fragment upgrades with Stage to Unlock
+    # Format: upgrade_key -> {bonuses, max_level, stage_unlock, cost_type, display_name}
+    # cost_type: 'common', 'rare', 'epic', 'legendary', 'mythic'
+    FRAGMENT_UPGRADES = {
+        # Common Fragment Upgrades (gray)
+        'flat_damage_c1': {
+            'flat_damage': 1,
+            'max_level': 25,
+            'stage_unlock': 0,  # N/A
+            'cost_type': 'common',
+            'display_name': 'Flat Dmg +1',
+        },
+        'armor_pen_c1': {
+            'armor_pen': 1,
+            'max_level': 25,
+            'stage_unlock': 2,
+            'cost_type': 'common',
+            'display_name': 'Armor Pen +1',
+        },
+        'arch_xp_c1': {
+            'arch_xp_bonus': 0.02,  # +2%
+            'max_level': 25,
+            'stage_unlock': 3,
+            'cost_type': 'common',
+            'display_name': 'Exp Gain +2%',
+        },
+        'crit_c1': {
+            'crit_chance': 0.0025,  # +0.25%
+            'crit_damage': 0.01,  # +1%
+            'max_level': 25,
+            'stage_unlock': 4,
+            'cost_type': 'common',
+            'display_name': 'Crit +0.25%/+1%',
+        },
+        'str_skill_buff': {
+            'flat_damage_skill': 0.2,  # +0.2 flat dmg from skill
+            'percent_damage_skill': 0.001,  # +0.1% dmg from skill
+            'max_level': 5,
+            'stage_unlock': 13,
+            'cost_type': 'common',
+            'display_name': 'STR Buff',
+        },
+        'polychrome_bonus': {
+            'polychrome_bonus': 0.15,  # +15%
+            'max_level': 1,
+            'stage_unlock': 34,
+            'cost_type': 'common',
+            'display_name': 'Polychrome +15%',
+        },
+        
+        # Rare Fragment Upgrades (blue)
+        'stamina_r1': {
+            'max_stamina': 2,
+            'stamina_mod_chance': 0.0005,  # +0.05%
+            'max_level': 20,
+            'stage_unlock': 5,
+            'cost_type': 'rare',
+            'display_name': 'Stam +2/+0.05%',
+        },
+        'flat_damage_r1': {
+            'flat_damage': 2,
+            'max_level': 20,
+            'stage_unlock': 6,
+            'cost_type': 'rare',
+            'display_name': 'Flat Dmg +2',
+        },
+        'loot_mod_mult': {
+            'loot_mod_multiplier': 0.30,  # +0.30x
+            'max_level': 10,
+            'stage_unlock': 6,
+            'cost_type': 'rare',
+            'display_name': 'Loot Mod +0.3x',
+        },
+        'enrage_buff': {
+            'enrage_damage': 0.02,  # +2%
+            'enrage_crit_damage': 0.02,  # +2%
+            'enrage_cooldown': -1,  # -1s
+            'max_level': 15,
+            'stage_unlock': 7,
+            'cost_type': 'rare',
+            'display_name': 'Enrage Buff',
+        },
+        'agi_skill_buff': {
+            'max_stamina_skill': 1,
+            'mod_chance_skill': 0.0002,  # +0.02%
+            'max_level': 5,
+            'stage_unlock': 15,
+            'cost_type': 'rare',
+            'display_name': 'AGI Buff',
+        },
+        'per_skill_buff': {
+            'mod_chance_skill': 0.0001,  # +0.01%
+            'armor_pen_skill': 1,
+            'max_level': 5,
+            'stage_unlock': 22,
+            'cost_type': 'rare',
+            'display_name': 'PER Buff',
+        },
+        'fragment_gain_1x': {
+            'fragment_gain_mult': 1.25,  # 1.25x
+            'max_level': 1,
+            'stage_unlock': 36,
+            'cost_type': 'rare',
+            'display_name': 'Frag Gain 1.25x',
+        },
+        
+        # Epic Fragment Upgrades (purple)
+        'flat_damage_e1': {
+            'flat_damage': 2,
+            'super_crit_chance': 0.0035,  # +0.35%
+            'max_level': 25,
+            'stage_unlock': 9,
+            'cost_type': 'epic',
+            'display_name': 'Dmg +2/SCrit +0.35%',
+        },
+        'arch_xp_frag_e1': {
+            'arch_xp_bonus': 0.03,  # +3%
+            'fragment_gain': 0.02,  # +2%
+            'max_level': 20,
+            'stage_unlock': 10,
+            'cost_type': 'epic',
+            'display_name': 'Exp +3%/Frag +2%',
+        },
+        'flurry_buff': {
+            'flurry_stamina': 1,
+            'flurry_cooldown': -1,  # -1s
+            'max_level': 10,
+            'stage_unlock': 11,
+            'cost_type': 'epic',
+            'display_name': 'Flurry Buff',
+        },
+        'stamina_e1': {
+            'max_stamina': 4,
+            'stamina_mod_gain': 1,
+            'max_level': 5,
+            'stage_unlock': 12,
+            'cost_type': 'epic',
+            'display_name': 'Stam +4/+1 Mod',
+        },
+        'int_skill_buff': {
+            'xp_bonus_skill': 0.01,  # +1%
+            'mod_chance_skill': 0.0001,  # +0.01%
+            'max_level': 5,
+            'stage_unlock': 24,
+            'cost_type': 'epic',
+            'display_name': 'INT Buff',
+        },
+        'stamina_mod_gain_1': {
+            'stamina_mod_gain': 2,
+            'max_level': 1,
+            'stage_unlock': 38,
+            'cost_type': 'epic',
+            'display_name': 'Stam Mod +2',
+        },
+        
+        # Legendary Fragment Upgrades (gold)
+        'arch_xp_stam_l1': {
+            'arch_xp_bonus': 0.05,  # +5%
+            'max_stamina_percent': 0.01,  # +1%
+            'max_level': 15,
+            'stage_unlock': 17,
+            'cost_type': 'legendary',
+            'display_name': 'Exp +5%/Stam +1%',
+        },
+        'armor_pen_cd_l1': {
+            'armor_pen_percent': 0.02,  # +2%
+            'ability_cooldown': -1,  # -1s
+            'max_level': 10,
+            'stage_unlock': 18,
+            'cost_type': 'legendary',
+            'display_name': 'APen +2%/CD -1s',
+        },
+        'crit_dmg_l1': {
+            'crit_damage': 0.02,  # +2%
+            'super_crit_damage': 0.02,  # +2%
+            'max_level': 20,
+            'stage_unlock': 20,
+            'cost_type': 'legendary',
+            'display_name': 'Crit Dmg +2%/+2%',
+        },
+        'quake_buff': {
+            'quake_attacks': 1,
+            'quake_cooldown': -2,  # -2s
+            'max_level': 10,
+            'stage_unlock': 20,
+            'cost_type': 'legendary',
+            'display_name': 'Quake Buff',
+        },
+        'all_mod_chance': {
+            'all_mod_chance': 0.015,  # +1.50%
+            'max_level': 1,
+            'stage_unlock': 40,
+            'cost_type': 'legendary',
+            'display_name': 'All Mod +1.5%',
+        },
+        
+        # Mythic Fragment Upgrades (orange/red)
+        'damage_apen_m1': {
+            'percent_damage': 0.02,  # +2%
+            'armor_pen': 3,
+            'max_level': 20,
+            'stage_unlock': 26,
+            'cost_type': 'mythic',
+            'display_name': 'Dmg +2%/APen +3',
+        },
+        'crit_chance_m1': {
+            'super_crit_chance': 0.0035,  # +0.35%
+            'ultra_crit_chance': 0.01,  # +1%
+            'max_level': 20,
+            'stage_unlock': 28,
+            'cost_type': 'mythic',
+            'display_name': 'S/U Crit +0.35%/+1%',
+        },
+        'exp_mod_m1': {
+            'exp_mod_gain': 0.10,  # +0.10x
+            'exp_mod_chance': 0.001,  # +0.10%
+            'max_level': 20,
+            'stage_unlock': 30,
+            'cost_type': 'mythic',
+            'display_name': 'Exp Mod +0.1x/+0.1%',
+        },
+        'ability_stam_m1': {
+            'ability_instacharge': 0.003,  # +0.30%
+            'max_stamina': 4,
+            'max_level': 20,
+            'stage_unlock': 32,
+            'cost_type': 'mythic',
+            'display_name': 'Insta +0.3%/Stam +4',
+        },
+        'exp_stat_cap_m1': {
+            'xp_bonus_mult': 2.0,  # 2.00x
+            'all_stat_cap': 5,
+            'max_level': 1,
+            'stage_unlock': 42,
+            'cost_type': 'mythic',
+            'display_name': 'Exp 2x/Caps +5',
         },
     }
     
@@ -122,22 +365,6 @@ class ArchaeologySimulatorWindow:
             1.00, 1.20, 1.44, 1.73, 2.07, 2.49, 2.99, 3.58, 4.30, 5.16,  # 1-10
             6.19, 7.43, 8.92, 10.70, 12.84, 15.41, 18.49, 22.19, 26.62, 31.95,  # 11-20
             38.34, 46.01, 55.21, 66.25, 79.50,  # 21-25
-        ],
-    }
-    
-    # Common costs for fragment upgrades (Flat Damage, Armor Pen)
-    COMMON_UPGRADE_COSTS = {
-        # Flat Damage +1 per level (0.50 base, 1.2x multiplier)
-        'flat_damage': [
-            0.50, 0.60, 0.72, 0.86, 1.04, 1.24, 1.49, 1.79, 2.15, 2.58,  # 1-10
-            3.10, 3.72, 4.46, 5.35, 6.42, 7.70, 9.24, 11.09, 13.31, 15.97,  # 11-20
-            19.17, 23.00, 27.60, 33.12, 39.75,  # 21-25
-        ],
-        # Armor Penetration +1 per level (0.75 base, 1.2x multiplier)
-        'armor_pen': [
-            0.75, 0.90, 1.08, 1.30, 1.56, 1.87, 2.24, 2.69, 3.22, 3.87,  # 1-10
-            4.64, 5.57, 6.69, 8.02, 9.63, 11.56, 13.87, 16.64, 19.97, 23.96,  # 11-20
-            28.75, 34.50, 41.40, 49.69, 59.62,  # 21-25
         ],
     }
     
@@ -193,10 +420,10 @@ class ArchaeologySimulatorWindow:
         state = {
             'level': self.level,
             'current_stage': self.current_stage,
+            'unlocked_stage': self.get_unlocked_stage(),
             'skill_points': self.skill_points,
-            'upgrade_flat_damage': self.upgrade_flat_damage,
-            'upgrade_armor_pen': self.upgrade_armor_pen,
             'gem_upgrades': self.gem_upgrades,
+            'fragment_upgrade_levels': getattr(self, 'fragment_upgrade_levels', {}),
             'block_cards': self.block_cards,
             'enrage_enabled': self.enrage_enabled.get() if hasattr(self, 'enrage_enabled') else True,
             'forecast_levels_1': self.forecast_levels_1.get() if hasattr(self, 'forecast_levels_1') else 5,
@@ -223,14 +450,15 @@ class ArchaeologySimulatorWindow:
             self.skill_points = state.get('skill_points', {
                 'strength': 0, 'agility': 0, 'intellect': 0, 'perception': 0, 'luck': 0,
             })
-            self.upgrade_flat_damage = state.get('upgrade_flat_damage', 0)
-            self.upgrade_armor_pen = state.get('upgrade_armor_pen', 0)
             self.gem_upgrades = state.get('gem_upgrades', {
                 'stamina': 0, 'xp': 0, 'fragment': 0, 'arch_xp': 0,
             })
             # Ensure new upgrade types are present if loading old save
             if 'arch_xp' not in self.gem_upgrades:
                 self.gem_upgrades['arch_xp'] = 0
+            
+            # Load fragment upgrade levels
+            self.fragment_upgrade_levels = state.get('fragment_upgrade_levels', {})
             
             # Load block cards
             self.block_cards = state.get('block_cards', {
@@ -268,12 +496,20 @@ class ArchaeologySimulatorWindow:
             if hasattr(self, 'xp_budget_points'):
                 self.xp_budget_points.set(state.get('xp_budget_points', 20))
                 self.xp_budget_points_label.config(text=str(self.xp_budget_points.get()))
+            
+            # Update unlocked stage and rebuild upgrade widgets
+            if hasattr(self, 'unlocked_stage_var'):
+                self.unlocked_stage_var.set(str(state.get('unlocked_stage', 1)))
+            # Rebuild upgrade widgets after loading fragment_upgrade_levels
+            if hasattr(self, 'upgrades_container'):
+                self._rebuild_upgrade_widgets()
         except Exception as e:
             print(f"Warning: Could not load state: {e}")
     
     def reset_to_level1(self):
         self.level = 1
         self.current_stage = 1
+        self.unlocked_stage = 1
         self.skill_points = {
             'strength': 0, 'agility': 0, 'intellect': 0, 'perception': 0, 'luck': 0,
         }
@@ -284,8 +520,6 @@ class ArchaeologySimulatorWindow:
         self.base_crit_damage = 1.5
         self.base_xp_mult = 1.0
         self.base_fragment_mult = 1.0
-        self.upgrade_flat_damage = 0
-        self.upgrade_armor_pen = 0
         # Gem upgrades
         self.gem_upgrades = {
             'stamina': 0,
@@ -293,10 +527,8 @@ class ArchaeologySimulatorWindow:
             'fragment': 0,
             'arch_xp': 0,
         }
-        # Block cards
-        self.block_cards = {
-            'dirt': 0, 'common': 0, 'rare': 0, 'epic': 0, 'legendary': 0, 'mythic': 0
-        }
+        # Fragment upgrades (new system)
+        self.fragment_upgrade_levels = {}
         # Block cards: 0 = none, 1 = normal card, 2 = gilded card
         # Card: -10% HP, +10% XP; Gilded: -20% HP, +20% XP
         self.block_cards = {
@@ -316,55 +548,107 @@ class ArchaeologySimulatorWindow:
         gem_fragment = self.gem_upgrades.get('fragment', 0)
         gem_arch_xp = self.gem_upgrades.get('arch_xp', 0)
         
-        flat_damage = self.base_damage + self.upgrade_flat_damage + str_pts * self.SKILL_BONUSES['strength']['flat_damage']
-        percent_damage_bonus = str_pts * self.SKILL_BONUSES['strength']['percent_damage']
+        # Collect all bonuses from fragment upgrades
+        frag_bonuses = self._get_fragment_upgrade_bonuses()
+        
+        # Base flat damage from skills (with possible skill buff from fragment upgrades)
+        flat_damage_per_str = self.SKILL_BONUSES['strength']['flat_damage'] + frag_bonuses.get('flat_damage_skill', 0)
+        percent_damage_per_str = self.SKILL_BONUSES['strength']['percent_damage'] + frag_bonuses.get('percent_damage_skill', 0)
+        
+        flat_damage = (self.base_damage + 
+                      str_pts * flat_damage_per_str +
+                      frag_bonuses.get('flat_damage', 0))
+        percent_damage_bonus = str_pts * percent_damage_per_str + frag_bonuses.get('percent_damage', 0)
         # Damage is always integer (floored) - no decimal damage in game
         total_damage = int(flat_damage * (1 + percent_damage_bonus))
-        armor_pen = self.base_armor_pen + self.upgrade_armor_pen + per_pts * self.SKILL_BONUSES['perception']['armor_pen']
         
-        # Max stamina: base + agility + gem upgrade
+        # Armor pen from skills (with possible skill buff)
+        armor_pen_per_per = self.SKILL_BONUSES['perception']['armor_pen'] + frag_bonuses.get('armor_pen_skill', 0)
+        armor_pen = (self.base_armor_pen + 
+                    per_pts * armor_pen_per_per +
+                    frag_bonuses.get('armor_pen', 0))
+        # Apply percent armor pen bonus
+        armor_pen = int(armor_pen * (1 + frag_bonuses.get('armor_pen_percent', 0)))
+        
+        # Max stamina: base + agility + gem upgrade + fragment upgrades
+        max_stamina_per_agi = self.SKILL_BONUSES['agility']['max_stamina'] + frag_bonuses.get('max_stamina_skill', 0)
         max_stamina = (self.base_stamina + 
-                      agi_pts * self.SKILL_BONUSES['agility']['max_stamina'] +
-                      gem_stamina * self.GEM_UPGRADE_BONUSES['stamina']['max_stamina'])
+                      agi_pts * max_stamina_per_agi +
+                      gem_stamina * self.GEM_UPGRADE_BONUSES['stamina']['max_stamina'] +
+                      frag_bonuses.get('max_stamina', 0))
+        # Apply percent stamina bonus
+        max_stamina = int(max_stamina * (1 + frag_bonuses.get('max_stamina_percent', 0)))
         
         crit_chance = (self.base_crit_chance + 
                       agi_pts * self.SKILL_BONUSES['agility']['crit_chance'] +
-                      luck_pts * self.SKILL_BONUSES['luck']['crit_chance'])
-        crit_damage = self.base_crit_damage + str_pts * self.SKILL_BONUSES['strength']['crit_damage']
+                      luck_pts * self.SKILL_BONUSES['luck']['crit_chance'] +
+                      frag_bonuses.get('crit_chance', 0))
+        crit_damage = (self.base_crit_damage + 
+                      str_pts * self.SKILL_BONUSES['strength']['crit_damage'] +
+                      frag_bonuses.get('crit_damage', 0))
         one_hit_chance = luck_pts * self.SKILL_BONUSES['luck']['one_hit_chance']
         
-        # XP mult: base + intellect + gem upgrade
-        xp_mult = (self.base_xp_mult + 
-                  int_pts * self.SKILL_BONUSES['intellect']['xp_bonus'] +
-                  gem_xp * self.GEM_UPGRADE_BONUSES['xp']['xp_bonus'])
+        # Super crit and ultra crit from fragment upgrades
+        super_crit_chance = frag_bonuses.get('super_crit_chance', 0)
+        super_crit_damage = frag_bonuses.get('super_crit_damage', 0)
+        ultra_crit_chance = frag_bonuses.get('ultra_crit_chance', 0)
         
-        # Fragment mult: base + perception + gem upgrade
+        # XP mult: base + intellect + gem upgrade + fragment upgrades
+        xp_bonus_per_int = self.SKILL_BONUSES['intellect']['xp_bonus'] + frag_bonuses.get('xp_bonus_skill', 0)
+        xp_mult = (self.base_xp_mult + 
+                  int_pts * xp_bonus_per_int +
+                  gem_xp * self.GEM_UPGRADE_BONUSES['xp']['xp_bonus'])
+        # Apply XP multiplier from fragment upgrades
+        if frag_bonuses.get('xp_bonus_mult', 0) > 0:
+            xp_mult *= frag_bonuses.get('xp_bonus_mult', 1.0)
+        
+        # Fragment mult: base + perception + gem upgrade + fragment upgrades
         fragment_mult = (self.base_fragment_mult + 
                         per_pts * self.SKILL_BONUSES['perception']['fragment_gain'] +
-                        gem_fragment * self.GEM_UPGRADE_BONUSES['fragment']['fragment_gain'])
+                        gem_fragment * self.GEM_UPGRADE_BONUSES['fragment']['fragment_gain'] +
+                        frag_bonuses.get('fragment_gain', 0))
+        # Apply fragment gain multiplier
+        if frag_bonuses.get('fragment_gain_mult', 0) > 0:
+            fragment_mult *= frag_bonuses.get('fragment_gain_mult', 1.0)
         
         # Mod chances (per block)
         # Luck adds to ALL mod chances
-        all_mod_bonus = luck_pts * self.SKILL_BONUSES['luck']['all_mod_chance']
+        all_mod_bonus = (luck_pts * self.SKILL_BONUSES['luck']['all_mod_chance'] + 
+                        frag_bonuses.get('all_mod_chance', 0))
+        # Skill buff adds to all mod chances
+        mod_chance_skill_bonus = frag_bonuses.get('mod_chance_skill', 0)
         
-        # Exp mod: intellect + luck + gem upgrade
+        # Exp mod: intellect + luck + gem upgrade + fragment upgrades
         exp_mod_chance = (int_pts * self.SKILL_BONUSES['intellect']['exp_mod_chance'] + 
-                         all_mod_bonus +
-                         gem_xp * self.GEM_UPGRADE_BONUSES['xp']['exp_mod_chance'])
+                         all_mod_bonus + mod_chance_skill_bonus +
+                         gem_xp * self.GEM_UPGRADE_BONUSES['xp']['exp_mod_chance'] +
+                         frag_bonuses.get('exp_mod_chance', 0))
         
         # Loot mod: perception + luck + gem upgrade
         loot_mod_chance = (per_pts * self.SKILL_BONUSES['perception']['loot_mod_chance'] + 
-                          all_mod_bonus +
+                          all_mod_bonus + mod_chance_skill_bonus +
                           gem_fragment * self.GEM_UPGRADE_BONUSES['fragment']['loot_mod_chance'])
         
-        speed_mod_chance = agi_pts * self.SKILL_BONUSES['agility']['speed_mod_chance'] + all_mod_bonus
+        speed_mod_chance = agi_pts * self.SKILL_BONUSES['agility']['speed_mod_chance'] + all_mod_bonus + mod_chance_skill_bonus
         
-        # Stamina mod: luck + gem upgrade
-        stamina_mod_chance = (all_mod_bonus + 
-                             gem_stamina * self.GEM_UPGRADE_BONUSES['stamina']['stamina_mod_chance'])
+        # Stamina mod: luck + gem upgrade + fragment upgrades
+        stamina_mod_chance = (all_mod_bonus + mod_chance_skill_bonus +
+                             gem_stamina * self.GEM_UPGRADE_BONUSES['stamina']['stamina_mod_chance'] +
+                             frag_bonuses.get('stamina_mod_chance', 0))
         
-        # Archaeology XP bonus from common upgrade
-        arch_xp_mult = 1.0 + gem_arch_xp * self.GEM_UPGRADE_BONUSES['arch_xp']['arch_xp_bonus']
+        # Archaeology XP bonus from gem upgrade + fragment upgrades
+        arch_xp_mult = (1.0 + 
+                       gem_arch_xp * self.GEM_UPGRADE_BONUSES['arch_xp']['arch_xp_bonus'] +
+                       frag_bonuses.get('arch_xp_bonus', 0))
+        
+        # Loot mod multiplier bonus (affects average loot from loot mod)
+        loot_mod_multiplier = self.MOD_LOOT_MULTIPLIER_AVG + frag_bonuses.get('loot_mod_multiplier', 0)
+        
+        # Exp mod gain bonus (affects average XP from exp mod)
+        exp_mod_gain = self.MOD_EXP_MULTIPLIER_AVG + frag_bonuses.get('exp_mod_gain', 0)
+        
+        # Stamina mod gain bonus
+        stamina_mod_gain = self.MOD_STAMINA_BONUS_AVG + frag_bonuses.get('stamina_mod_gain', 0)
         
         return {
             'flat_damage': flat_damage,
@@ -373,6 +657,9 @@ class ArchaeologySimulatorWindow:
             'max_stamina': max_stamina,
             'crit_chance': min(1.0, crit_chance),
             'crit_damage': crit_damage,
+            'super_crit_chance': min(1.0, super_crit_chance),
+            'super_crit_damage': super_crit_damage,
+            'ultra_crit_chance': min(1.0, ultra_crit_chance),
             'one_hit_chance': min(1.0, one_hit_chance),
             'xp_mult': xp_mult,
             'fragment_mult': fragment_mult,
@@ -381,9 +668,35 @@ class ArchaeologySimulatorWindow:
             'loot_mod_chance': min(1.0, loot_mod_chance),
             'speed_mod_chance': min(1.0, speed_mod_chance),
             'stamina_mod_chance': min(1.0, stamina_mod_chance),
+            # Mod effect bonuses
+            'loot_mod_multiplier': loot_mod_multiplier,
+            'exp_mod_gain': exp_mod_gain,
+            'stamina_mod_gain': stamina_mod_gain,
             # Archaeology XP multiplier (applies to leveling)
             'arch_xp_mult': arch_xp_mult,
         }
+    
+    def _get_fragment_upgrade_bonuses(self):
+        """Collect all bonuses from fragment upgrades into a single dict"""
+        bonuses = {}
+        
+        for upgrade_key, level in self.fragment_upgrade_levels.items():
+            if level <= 0:
+                continue
+            
+            upgrade_info = self.FRAGMENT_UPGRADES.get(upgrade_key, {})
+            
+            # Add each bonus type multiplied by level
+            for bonus_key, bonus_value in upgrade_info.items():
+                # Skip non-bonus keys
+                if bonus_key in ('max_level', 'stage_unlock', 'cost_type', 'display_name'):
+                    continue
+                
+                if bonus_key not in bonuses:
+                    bonuses[bonus_key] = 0
+                bonuses[bonus_key] += bonus_value * level
+        
+        return bonuses
     
     def calculate_effective_damage(self, stats, block_armor):
         effective_armor = max(0, block_armor - stats['armor_pen'])
@@ -675,30 +988,6 @@ class ArchaeologySimulatorWindow:
         
         return new_floors, percent_improvement
     
-    def calculate_upgrade_efficiency(self, upgrade_name):
-        current_stats = self.get_total_stats()
-        current_floors = self.calculate_floors_per_run(current_stats, self.current_stage)
-        
-        if upgrade_name == 'flat_damage':
-            self.upgrade_flat_damage += 1
-        elif upgrade_name == 'armor_pen':
-            self.upgrade_armor_pen += 1
-        
-        new_stats = self.get_total_stats()
-        new_floors = self.calculate_floors_per_run(new_stats, self.current_stage)
-        
-        if upgrade_name == 'flat_damage':
-            self.upgrade_flat_damage -= 1
-        elif upgrade_name == 'armor_pen':
-            self.upgrade_armor_pen -= 1
-        
-        if current_floors > 0:
-            percent_improvement = ((new_floors - current_floors) / current_floors) * 100
-        else:
-            percent_improvement = 0
-        
-        return new_floors, percent_improvement
-    
     def add_skill_point(self, skill_name):
         self.skill_points[skill_name] += 1
         self.level += 1
@@ -719,18 +1008,13 @@ class ArchaeologySimulatorWindow:
         self.level = max(1, self.level - total_points)
         self.update_display()
     
-    def add_upgrade(self, upgrade_name):
-        if upgrade_name == 'flat_damage':
-            self.upgrade_flat_damage += 1
-        elif upgrade_name == 'armor_pen':
-            self.upgrade_armor_pen += 1
-        self.update_display()
-    
     def reset_all_upgrades(self):
-        """Reset all common fragment upgrades to 0"""
-        self.upgrade_flat_damage = 0
-        self.upgrade_armor_pen = 0
+        """Reset all fragment upgrades to 0"""
         self.gem_upgrades['arch_xp'] = 0
+        self.fragment_upgrade_levels = {}
+        # Rebuild widgets to show reset values
+        if hasattr(self, 'upgrades_container'):
+            self._rebuild_upgrade_widgets()
         self.update_display()
     
     def add_gem_upgrade(self, upgrade_name):
@@ -761,25 +1045,6 @@ class ArchaeologySimulatorWindow:
             return 0
         return sum(self.GEM_COSTS[upgrade_name][:current_level])
     
-    def get_common_upgrade_cost(self, upgrade_name):
-        """Get the Common cost of the next upgrade level for Flat Damage or Armor Pen"""
-        if upgrade_name not in self.COMMON_UPGRADE_COSTS:
-            return None
-        current_level = getattr(self, f'upgrade_{upgrade_name}', 0)
-        max_level = len(self.COMMON_UPGRADE_COSTS[upgrade_name])
-        if current_level >= max_level:
-            return None
-        return self.COMMON_UPGRADE_COSTS[upgrade_name][current_level]
-    
-    def get_total_common_cost(self, upgrade_name):
-        """Get total Common spent on this upgrade"""
-        if upgrade_name not in self.COMMON_UPGRADE_COSTS:
-            return 0
-        current_level = getattr(self, f'upgrade_{upgrade_name}', 0)
-        if current_level == 0:
-            return 0
-        return sum(self.COMMON_UPGRADE_COSTS[upgrade_name][:current_level])
-    
     def calculate_gem_upgrade_efficiency(self, upgrade_name):
         """Calculate the efficiency of adding one gem upgrade level"""
         max_level = self.GEM_UPGRADE_BONUSES[upgrade_name]['max_level']
@@ -793,6 +1058,32 @@ class ArchaeologySimulatorWindow:
         new_stats = self.get_total_stats()
         new_floors = self.calculate_floors_per_run(new_stats, self.current_stage)
         self.gem_upgrades[upgrade_name] -= 1
+        
+        if current_floors > 0:
+            percent_improvement = ((new_floors - current_floors) / current_floors) * 100
+        else:
+            percent_improvement = 0
+        
+        return new_floors, percent_improvement
+    
+    def calculate_fragment_upgrade_efficiency(self, upgrade_key):
+        """Calculate the efficiency of adding one fragment upgrade level"""
+        upgrade_info = self.FRAGMENT_UPGRADES.get(upgrade_key, {})
+        max_level = upgrade_info.get('max_level', 25)
+        current_level = self.fragment_upgrade_levels.get(upgrade_key, 0)
+        
+        if current_level >= max_level:
+            return 0, 0
+        
+        current_stats = self.get_total_stats()
+        current_floors = self.calculate_floors_per_run(current_stats, self.current_stage)
+        
+        # Temporarily add one level
+        self.fragment_upgrade_levels[upgrade_key] = current_level + 1
+        new_stats = self.get_total_stats()
+        new_floors = self.calculate_floors_per_run(new_stats, self.current_stage)
+        # Restore original level
+        self.fragment_upgrade_levels[upgrade_key] = current_level
         
         if current_floors > 0:
             percent_improvement = ((new_floors - current_floors) / current_floors) * 100
@@ -1001,13 +1292,6 @@ class ArchaeologySimulatorWindow:
                 parts.append(f"{distribution[skill]}{abbrev[skill]}")
         return ' '.join(parts) if parts else '—'
     
-    def remove_upgrade(self, upgrade_name):
-        if upgrade_name == 'flat_damage' and self.upgrade_flat_damage > 0:
-            self.upgrade_flat_damage -= 1
-        elif upgrade_name == 'armor_pen' and self.upgrade_armor_pen > 0:
-            self.upgrade_armor_pen -= 1
-        self.update_display()
-    
     def create_widgets(self):
         # Header with title and controls
         header_frame = tk.Frame(self.window, background="#E3F2FD", relief=tk.RIDGE, borderwidth=1)
@@ -1022,7 +1306,7 @@ class ArchaeologySimulatorWindow:
         )
         title_label.pack(side=tk.LEFT, padx=10, pady=5)
         
-        # Right: Stage selector, Enrage toggle, and Reset button
+        # Right: Stage selector, Unlocked Stage, Enrage toggle, and Reset button
         controls_frame = tk.Frame(header_frame, background="#E3F2FD")
         controls_frame.pack(side=tk.RIGHT, padx=10, pady=5)
         
@@ -1045,6 +1329,35 @@ class ArchaeologySimulatorWindow:
                                    cursor="hand2", foreground="#1976D2", background="#E3F2FD")
         stage_help_label.pack(side=tk.LEFT, padx=(0, 10))
         self._create_stage_help_tooltip(stage_help_label)
+        
+        # Unlocked Stage input - determines which upgrades are available
+        tk.Label(controls_frame, text="Unlocked:", font=("Arial", 10), 
+                background="#E3F2FD").pack(side=tk.LEFT, padx=(0, 3))
+        
+        # Minus button
+        unlocked_minus_btn = tk.Button(controls_frame, text="-", width=2, font=("Arial", 8, "bold"),
+                                       command=self._decrease_unlocked_stage)
+        unlocked_minus_btn.pack(side=tk.LEFT, padx=(0, 1))
+        
+        self.unlocked_stage_var = tk.StringVar(value="1")
+        self.unlocked_stage_entry = ttk.Entry(
+            controls_frame,
+            textvariable=self.unlocked_stage_var,
+            width=4
+        )
+        self.unlocked_stage_entry.pack(side=tk.LEFT, padx=(0, 1))
+        self.unlocked_stage_var.trace_add('write', self._on_unlocked_stage_changed)
+        
+        # Plus button
+        unlocked_plus_btn = tk.Button(controls_frame, text="+", width=2, font=("Arial", 8, "bold"),
+                                      command=self._increase_unlocked_stage)
+        unlocked_plus_btn.pack(side=tk.LEFT, padx=(0, 3))
+        
+        # Help icon for unlocked stage
+        unlocked_help_label = tk.Label(controls_frame, text="?", font=("Arial", 9, "bold"), 
+                                      cursor="hand2", foreground="#1976D2", background="#E3F2FD")
+        unlocked_help_label.pack(side=tk.LEFT, padx=(0, 10))
+        self._create_unlocked_stage_help_tooltip(unlocked_help_label)
         
         # Enrage toggle checkbox
         self.enrage_enabled = tk.BooleanVar(value=True)
@@ -1137,62 +1450,6 @@ class ArchaeologySimulatorWindow:
                                   font=("Arial", 9, "bold"), width=4, anchor=tk.E)
             value_label.grid(row=i, column=1, sticky=tk.E, pady=1)
             self.alloc_labels[skill] = value_label
-        
-        ttk.Separator(col_frame, orient='horizontal').pack(fill=tk.X, pady=5, padx=5)
-        
-        # Upgrades header with common fragment icon
-        upgrade_header = tk.Frame(col_frame, background="#E3F2FD")
-        upgrade_header.pack(fill=tk.X, padx=8, pady=(0, 3))
-        
-        tk.Label(upgrade_header, text="Upgrades", font=("Arial", 10, "bold"), 
-                background="#E3F2FD").pack(side=tk.LEFT)
-        
-        # Load common fragment icon for stats column
-        try:
-            stats_frag_icon_path = Path(__file__).parent.parent / "sprites" / "archaeology" / "fragmentcommon.png"
-            if stats_frag_icon_path.exists():
-                stats_frag_image = Image.open(stats_frag_icon_path)
-                stats_frag_image = stats_frag_image.resize((12, 12), Image.Resampling.LANCZOS)
-                self.stats_frag_photo = ImageTk.PhotoImage(stats_frag_image)
-                tk.Label(upgrade_header, image=self.stats_frag_photo, background="#E3F2FD").pack(side=tk.LEFT, padx=(5, 0))
-        except:
-            pass
-        
-        upgrade_grid = tk.Frame(col_frame, background="#E3F2FD")
-        upgrade_grid.pack(fill=tk.X, padx=8, pady=2)
-        
-        self.upgrade_labels = {}
-        self.upgrade_cost_icon_labels = {}
-        
-        # Flat Damage row
-        tk.Label(upgrade_grid, text="Flat Dmg:", background="#E3F2FD", font=("Arial", 9)).grid(
-            row=0, column=0, sticky=tk.W, pady=1)
-        fd_frame = tk.Frame(upgrade_grid, background="#E3F2FD")
-        fd_frame.grid(row=0, column=1, sticky=tk.E, pady=1)
-        self.upgrade_labels['flat_damage'] = tk.Label(fd_frame, text="+0", 
-            background="#E3F2FD", font=("Arial", 9, "bold"), anchor=tk.E)
-        self.upgrade_labels['flat_damage'].pack(side=tk.LEFT)
-        self.upgrade_cost_icon_labels['flat_damage'] = tk.Label(fd_frame, text="", 
-            background="#E3F2FD", font=("Arial", 9), foreground="#555555", anchor=tk.E)
-        self.upgrade_cost_icon_labels['flat_damage'].pack(side=tk.LEFT, padx=(3, 0))
-        # Add small fragment icon after cost
-        if hasattr(self, 'stats_frag_photo'):
-            tk.Label(fd_frame, image=self.stats_frag_photo, background="#E3F2FD").pack(side=tk.LEFT)
-        
-        # Armor Pen row
-        tk.Label(upgrade_grid, text="Armor Pen:", background="#E3F2FD", font=("Arial", 9)).grid(
-            row=1, column=0, sticky=tk.W, pady=1)
-        ap_frame = tk.Frame(upgrade_grid, background="#E3F2FD")
-        ap_frame.grid(row=1, column=1, sticky=tk.E, pady=1)
-        self.upgrade_labels['armor_pen'] = tk.Label(ap_frame, text="+0", 
-            background="#E3F2FD", font=("Arial", 9, "bold"), anchor=tk.E)
-        self.upgrade_labels['armor_pen'].pack(side=tk.LEFT)
-        self.upgrade_cost_icon_labels['armor_pen'] = tk.Label(ap_frame, text="", 
-            background="#E3F2FD", font=("Arial", 9), foreground="#555555", anchor=tk.E)
-        self.upgrade_cost_icon_labels['armor_pen'].pack(side=tk.LEFT, padx=(3, 0))
-        # Add small fragment icon after cost
-        if hasattr(self, 'stats_frag_photo'):
-            tk.Label(ap_frame, image=self.stats_frag_photo, background="#E3F2FD").pack(side=tk.LEFT)
         
         ttk.Separator(col_frame, orient='horizontal').pack(fill=tk.X, pady=5, padx=5)
         
@@ -1311,121 +1568,36 @@ class ArchaeologySimulatorWindow:
         
         ttk.Separator(col_frame, orient='horizontal').pack(fill=tk.X, pady=5, padx=5)
         
-        # Upgrades (Common Fragment cost) with Reset button
+        # Fragment Upgrades Section - dynamically built based on unlocked stage
         upgrade_header_frame = tk.Frame(col_frame, background="#E8F5E9")
         upgrade_header_frame.pack(fill=tk.X, padx=5, pady=(0, 3))
         
-        tk.Label(upgrade_header_frame, text="Upgrades", font=("Arial", 10, "bold"), 
+        tk.Label(upgrade_header_frame, text="Fragment Upgrades", font=("Arial", 10, "bold"), 
                 background="#E8F5E9").pack(side=tk.LEFT)
         
-        # Load common fragment icon for header
-        try:
-            common_frag_icon_path = Path(__file__).parent.parent / "sprites" / "archaeology" / "fragmentcommon.png"
-            if common_frag_icon_path.exists():
-                common_frag_image = Image.open(common_frag_icon_path)
-                common_frag_image = common_frag_image.resize((14, 14), Image.Resampling.LANCZOS)
-                self.common_frag_header_photo = ImageTk.PhotoImage(common_frag_image)
-                common_frag_label = tk.Label(upgrade_header_frame, image=self.common_frag_header_photo, 
-                                            background="#E8F5E9")
-                common_frag_label.pack(side=tk.LEFT, padx=(5, 0))
-        except:
-            # Fallback to text
-            tk.Label(upgrade_header_frame, text="(Common)", font=("Arial", 8), 
-                    foreground="#808080", background="#E8F5E9").pack(side=tk.LEFT, padx=(3, 0))
+        # Load fragment icons for each type
+        self._load_fragment_icons()
         
         # Reset button for upgrades
         tk.Button(upgrade_header_frame, text="Reset", font=("Arial", 7), 
                  command=self.reset_all_upgrades).pack(side=tk.RIGHT)
         
+        # Container for dynamically built upgrades (will be rebuilt when unlocked_stage changes)
+        self.upgrades_container = tk.Frame(col_frame, background="#E8F5E9")
+        self.upgrades_container.pack(fill=tk.X, padx=5, pady=2)
+        
+        # Store reference to parent column frame for rebuilding
+        self.skills_col_frame = col_frame
+        
+        # Initialize upgrade tracking dicts
         self.upgrade_buttons = {}
         self.upgrade_efficiency_labels = {}
         self.upgrade_cost_labels = {}
         self.upgrade_level_labels = {}
+        self.fragment_upgrade_levels = {}  # Track levels for new FRAGMENT_UPGRADES
         
-        upgrades_frame = tk.Frame(col_frame, background="#E8F5E9")
-        upgrades_frame.pack(fill=tk.X, padx=5, pady=2)
-        
-        for upgrade in ['flat_damage', 'armor_pen']:
-            row_frame = tk.Frame(upgrades_frame, background="#E8F5E9")
-            row_frame.pack(fill=tk.X, pady=1)
-            
-            minus_btn = tk.Button(row_frame, text="-", width=2, font=("Arial", 8, "bold"),
-                                 command=lambda u=upgrade: self.remove_upgrade(u))
-            minus_btn.pack(side=tk.LEFT, padx=(0, 1))
-            
-            plus_btn = tk.Button(row_frame, text="+", width=2, font=("Arial", 8, "bold"),
-                                command=lambda u=upgrade: self.add_upgrade(u))
-            plus_btn.pack(side=tk.LEFT, padx=(0, 3))
-            
-            # Level counter (like arch_xp)
-            level_label = tk.Label(row_frame, text="0", background="#E8F5E9", 
-                                  font=("Arial", 9, "bold"), foreground="#808080", width=2, anchor=tk.E)
-            level_label.pack(side=tk.LEFT, padx=(0, 3))
-            self.upgrade_level_labels[upgrade] = level_label
-            
-            label_text = "Flat Dmg" if upgrade == 'flat_damage' else "Armor Pen"
-            tk.Label(row_frame, text=label_text, background="#E8F5E9", 
-                    font=("Arial", 9, "bold"), width=8, anchor=tk.W).pack(side=tk.LEFT)
-            
-            # Efficiency label (% improvement)
-            eff_label = tk.Label(row_frame, text="—", background="#E8F5E9", 
-                                font=("Arial", 9, "bold"), foreground="#2E7D32", width=7, anchor=tk.E)
-            eff_label.pack(side=tk.LEFT)
-            self.upgrade_efficiency_labels[upgrade] = eff_label
-            
-            # Cost efficiency label (%/Common)
-            cost_eff_label = tk.Label(row_frame, text="", background="#E8F5E9", 
-                                     font=("Arial", 9), foreground="#555555", anchor=tk.W)
-            cost_eff_label.pack(side=tk.LEFT, padx=(3, 0))
-            self.upgrade_cost_labels[upgrade] = cost_eff_label
-            
-            # Info icon with tooltip
-            info_label = tk.Label(row_frame, text="?", background="#E8F5E9", 
-                                 font=("Arial", 9, "bold"), foreground="#1976D2", cursor="hand2")
-            info_label.pack(side=tk.LEFT, padx=(2, 0))
-            self._create_common_upgrade_tooltip(info_label, upgrade)
-            
-            self.upgrade_buttons[upgrade] = (minus_btn, plus_btn)
-        
-        # Arch XP Upgrade (also costs Common, but stored in gem_upgrades)
-        arch_xp_frame = tk.Frame(upgrades_frame, background="#E8F5E9")
-        arch_xp_frame.pack(fill=tk.X, pady=1)
-        
-        arch_xp_minus_btn = tk.Button(arch_xp_frame, text="-", width=2, font=("Arial", 8, "bold"),
-                             command=lambda: self.remove_gem_upgrade('arch_xp'))
-        arch_xp_minus_btn.pack(side=tk.LEFT, padx=(0, 1))
-        
-        arch_xp_plus_btn = tk.Button(arch_xp_frame, text="+", width=2, font=("Arial", 8, "bold"),
-                            command=lambda: self.add_gem_upgrade('arch_xp'))
-        arch_xp_plus_btn.pack(side=tk.LEFT, padx=(0, 3))
-        
-        # Level display
-        self.arch_xp_level_label = tk.Label(arch_xp_frame, text="0", background="#E8F5E9", 
-                              font=("Arial", 9, "bold"), foreground="#808080", width=2, anchor=tk.E)
-        self.arch_xp_level_label.pack(side=tk.LEFT, padx=(0, 3))
-        
-        tk.Label(arch_xp_frame, text="Exp Gain", background="#E8F5E9", 
-                font=("Arial", 9, "bold"), width=8, anchor=tk.W).pack(side=tk.LEFT)
-        
-        # Efficiency label (shows +X% per level effect, not floors improvement)
-        self.arch_xp_eff_label = tk.Label(arch_xp_frame, text="+2%", background="#E8F5E9", 
-                            font=("Arial", 9), foreground="#2E7D32", width=5, anchor=tk.E)
-        self.arch_xp_eff_label.pack(side=tk.LEFT)
-        
-        # Cost efficiency label
-        self.arch_xp_cost_label = tk.Label(arch_xp_frame, text="", background="#E8F5E9", 
-                                 font=("Arial", 9), foreground="#555555", anchor=tk.W)
-        self.arch_xp_cost_label.pack(side=tk.LEFT, padx=(3, 0))
-        
-        # Add common fragment icon after cost
-        if hasattr(self, 'common_frag_header_photo'):
-            tk.Label(arch_xp_frame, image=self.common_frag_header_photo, background="#E8F5E9").pack(side=tk.LEFT)
-        
-        # Info icon with tooltip
-        arch_xp_info_label = tk.Label(arch_xp_frame, text="?", background="#E8F5E9", 
-                             font=("Arial", 9, "bold"), foreground="#1976D2", cursor="hand2")
-        arch_xp_info_label.pack(side=tk.LEFT, padx=(2, 0))
-        self._create_arch_xp_tooltip(arch_xp_info_label)
+        # Build initial upgrade widgets
+        self._rebuild_upgrade_widgets()
         
         ttk.Separator(col_frame, orient='horizontal').pack(fill=tk.X, pady=5, padx=5)
         
@@ -1494,79 +1666,153 @@ class ArchaeologySimulatorWindow:
             self._create_gem_upgrade_tooltip(info_label, gem_upgrade, info, max_lvl)
             
             self.gem_upgrade_buttons[gem_upgrade] = (minus_btn, plus_btn)
-        
-        ttk.Separator(col_frame, orient='horizontal').pack(fill=tk.X, pady=5, padx=5)
-        
-        # Simple Greedy Recommendation (Best Next Point)
-        rec_frame = tk.Frame(col_frame, background="#FFECB3", relief=tk.GROOVE, borderwidth=1)
-        rec_frame.pack(fill=tk.X, padx=5, pady=(0, 5))
-        
-        rec_inner = tk.Frame(rec_frame, background="#FFECB3", padx=8, pady=5)
-        rec_inner.pack(fill=tk.X)
-        
-        tk.Label(rec_inner, text="Best Next (Greedy):", font=("Arial", 9, "bold"),
-                background="#FFECB3", foreground="#FF6F00").pack(side=tk.LEFT)
-        self.recommendation_label = tk.Label(rec_inner, text="—", font=("Arial", 11, "bold"),
-                                            background="#FFECB3", foreground="#1976D2")
-        self.recommendation_label.pack(side=tk.LEFT, padx=(8, 0))
-        
-        # Help icon
-        rec_help = tk.Label(rec_inner, text="?", font=("Arial", 8, "bold"),
-                           cursor="hand2", foreground="#FF6F00", background="#FFECB3")
-        rec_help.pack(side=tk.RIGHT)
-        self._create_greedy_help_tooltip(rec_help)
     
-    def _create_greedy_help_tooltip(self, widget):
-        """Creates a tooltip explaining the greedy recommendation"""
-        def on_enter(event):
-            tooltip = tk.Toplevel()
-            tooltip.wm_overrideredirect(True)
-            
-            tooltip_width = 280
-            tooltip_height = 200
-            screen_width = tooltip.winfo_screenwidth()
-            screen_height = tooltip.winfo_screenheight()
-            x, y = calculate_tooltip_position(event, tooltip_width, tooltip_height, screen_width, screen_height)
-            tooltip.wm_geometry(f"+{x}+{y}")
-            
-            outer_frame = tk.Frame(tooltip, background="#FF6F00", relief=tk.FLAT)
-            outer_frame.pack(padx=2, pady=2)
-            
-            inner_frame = tk.Frame(outer_frame, background="#FFFFFF")
-            inner_frame.pack(padx=1, pady=1)
-            
-            content_frame = tk.Frame(inner_frame, background="#FFFFFF", padx=10, pady=8)
-            content_frame.pack()
-            
-            tk.Label(content_frame, text="Greedy Recommendation", 
-                    font=("Arial", 10, "bold"), foreground="#FF6F00", 
-                    background="#FFFFFF").pack(anchor=tk.W)
-            
-            lines = [
-                "",
-                "Shows the single best next skill point.",
-                "",
-                "This is 'greedy' - it only looks one step ahead.",
-                "Good for quick decisions, but may miss",
-                "important damage breakpoints.",
-                "",
-                "For strategic planning, see the Skill Forecast",
-                "section on the right which plans 5-10 levels ahead.",
-            ]
-            
-            for line in lines:
-                tk.Label(content_frame, text=line, font=("Arial", 9), 
-                        background="#FFFFFF", anchor=tk.W).pack(anchor=tk.W)
-            
-            widget.tooltip = tooltip
+    def _load_fragment_icons(self):
+        """Load fragment icons for each rarity type"""
+        self.fragment_icons = {}
+        icon_map = {
+            'common': 'fragmentcommon.png',
+            'rare': 'fragmentrare.png',
+            'epic': 'fragmentepic.png',
+            'legendary': 'fragmentepic.png',  # Use epic icon as fallback
+            'mythic': 'fragmentepic.png',  # Use epic icon as fallback
+        }
         
-        def on_leave(event):
-            if hasattr(widget, 'tooltip'):
-                widget.tooltip.destroy()
-                del widget.tooltip
+        for frag_type, filename in icon_map.items():
+            try:
+                icon_path = Path(__file__).parent.parent / "sprites" / "archaeology" / filename
+                if icon_path.exists():
+                    icon_image = Image.open(icon_path)
+                    icon_image = icon_image.resize((12, 12), Image.Resampling.LANCZOS)
+                    self.fragment_icons[frag_type] = ImageTk.PhotoImage(icon_image)
+            except:
+                pass
+    
+    def _rebuild_upgrade_widgets(self):
+        """Rebuild the fragment upgrade widgets based on current unlocked stage"""
+        # Clear existing widgets
+        for widget in self.upgrades_container.winfo_children():
+            widget.destroy()
         
-        widget.bind("<Enter>", on_enter)
-        widget.bind("<Leave>", on_leave)
+        # Clear tracking dicts (but preserve levels)
+        self.upgrade_buttons = {}
+        self.upgrade_efficiency_labels = {}
+        self.upgrade_cost_labels = {}
+        self.upgrade_level_labels = {}
+        
+        unlocked_stage = self.get_unlocked_stage()
+        
+        # Colors for each fragment type
+        type_colors = {
+            'common': '#808080',    # Gray
+            'rare': '#4169E1',      # Blue
+            'epic': '#9932CC',      # Purple
+            'legendary': '#FFD700', # Gold
+            'mythic': '#FF4500',    # Orange
+        }
+        
+        # Group upgrades by cost_type
+        upgrades_by_type = {'common': [], 'rare': [], 'epic': [], 'legendary': [], 'mythic': []}
+        
+        for upgrade_key, upgrade_info in self.FRAGMENT_UPGRADES.items():
+            stage_required = upgrade_info.get('stage_unlock', 0)
+            if unlocked_stage >= stage_required:
+                cost_type = upgrade_info.get('cost_type', 'common')
+                upgrades_by_type[cost_type].append((upgrade_key, upgrade_info))
+        
+        # Create widgets for each type that has unlocked upgrades
+        for cost_type in ['common', 'rare', 'epic', 'legendary', 'mythic']:
+            upgrades = upgrades_by_type[cost_type]
+            if not upgrades:
+                continue
+            
+            # Type header
+            header_frame = tk.Frame(self.upgrades_container, background="#E8F5E9")
+            header_frame.pack(fill=tk.X, pady=(3, 1))
+            
+            # Fragment icon if available
+            if cost_type in self.fragment_icons:
+                tk.Label(header_frame, image=self.fragment_icons[cost_type], 
+                        background="#E8F5E9").pack(side=tk.LEFT, padx=(0, 3))
+            
+            tk.Label(header_frame, text=f"{cost_type.capitalize()}", 
+                    font=("Arial", 8, "bold"), foreground=type_colors[cost_type],
+                    background="#E8F5E9").pack(side=tk.LEFT)
+            
+            # Create row for each upgrade
+            for upgrade_key, upgrade_info in upgrades:
+                self._create_upgrade_row(upgrade_key, upgrade_info, type_colors[cost_type])
+    
+    def _create_upgrade_row(self, upgrade_key, upgrade_info, color):
+        """Create a single upgrade row widget"""
+        row_frame = tk.Frame(self.upgrades_container, background="#E8F5E9")
+        row_frame.pack(fill=tk.X, pady=1)
+        
+        # Initialize level if not exists
+        if upgrade_key not in self.fragment_upgrade_levels:
+            self.fragment_upgrade_levels[upgrade_key] = 0
+        
+        minus_btn = tk.Button(row_frame, text="-", width=2, font=("Arial", 8, "bold"),
+                             command=lambda u=upgrade_key: self._remove_fragment_upgrade(u))
+        minus_btn.pack(side=tk.LEFT, padx=(0, 1))
+        
+        plus_btn = tk.Button(row_frame, text="+", width=2, font=("Arial", 8, "bold"),
+                            command=lambda u=upgrade_key: self._add_fragment_upgrade(u))
+        plus_btn.pack(side=tk.LEFT, padx=(0, 3))
+        
+        # Level counter
+        current_level = self.fragment_upgrade_levels.get(upgrade_key, 0)
+        max_level = upgrade_info.get('max_level', 25)
+        level_label = tk.Label(row_frame, text=str(current_level), background="#E8F5E9", 
+                              font=("Arial", 9, "bold"), foreground=color, width=2, anchor=tk.E)
+        level_label.pack(side=tk.LEFT, padx=(0, 3))
+        self.upgrade_level_labels[upgrade_key] = level_label
+        
+        # Display name
+        display_name = upgrade_info.get('display_name', upgrade_key)
+        tk.Label(row_frame, text=display_name, background="#E8F5E9", 
+                font=("Arial", 8), width=15, anchor=tk.W).pack(side=tk.LEFT)
+        
+        # Efficiency label (+X.XX% floors/run)
+        eff_label = tk.Label(row_frame, text="+0.00%", background="#E8F5E9",
+                            font=("Arial", 8), foreground="#2E7D32", width=8, anchor=tk.E)
+        eff_label.pack(side=tk.LEFT, padx=(2, 0))
+        self.upgrade_efficiency_labels[upgrade_key] = eff_label
+        
+        # Stage unlock indicator (small text)
+        stage_unlock = upgrade_info.get('stage_unlock', 0)
+        if stage_unlock > 0:
+            tk.Label(row_frame, text=f"S{stage_unlock}", background="#E8F5E9", 
+                    font=("Arial", 7), foreground="#999999", width=3).pack(side=tk.LEFT)
+        
+        self.upgrade_buttons[upgrade_key] = (minus_btn, plus_btn)
+    
+    def _add_fragment_upgrade(self, upgrade_key):
+        """Add a level to a fragment upgrade"""
+        if upgrade_key not in self.fragment_upgrade_levels:
+            self.fragment_upgrade_levels[upgrade_key] = 0
+        
+        max_level = self.FRAGMENT_UPGRADES[upgrade_key].get('max_level', 25)
+        if self.fragment_upgrade_levels[upgrade_key] < max_level:
+            self.fragment_upgrade_levels[upgrade_key] += 1
+            # Update the label directly
+            if upgrade_key in self.upgrade_level_labels:
+                self.upgrade_level_labels[upgrade_key].config(
+                    text=str(self.fragment_upgrade_levels[upgrade_key]))
+            self.update_display()
+    
+    def _remove_fragment_upgrade(self, upgrade_key):
+        """Remove a level from a fragment upgrade"""
+        if upgrade_key not in self.fragment_upgrade_levels:
+            self.fragment_upgrade_levels[upgrade_key] = 0
+        
+        if self.fragment_upgrade_levels[upgrade_key] > 0:
+            self.fragment_upgrade_levels[upgrade_key] -= 1
+            # Update the label directly
+            if upgrade_key in self.upgrade_level_labels:
+                self.upgrade_level_labels[upgrade_key].config(
+                    text=str(self.fragment_upgrade_levels[upgrade_key]))
+            self.update_display()
     
     def _create_arch_xp_tooltip(self, widget):
         """Creates a tooltip for the Archaeology Exp Gain upgrade"""
@@ -1625,106 +1871,6 @@ class ArchaeologySimulatorWindow:
             tk.Label(content_frame, text=f"Current Bonus: +{current_bonus}% Archaeology Exp", 
                     font=("Arial", 9, "bold"), foreground="#2E7D32",
                     background="#FFFFFF").pack(anchor=tk.W, pady=(2, 0))
-            
-            # Level
-            tk.Label(content_frame, text=f"Level: {current_level} / {max_level}", 
-                    font=("Arial", 9, "bold"), background="#FFFFFF").pack(anchor=tk.W, pady=(5, 0))
-            
-            # Next cost with icon
-            if next_cost:
-                cost_frame = tk.Frame(content_frame, background="#FFFFFF")
-                cost_frame.pack(anchor=tk.W)
-                tk.Label(cost_frame, text=f"Next Level: {next_cost:.2f}", 
-                        font=("Arial", 9), foreground="#2E7D32", 
-                        background="#FFFFFF").pack(side=tk.LEFT)
-                try:
-                    if hasattr(tooltip, 'icon_photo'):
-                        tk.Label(cost_frame, image=tooltip.icon_photo, background="#FFFFFF").pack(side=tk.LEFT, padx=(3, 0))
-                except:
-                    tk.Label(cost_frame, text=" Common", font=("Arial", 9), foreground="#2E7D32", 
-                            background="#FFFFFF").pack(side=tk.LEFT)
-            else:
-                tk.Label(content_frame, text="MAX LEVEL", 
-                        font=("Arial", 9, "bold"), foreground="#C73E1D", 
-                        background="#FFFFFF").pack(anchor=tk.W)
-            
-            # Total spent with icon
-            total_frame = tk.Frame(content_frame, background="#FFFFFF")
-            total_frame.pack(anchor=tk.W, pady=(2, 0))
-            tk.Label(total_frame, text=f"Total Spent: {total_spent:.2f}", 
-                    font=("Arial", 9), foreground="gray", 
-                    background="#FFFFFF").pack(side=tk.LEFT)
-            try:
-                if hasattr(tooltip, 'icon_photo'):
-                    tk.Label(total_frame, image=tooltip.icon_photo, background="#FFFFFF").pack(side=tk.LEFT, padx=(3, 0))
-            except:
-                tk.Label(total_frame, text=" Common", font=("Arial", 9), foreground="gray", 
-                        background="#FFFFFF").pack(side=tk.LEFT)
-            
-            widget.tooltip = tooltip
-        
-        def on_leave(event):
-            if hasattr(widget, 'tooltip'):
-                widget.tooltip.destroy()
-                del widget.tooltip
-        
-        widget.bind("<Enter>", on_enter)
-        widget.bind("<Leave>", on_leave)
-    
-    def _create_common_upgrade_tooltip(self, widget, upgrade_name):
-        """Creates a tooltip showing Common upgrade details and costs"""
-        def on_enter(event):
-            current_level = getattr(self, f'upgrade_{upgrade_name}', 0)
-            next_cost = self.get_common_upgrade_cost(upgrade_name)
-            total_spent = self.get_total_common_cost(upgrade_name)
-            max_level = len(self.COMMON_UPGRADE_COSTS.get(upgrade_name, []))
-            
-            display_name = "Flat Damage +1" if upgrade_name == 'flat_damage' else "Armor Pen +1"
-            
-            tooltip = tk.Toplevel()
-            tooltip.wm_overrideredirect(True)
-            
-            tooltip_width = 280
-            tooltip_height = 220
-            screen_width = tooltip.winfo_screenwidth()
-            screen_height = tooltip.winfo_screenheight()
-            x, y = calculate_tooltip_position(event, tooltip_width, tooltip_height, screen_width, screen_height)
-            tooltip.wm_geometry(f"+{x}+{y}")
-            
-            # Outer frame for shadow effect (gray for Common)
-            outer_frame = tk.Frame(tooltip, background="#808080", relief=tk.FLAT, borderwidth=0)
-            outer_frame.pack(padx=2, pady=2)
-            
-            # Inner frame
-            inner_frame = tk.Frame(outer_frame, background="#FFFFFF", relief=tk.FLAT, borderwidth=0)
-            inner_frame.pack(padx=1, pady=1)
-            
-            content_frame = tk.Frame(inner_frame, background="#FFFFFF", padx=10, pady=8)
-            content_frame.pack()
-            
-            # Title with icon
-            title_frame = tk.Frame(content_frame, background="#FFFFFF")
-            title_frame.pack(anchor=tk.W)
-            
-            # Try to load common fragment icon
-            try:
-                icon_path = Path(__file__).parent.parent / "sprites" / "archaeology" / "fragmentcommon.png"
-                if icon_path.exists():
-                    icon_image = Image.open(icon_path)
-                    icon_image = icon_image.resize((16, 16), Image.Resampling.LANCZOS)
-                    tooltip.icon_photo = ImageTk.PhotoImage(icon_image)
-                    tk.Label(title_frame, image=tooltip.icon_photo, background="#FFFFFF").pack(side=tk.LEFT, padx=(0, 5))
-            except:
-                pass
-            
-            tk.Label(title_frame, text=f"Common Upgrade: {display_name}", 
-                    font=("Arial", 10, "bold"), foreground="#808080", 
-                    background="#FFFFFF").pack(side=tk.LEFT)
-            
-            # Effect
-            effect_text = "+1 Flat Damage per level" if upgrade_name == 'flat_damage' else "+1 Armor Penetration per level"
-            tk.Label(content_frame, text=f"Effect: {effect_text}", 
-                    font=("Arial", 9), background="#FFFFFF").pack(anchor=tk.W, pady=(2, 0))
             
             # Level
             tk.Label(content_frame, text=f"Level: {current_level} / {max_level}", 
@@ -1940,6 +2086,119 @@ class ArchaeologySimulatorWindow:
         
         widget.bind("<Enter>", on_enter)
         widget.bind("<Leave>", on_leave)
+    
+    def _create_unlocked_stage_help_tooltip(self, widget):
+        """Creates a tooltip explaining the Unlocked Stage input"""
+        def on_enter(event):
+            tooltip = tk.Toplevel()
+            tooltip.wm_overrideredirect(True)
+            
+            tooltip_width = 320
+            tooltip_height = 320
+            screen_width = tooltip.winfo_screenwidth()
+            screen_height = tooltip.winfo_screenheight()
+            x, y = calculate_tooltip_position(event, tooltip_width, tooltip_height, screen_width, screen_height)
+            tooltip.wm_geometry(f"+{x}+{y}")
+            
+            # Outer frame for shadow effect
+            outer_frame = tk.Frame(tooltip, background="#1976D2", relief=tk.FLAT, borderwidth=0)
+            outer_frame.pack(padx=2, pady=2)
+            
+            # Inner frame
+            inner_frame = tk.Frame(outer_frame, background="#FFFFFF", relief=tk.FLAT, borderwidth=0)
+            inner_frame.pack(padx=1, pady=1)
+            
+            content_frame = tk.Frame(inner_frame, background="#FFFFFF", padx=12, pady=10)
+            content_frame.pack()
+            
+            # Title
+            tk.Label(content_frame, text="Unlocked Stage", 
+                    font=("Arial", 11, "bold"), foreground="#1976D2", 
+                    background="#FFFFFF").pack(anchor=tk.W)
+            
+            tk.Label(content_frame, text="", background="#FFFFFF").pack()  # Spacer
+            
+            # Explanation
+            lines = [
+                "Enter your highest unlocked stage to filter",
+                "which fragment upgrades are available.",
+                "",
+                "Many upgrades unlock at specific stages:",
+                "",
+                "  Stage 2: Armor Pen (Common)",
+                "  Stage 3: Exp Gain +2% (Common)",
+                "  Stage 4: Crit Chance/Dmg (Common)",
+                "  Stage 5: Stamina (Rare)",
+                "  Stage 6: Flat Dmg +2, Loot Mod (Rare)",
+                "  Stage 9+: Epic upgrades",
+                "  Stage 17+: Legendary upgrades",
+                "  Stage 26+: Mythic upgrades",
+                "",
+                "The upgrades list will only show",
+                "upgrades you can actually buy!",
+            ]
+            
+            for line in lines:
+                tk.Label(content_frame, text=line, 
+                        font=("Arial", 9), background="#FFFFFF",
+                        anchor=tk.W, justify=tk.LEFT).pack(anchor=tk.W)
+            
+            widget.tooltip = tooltip
+        
+        def on_leave(event):
+            if hasattr(widget, 'tooltip'):
+                widget.tooltip.destroy()
+                del widget.tooltip
+        
+        widget.bind("<Enter>", on_enter)
+        widget.bind("<Leave>", on_leave)
+    
+    def _on_unlocked_stage_changed(self, *args):
+        """Called when unlocked stage input changes"""
+        try:
+            unlocked = int(self.unlocked_stage_var.get())
+            # Clamp to valid range
+            unlocked = max(1, min(50, unlocked))
+            self.unlocked_stage = unlocked
+            # Rebuild upgrade widgets to show/hide based on new stage
+            if hasattr(self, 'upgrades_container'):
+                self._rebuild_upgrade_widgets()
+            self.update_display()
+        except ValueError:
+            # Invalid input, ignore
+            pass
+    
+    def _increase_unlocked_stage(self):
+        """Increase unlocked stage by 1"""
+        try:
+            current = int(self.unlocked_stage_var.get())
+            new_val = min(50, current + 1)
+            self.unlocked_stage_var.set(str(new_val))
+        except ValueError:
+            self.unlocked_stage_var.set("1")
+    
+    def _decrease_unlocked_stage(self):
+        """Decrease unlocked stage by 1"""
+        try:
+            current = int(self.unlocked_stage_var.get())
+            new_val = max(1, current - 1)
+            self.unlocked_stage_var.set(str(new_val))
+        except ValueError:
+            self.unlocked_stage_var.set("1")
+    
+    def get_unlocked_stage(self):
+        """Get the current unlocked stage value"""
+        try:
+            return int(self.unlocked_stage_var.get())
+        except (ValueError, AttributeError):
+            return 1
+    
+    def is_upgrade_unlocked(self, upgrade_key):
+        """Check if a fragment upgrade is unlocked based on current stage"""
+        if upgrade_key in self.FRAGMENT_UPGRADES:
+            stage_required = self.FRAGMENT_UPGRADES[upgrade_key].get('stage_unlock', 0)
+            return self.get_unlocked_stage() >= stage_required
+        return True  # Non-fragment upgrades are always available
     
     def _create_stats_help_tooltip(self, widget):
         """Creates a tooltip explaining all stats in detail"""
@@ -3465,33 +3724,14 @@ class ArchaeologySimulatorWindow:
         for skill, label in self.alloc_labels.items():
             label.config(text=str(self.skill_points[skill]))
         
-        # Update upgrades
-        # Update upgrade labels with level and next cost (with icon)
-        self.upgrade_labels['flat_damage'].config(text=f"+{self.upgrade_flat_damage}")
-        fd_cost = self.get_common_upgrade_cost('flat_damage')
-        if hasattr(self, 'upgrade_cost_icon_labels'):
-            if fd_cost:
-                self.upgrade_cost_icon_labels['flat_damage'].config(text=f"({fd_cost:.1f})")
-            else:
-                self.upgrade_cost_icon_labels['flat_damage'].config(text="(MAX)", foreground="#C73E1D")
-        
-        self.upgrade_labels['armor_pen'].config(text=f"+{self.upgrade_armor_pen}")
-        ap_cost = self.get_common_upgrade_cost('armor_pen')
-        if hasattr(self, 'upgrade_cost_icon_labels'):
-            if ap_cost:
-                self.upgrade_cost_icon_labels['armor_pen'].config(text=f"({ap_cost:.1f})")
-            else:
-                self.upgrade_cost_icon_labels['armor_pen'].config(text="(MAX)", foreground="#C73E1D")
-        
-        # Update upgrade level labels in the middle column
+        # Update fragment upgrade level labels (colored by type)
         if hasattr(self, 'upgrade_level_labels'):
-            self.upgrade_level_labels['flat_damage'].config(text=str(self.upgrade_flat_damage))
-            self.upgrade_level_labels['armor_pen'].config(text=str(self.upgrade_armor_pen))
-            # Color based on level
-            for upgrade, label in self.upgrade_level_labels.items():
-                level = self.upgrade_flat_damage if upgrade == 'flat_damage' else self.upgrade_armor_pen
+            for upgrade_key, label in self.upgrade_level_labels.items():
+                level = self.fragment_upgrade_levels.get(upgrade_key, 0)
+                label.config(text=str(level))
                 if level > 0:
-                    label.config(foreground="#808080")
+                    # Keep the original color set in _create_upgrade_row
+                    pass
                 else:
                     label.config(foreground="gray")
         
@@ -3552,27 +3792,6 @@ class ArchaeologySimulatorWindow:
                 best_improvement = improvement
                 best_choice = (skill, 'skill')
         
-        for upgrade in self.upgrade_efficiency_labels:
-            _, improvement = self.calculate_upgrade_efficiency(upgrade)
-            self.upgrade_efficiency_labels[upgrade].config(text=f"+{improvement:.2f}%")
-            if improvement > best_improvement:
-                best_improvement = improvement
-                best_choice = (upgrade, 'upgrade')
-            
-            # Update cost efficiency label (%/Common)
-            if hasattr(self, 'upgrade_cost_labels') and upgrade in self.upgrade_cost_labels:
-                next_cost = self.get_common_upgrade_cost(upgrade)
-                if next_cost and next_cost > 0 and improvement > 0:
-                    cost_efficiency = improvement / next_cost
-                    self.upgrade_cost_labels[upgrade].config(
-                        text=f"({cost_efficiency:.2f}%/C)",
-                        foreground="#666666"
-                    )
-                elif next_cost is None:
-                    self.upgrade_cost_labels[upgrade].config(text="(MAX)", foreground="#C73E1D")
-                else:
-                    self.upgrade_cost_labels[upgrade].config(text="")
-        
         # Calculate gem upgrade efficiencies
         if hasattr(self, 'gem_upgrade_efficiency_labels'):
             for gem_upgrade in self.gem_upgrade_efficiency_labels:
@@ -3585,11 +3804,21 @@ class ArchaeologySimulatorWindow:
                         text=f"+{improvement:.2f}%", foreground="#2E7D32")
                     # Note: We don't include gem upgrades in "best choice" since they cost gems
         
-        # Update recommendation
-        if best_choice:
-            name, type_ = best_choice
-            display_name = name.capitalize() if type_ == 'skill' else name.replace('_', ' ').title()
-            self.recommendation_label.config(text=f"+1 {display_name}")
+        # Calculate fragment upgrade efficiencies
+        if hasattr(self, 'upgrade_efficiency_labels'):
+            for upgrade_key in self.upgrade_efficiency_labels:
+                upgrade_info = self.FRAGMENT_UPGRADES.get(upgrade_key, {})
+                max_level = upgrade_info.get('max_level', 25)
+                current_level = self.fragment_upgrade_levels.get(upgrade_key, 0)
+                
+                if current_level >= max_level:
+                    self.upgrade_efficiency_labels[upgrade_key].config(text="MAX", foreground="#C73E1D")
+                else:
+                    _, improvement = self.calculate_fragment_upgrade_efficiency(upgrade_key)
+                    self.upgrade_efficiency_labels[upgrade_key].config(
+                        text=f"+{improvement:.2f}%", foreground="#2E7D32")
+        
+        # Note: Greedy recommendation removed - use Planner/Forecaster on the right instead
         
         # Update results
         floors_per_run = self.calculate_floors_per_run(stats, self.current_stage)

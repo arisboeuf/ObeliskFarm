@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html><head>
+<meta charset="UTF-8" />
+<meta name="color-scheme" content="light dark" />
+<title>Error generating thumbnail</title>
+</head>
+<body>
+<h1>Error generating thumbnail</h1>
+<p>
+The source file 'Star.png' does not exist.
+</p>
+<!-- /w/thumb_handler.php/a/a9/Star.png/30px-Star.png -->
+<!-- mw151 -->
+
+</body>
+</html>
