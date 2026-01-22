@@ -120,59 +120,174 @@ class MainMenuWindow:
         buttons_frame = ttk.Frame(main_frame)
         buttons_frame.pack(fill=tk.BOTH, expand=True)
         
-        # Button style
-        button_style = {
-            'width': 30,
-            'padding': 10
-        }
+        # Load icons for buttons
+        self._load_menu_icons()
         
         # Gem EV Button
-        gem_ev_button = ttk.Button(
+        gem_ev_button = self._create_icon_button(
             buttons_frame,
-            text="💎 Gem EV Calculator",
-            command=self.open_gem_ev,
-            **button_style
+            icon=self.menu_icons.get('gem'),
+            text="Gem EV Calculator",
+            command=self.open_gem_ev
         )
         gem_ev_button.pack(pady=10)
         
         # Archaeology Button
-        arch_button = ttk.Button(
+        arch_button = self._create_icon_button(
             buttons_frame,
-            text="🔍 Archaeology Simulator",
-            command=self.open_archaeology,
-            **button_style
+            icon=self.menu_icons.get('archaeology'),
+            text="Archaeology Simulator",
+            command=self.open_archaeology
         )
         arch_button.pack(pady=10)
         
         # Event Button
-        event_button = ttk.Button(
+        event_button = self._create_icon_button(
             buttons_frame,
-            text="🎉 Event Simulator",
-            command=self.open_event,
-            **button_style
+            icon=self.menu_icons.get('event'),
+            text="Event Simulator",
+            command=self.open_event
         )
         event_button.pack(pady=10)
         
         # Stargazing Button
-        stargazing_button = ttk.Button(
+        stargazing_button = self._create_icon_button(
             buttons_frame,
-            text="⭐ Stargazing Optimizer",
-            command=self.open_stargazing,
-            **button_style
+            icon=self.menu_icons.get('stargazing'),
+            text="Stargazing Optimizer",
+            command=self.open_stargazing
         )
         stargazing_button.pack(pady=10)
         
         # Lootbug Button
-        lootbug_button = ttk.Button(
+        lootbug_button = self._create_icon_button(
             buttons_frame,
-            text="🐛 Option Analyzer",
-            command=self.open_lootbug,
-            **button_style
+            icon=self.menu_icons.get('lootbug'),
+            text="Option Analyzer",
+            command=self.open_lootbug
         )
         lootbug_button.pack(pady=10)
         
         # Store reference to prevent garbage collection
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
+    
+    def _load_menu_icons(self):
+        """Load icons for menu buttons"""
+        self.menu_icons = {}
+        
+        icon_paths = {
+            'gem': 'sprites/common/gem.png',
+            'archaeology': 'sprites/archaeology/archaeology.png',
+            'event': 'sprites/event/event_button.png',
+            'stargazing': 'sprites/stargazing/stargazing.png',
+            'lootbug': 'sprites/lootbug/lootbug.png',
+        }
+        
+        for key, relative_path in icon_paths.items():
+            try:
+                icon_path = get_resource_path(relative_path)
+                if icon_path.exists():
+                    icon_image = Image.open(icon_path)
+                    icon_image = icon_image.resize((32, 32), Image.Resampling.LANCZOS)
+                    self.menu_icons[key] = ImageTk.PhotoImage(icon_image, master=self.root)
+            except Exception as e:
+                print(f"Warning: Could not load {key} icon: {e}")
+                self.menu_icons[key] = None
+    
+    def _create_icon_button(self, parent, icon, text, command):
+        """Create a button with icon and text"""
+        # Create a frame for the button content with nice styling
+        button_frame = tk.Frame(
+            parent,
+            relief=tk.RAISED,
+            borderwidth=2,
+            bg="#E3F2FD",
+            highlightbackground="#1976D2",
+            highlightthickness=1
+        )
+        button_frame.pack(fill=tk.X, padx=30, pady=8)
+        
+        def on_enter(e):
+            button_frame.config(bg="#BBDEFB", relief=tk.SUNKEN)
+            content_frame.config(bg="#BBDEFB")
+            if icon:
+                icon_label.config(bg="#BBDEFB")
+            text_label.config(bg="#BBDEFB")
+        
+        def on_leave(e):
+            button_frame.config(bg="#E3F2FD", relief=tk.RAISED)
+            content_frame.config(bg="#E3F2FD")
+            if icon:
+                icon_label.config(bg="#E3F2FD")
+            text_label.config(bg="#E3F2FD")
+        
+        def on_click(e):
+            command()
+        
+        # Make the entire frame clickable
+        button_frame.bind("<Button-1>", on_click)
+        button_frame.bind("<Enter>", on_enter)
+        button_frame.bind("<Leave>", on_leave)
+        button_frame.config(cursor="hand2")
+        
+        # Icon and text container
+        content_frame = tk.Frame(button_frame, padx=20, pady=12, bg="#E3F2FD")
+        content_frame.pack(fill=tk.X)
+        content_frame.bind("<Button-1>", on_click)
+        content_frame.bind("<Enter>", on_enter)
+        content_frame.bind("<Leave>", on_leave)
+        content_frame.config(cursor="hand2")
+        
+        # Icon
+        if icon:
+            icon_label = tk.Label(
+                content_frame,
+                image=icon,
+                cursor="hand2",
+                bg="#E3F2FD"
+            )
+            icon_label.pack(side=tk.LEFT, padx=(0, 15))
+            icon_label.bind("<Button-1>", on_click)
+            icon_label.bind("<Enter>", on_enter)
+            icon_label.bind("<Leave>", on_leave)
+        else:
+            # Fallback: use emoji if icon not available
+            emoji_map = {
+                'gem': '💎',
+                'archaeology': '🔍',
+                'event': '🎉',
+                'stargazing': '⭐',
+                'lootbug': '🐛',
+            }
+            emoji = emoji_map.get(text.lower().split()[0], '📦')
+            emoji_label = tk.Label(
+                content_frame,
+                text=emoji,
+                font=("Arial", 18),
+                cursor="hand2",
+                bg="#E3F2FD"
+            )
+            emoji_label.pack(side=tk.LEFT, padx=(0, 15))
+            emoji_label.bind("<Button-1>", on_click)
+            emoji_label.bind("<Enter>", on_enter)
+            emoji_label.bind("<Leave>", on_leave)
+        
+        # Text
+        text_label = tk.Label(
+            content_frame,
+            text=text,
+            font=("Arial", 12, "bold"),
+            cursor="hand2",
+            anchor="w",
+            bg="#E3F2FD",
+            fg="#1976D2"
+        )
+        text_label.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        text_label.bind("<Button-1>", on_click)
+        text_label.bind("<Enter>", on_enter)
+        text_label.bind("<Leave>", on_leave)
+        
+        return button_frame
     
     def _on_close(self):
         """Handle window close"""

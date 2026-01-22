@@ -44,6 +44,9 @@ class MonteCarloCritSimulator:
     ENRAGE_CRIT_DAMAGE_BONUS = 1.00
     FLURRY_COOLDOWN = 120
     FLURRY_STAMINA_BONUS = 5
+    QUAKE_CHARGES = 5
+    QUAKE_COOLDOWN = 180
+    QUAKE_DAMAGE_MULTIPLIER = 0.20  # 20% damage to all blocks
     MOD_STAMINA_BONUS_AVG = 6.5
     # Stage structure: 6 columns x 4 rows = 24 slots
     # Each slot CAN spawn a block (but doesn't have to)
@@ -61,6 +64,11 @@ class MonteCarloCritSimulator:
         armor_pen = stats['armor_pen']
         effective_armor = max(0, block_armor - armor_pen)
         return max(1, int(total_damage - effective_armor))
+    
+    def calculate_quake_damage(self, stats: Dict) -> int:
+        """Calculate quake damage (20% of base damage, ignores armor)"""
+        total_damage = stats['total_damage']
+        return max(1, int(total_damage * 0.20))
     
     def simulate_hit_damage(self, stats: Dict, block_armor: int, 
                            is_enrage: bool = False, use_crit: bool = True) -> int:
@@ -155,7 +163,8 @@ class MonteCarloCritSimulator:
     
     def simulate_run(self, stats: Dict, starting_floor: int, 
                     use_crit: bool = True, enrage_enabled: bool = False,
-                    flurry_enabled: bool = False, block_cards: Optional[Dict] = None,
+                    flurry_enabled: bool = False, quake_enabled: bool = False,
+                    block_cards: Optional[Dict] = None,
                     debug: bool = False, return_metrics: bool = False) -> float:
         """
         Simulate a complete run, returning floors cleared.
@@ -182,6 +191,16 @@ class MonteCarloCritSimulator:
         loot_mod_chance = stats.get('loot_mod_chance', 0)
         loot_mod_multiplier = stats.get('loot_mod_multiplier', 3.5)
         
+        # XP tracking
+        total_xp = 0.0
+        xp_mult = stats.get('xp_mult', 1.0)
+        exp_mod_chance = stats.get('exp_mod_chance', 0)
+        exp_mod_multiplier = stats.get('exp_mod_gain', 4.0)  # Average exp mod multiplier
+        arch_xp_mult = stats.get('arch_xp_mult', 1.0)
+        
+        # Run duration tracking (1 hit = 1 second)
+        total_hits = 0
+        
         # Stamina mod tracking
         stamina_mod_chance = stats.get('stamina_mod_chance', 0)
         stamina_mod_gain = stats.get('stamina_mod_gain', self.MOD_STAMINA_BONUS_AVG)
@@ -195,6 +214,9 @@ class MonteCarloCritSimulator:
         
         # Enrage tracking (shared across all blocks in the run)
         enrage_state = {'charges_remaining': 0, 'cooldown': 0} if enrage_enabled else None
+        
+        # Quake tracking (shared across all blocks in the run)
+        quake_state = {'charges_remaining': 0, 'cooldown': 0} if quake_enabled else None
         
         if debug:
             # Extract key stats for display
@@ -227,41 +249,95 @@ class MonteCarloCritSimulator:
             stamina_mods_this_floor = 0
             block_types_spawned = {}  # Track block types spawned this floor
             
-            # Spawn blocks slot by slot (6 columns x 4 rows = 24 slots)
+            # For Quake: track all blocks on the floor and their HP
+            floor_blocks = []  # List of (block_type, block_data, current_hp)
+            
+            # First pass: spawn all blocks
             for slot in range(self.SLOTS_PER_FLOOR):
-                # Spawn a block for this slot (returns block type or None)
                 block_type = spawn_block_for_slot(current_floor, rng=random)
-                
                 if block_type:
                     block_data = block_mix.get(block_type)
                     if block_data:
+                        # Apply card HP reduction if needed
+                        block_hp = block_data.health
+                        if block_cards and block_type in block_cards:
+                            card_level = block_cards[block_type]
+                            if card_level == 1:
+                                block_hp = int(block_hp * 0.90)
+                            elif card_level == 2:
+                                block_hp = int(block_hp * 0.80)
+                        
+                        floor_blocks.append((block_type, block_data, block_hp))
+                        
                         # Track block type
                         if block_type not in block_types_spawned:
                             block_types_spawned[block_type] = 0
                         block_types_spawned[block_type] += 1
+            
+            # Second pass: kill blocks one by one
+            for block_idx, (block_type, block_data, block_hp) in enumerate(floor_blocks):
+                # Simulate killing this block (pass enrage state and cards)
+                hits, enrage_state = self.simulate_block_kill(
+                    stats, block_hp, block_data.armor, 
+                    block_type, use_crit, enrage_state, block_cards
+                )
+                stamina_for_floor += hits
+                total_hits += hits
+                blocks_killed += 1
+                
+                # Track XP from this block (only if not dirt)
+                if block_type != 'dirt':
+                    base_xp = block_data.xp
+                    # Check for exp mod
+                    exp_mod_active = random.random() < exp_mod_chance
+                    exp_mult = exp_mod_multiplier if exp_mod_active else 1.0
+                    # Apply XP multiplier and arch XP multiplier
+                    xp_gain = base_xp * xp_mult * exp_mult * arch_xp_mult
+                    total_xp += xp_gain
+                
+                # Quake: each hit on this block deals 20% damage to all other blocks
+                if quake_state is not None:
+                    # Check if quake is active (charges available)
+                    is_quake_active = quake_state['charges_remaining'] > 0
+                    
+                    if is_quake_active:
+                        # Calculate quake damage per hit (20% of base damage)
+                        base_damage = self.calculate_effective_damage(stats, 0)  # No armor for quake
+                        quake_damage_per_hit = int(base_damage * self.QUAKE_DAMAGE_MULTIPLIER)
                         
-                        # Simulate killing this block (pass enrage state and cards)
-                        hits, enrage_state = self.simulate_block_kill(
-                            stats, block_data.health, block_data.armor, 
-                            block_type, use_crit, enrage_state, block_cards
-                        )
-                        stamina_for_floor += hits
-                        blocks_killed += 1
+                        # Apply quake damage to all other blocks
+                        for other_idx, (other_type, other_data, other_hp) in enumerate(floor_blocks):
+                            if other_idx != block_idx and other_hp > 0:
+                                # Apply quake damage (20% to all blocks)
+                                quake_damage_total = quake_damage_per_hit * hits
+                                # Quake damage ignores armor
+                                floor_blocks[other_idx] = (other_type, other_data, max(0, other_hp - quake_damage_total))
                         
-                        # Calculate fragments from this block (only if not dirt)
-                        if block_type != 'dirt' and block_type in fragments_by_type:
-                            base_frag = block_data.fragment
-                            # Check for loot mod
-                            loot_mod_active = random.random() < loot_mod_chance
-                            loot_mult = loot_mod_multiplier if loot_mod_active else 1.0
-                            frag_gain = base_frag * fragment_mult * loot_mult
-                            fragments_by_type[block_type] += frag_gain
-                        
-                        # Check for stamina mod (adds stamina immediately during the floor)
-                        if random.random() < stamina_mod_chance:
-                            stamina_gain = random.uniform(3, 10)  # Actual range
-                            stamina_remaining = min(max_stamina, stamina_remaining + stamina_gain)
-                            stamina_mods_this_floor += stamina_gain
+                        # Update quake charges
+                        quake_state['charges_remaining'] -= 1
+                        if quake_state['charges_remaining'] <= 0:
+                            quake_state['cooldown'] = self.QUAKE_COOLDOWN
+                    else:
+                        # Update quake cooldown
+                        quake_state['cooldown'] -= hits
+                        if quake_state['cooldown'] <= 0:
+                            quake_state['charges_remaining'] = self.QUAKE_CHARGES
+                            quake_state['cooldown'] = self.QUAKE_COOLDOWN
+                
+                # Calculate fragments from this block (only if not dirt)
+                if block_type != 'dirt' and block_type in fragments_by_type:
+                    base_frag = block_data.fragment
+                    # Check for loot mod
+                    loot_mod_active = random.random() < loot_mod_chance
+                    loot_mult = loot_mod_multiplier if loot_mod_active else 1.0
+                    frag_gain = base_frag * fragment_mult * loot_mult
+                    fragments_by_type[block_type] += frag_gain
+                
+                # Check for stamina mod (adds stamina immediately during the floor)
+                if random.random() < stamina_mod_chance:
+                    stamina_gain = random.uniform(3, 10)  # Actual range
+                    stamina_remaining = min(max_stamina, stamina_remaining + stamina_gain)
+                    stamina_mods_this_floor += stamina_gain
             
             # Check flurry (approximate: 1 hit = 1 second)
             flurry_triggered = False
@@ -306,11 +382,22 @@ class MonteCarloCritSimulator:
             print("=" * 100 + "\n")
         
         if return_metrics:
+            # Calculate total fragments
+            total_fragments = sum(fragments_by_type.values())
+            
+            # Run duration in seconds (1 hit = 1 second, but speed mods/flurry can reduce it)
+            # For simplicity, we use total_hits as duration (speed mods/flurry are QoL, not resource benefit)
+            run_duration_seconds = max(1.0, float(total_hits))
+            
             return {
                 'floors_cleared': floors_cleared,
                 'max_stage_reached': max_stage_reached,
                 'starting_floor': starting_floor,
                 'fragments': fragments_by_type.copy(),
+                'total_fragments': total_fragments,
+                'xp_per_run': total_xp,
+                'run_duration_seconds': run_duration_seconds,
+                'total_hits': total_hits,
             }
         
         return floors_cleared
