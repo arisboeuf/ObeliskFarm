@@ -490,11 +490,102 @@ class BudgetOptimizerPanel:
                     tk.Label(level_frame, text="MAX", font=("Arial", 7, "bold"), background="#FFFFFF", 
                             foreground="#999999", anchor=tk.CENTER).pack()
                 
-                # Store references for updates
-                self.upgrade_level_labels[(tier, idx)] = (level_label, minus_btn, plus_btn, max_level)
+                # Store references for updates (also store cost_label and level_frame for updates)
+                cost_label = None
+                for child in level_frame.winfo_children():
+                    if isinstance(child, tk.Label):
+                        # Find the cost/MAX label (smaller font, below level label)
+                        font_info = child.cget("font")
+                        if isinstance(font_info, (tuple, list)) and len(font_info) >= 2:
+                            if font_info[0] == "Arial" and font_info[1] == 7:
+                                cost_label = child
+                                break
+                self.upgrade_level_labels[(tier, idx)] = (level_label, minus_btn, plus_btn, max_level, level_frame, cost_label)
         
         # Update total points display
         self._update_total_points()
+    
+    def _update_upgrade_display(self, tier: int, idx: int, update_total: bool = True):
+        """Update display for a single upgrade without rebuilding the entire list"""
+        from .optimizer import get_max_level_with_caps, UpgradeState
+        from .constants import COSTS
+        
+        if (tier, idx) not in self.upgrade_level_labels:
+            return
+        
+        # Get stored references
+        stored = self.upgrade_level_labels[(tier, idx)]
+        if len(stored) == 6:
+            level_label, minus_btn, plus_btn, old_max_level, level_frame, cost_label = stored
+        elif len(stored) == 4:
+            # Old format without level_frame and cost_label - rebuild needed
+            level_label, minus_btn, plus_btn, old_max_level = stored
+            # Rebuild this upgrade's display (fallback)
+            self._build_upgrade_level_inputs()
+            return
+        else:
+            # Unknown format - rebuild needed
+            self._build_upgrade_level_inputs()
+            return
+        
+        # Recalculate max level
+        state = UpgradeState()
+        for t in range(1, 5):
+            state.levels[t] = self.current_upgrade_levels[t].copy()
+        
+        max_level = get_max_level_with_caps(tier, idx, state)
+        current_level = self.current_upgrade_levels[tier][idx]
+        
+        # Update level label
+        level_text = f"{current_level}/{max_level}"
+        level_label.config(text=level_text)
+        
+        # Update cost label
+        # Clear existing cost label (all labels except the level label)
+        # We identify the level label by comparing it to the stored level_label reference
+        children_to_remove = []
+        for child in level_frame.winfo_children():
+            if isinstance(child, tk.Label) and child != level_label:
+                # This is not the level label, so it must be a cost/MAX label - remove it
+                children_to_remove.append(child)
+        
+        for child in children_to_remove:
+            child.destroy()
+        
+        # Add new cost label or MAX label
+        if current_level < max_level:
+            base_cost = COSTS[tier][idx]
+            next_cost = round(base_cost * (1.25 ** current_level))
+            cost_text = f"{next_cost:,}" if next_cost < 1000 else f"{next_cost/1000:.1f}k"
+            new_cost_label = tk.Label(level_frame, text=cost_text, 
+                                     font=("Arial", 7), background="#FFFFFF", 
+                                     foreground="#666666", anchor=tk.CENTER)
+            new_cost_label.pack()
+            # Update stored reference
+            self.upgrade_level_labels[(tier, idx)] = (level_label, minus_btn, plus_btn, max_level, level_frame, new_cost_label)
+        else:
+            max_label = tk.Label(level_frame, text="MAX", font=("Arial", 7, "bold"), 
+                                background="#FFFFFF", foreground="#999999", anchor=tk.CENTER)
+            max_label.pack()
+            # Update stored reference
+            self.upgrade_level_labels[(tier, idx)] = (level_label, minus_btn, plus_btn, max_level, level_frame, max_label)
+        
+        # Update button states
+        # Plus button
+        if current_level >= max_level:
+            plus_btn.config(state='disabled', bg="#CCCCCC", fg="#666666", cursor="arrow")
+        else:
+            plus_btn.config(state='normal', bg="#44AA44", fg="white", cursor="hand2")
+        
+        # Minus button
+        if current_level == 0:
+            minus_btn.config(state='disabled', bg="#CCCCCC", fg="#666666", cursor="arrow")
+        else:
+            minus_btn.config(state='normal', bg="#FF4444", fg="white", cursor="hand2")
+        
+        # Update total points display (only if requested, to avoid multiple updates)
+        if update_total:
+            self._update_total_points()
     
     def _on_prestige_change(self):
         """Update upgrade inputs when prestige changes"""
@@ -573,6 +664,7 @@ class BudgetOptimizerPanel:
     def _increment_upgrade(self, tier: int, idx: int):
         """Increment upgrade level"""
         from .optimizer import get_max_level_with_caps, UpgradeState
+        from .constants import CAP_UPGRADES
         
         if (tier, idx) not in self.upgrade_level_labels:
             return
@@ -587,9 +679,28 @@ class BudgetOptimizerPanel:
         
         if current < max_level:
             self.current_upgrade_levels[tier][idx] += 1
-            # Rebuild to update all max levels (cap upgrades might have changed other max levels)
-            # This ensures all buttons are properly enabled/disabled
-            self._build_upgrade_level_inputs()
+            
+            # Check if this is a cap upgrade that affects other upgrades
+            cap_idx = CAP_UPGRADES[tier] - 1  # 0-indexed
+            is_cap_upgrade = (idx == cap_idx)
+            is_cap_of_caps = (tier == 4 and idx == 6)
+            
+            # Update only affected upgrades (no full rebuild)
+            if is_cap_of_caps:
+                # Cap of caps affects all cap upgrades
+                self._update_upgrade_display(1, CAP_UPGRADES[1] - 1, update_total=False)
+                self._update_upgrade_display(2, CAP_UPGRADES[2] - 1, update_total=False)
+                self._update_upgrade_display(3, CAP_UPGRADES[3] - 1, update_total=False)
+                self._update_upgrade_display(4, CAP_UPGRADES[4] - 1, update_total=False)
+            elif is_cap_upgrade:
+                # Cap upgrade affects all upgrades in this tier
+                for i in range(len(self.current_upgrade_levels[tier])):
+                    if i != idx:  # Don't update the cap upgrade itself (already done)
+                        self._update_upgrade_display(tier, i, update_total=False)
+            
+            # Update the clicked upgrade itself (with total update)
+            self._update_upgrade_display(tier, idx, update_total=True)
+            
             self.save_state()  # Auto-save on change
             # Update player stats live
             self._update_player_stats_live()
@@ -598,13 +709,36 @@ class BudgetOptimizerPanel:
     
     def _decrement_upgrade(self, tier: int, idx: int):
         """Decrement upgrade level"""
+        from .optimizer import get_max_level_with_caps, UpgradeState
+        from .constants import CAP_UPGRADES
+        
         if (tier, idx) not in self.upgrade_level_labels:
             return
         
         if self.current_upgrade_levels[tier][idx] > 0:
             self.current_upgrade_levels[tier][idx] -= 1
-            # Rebuild to update all max levels (cap upgrades might have changed other max levels)
-            self._build_upgrade_level_inputs()
+            
+            # Check if this is a cap upgrade that affects other upgrades
+            cap_idx = CAP_UPGRADES[tier] - 1  # 0-indexed
+            is_cap_upgrade = (idx == cap_idx)
+            is_cap_of_caps = (tier == 4 and idx == 6)
+            
+            # Update only affected upgrades (no full rebuild)
+            if is_cap_of_caps:
+                # Cap of caps affects all cap upgrades
+                self._update_upgrade_display(1, CAP_UPGRADES[1] - 1, update_total=False)
+                self._update_upgrade_display(2, CAP_UPGRADES[2] - 1, update_total=False)
+                self._update_upgrade_display(3, CAP_UPGRADES[3] - 1, update_total=False)
+                self._update_upgrade_display(4, CAP_UPGRADES[4] - 1, update_total=False)
+            elif is_cap_upgrade:
+                # Cap upgrade affects all upgrades in this tier
+                for i in range(len(self.current_upgrade_levels[tier])):
+                    if i != idx:  # Don't update the cap upgrade itself (already done)
+                        self._update_upgrade_display(tier, i, update_total=False)
+            
+            # Update the clicked upgrade itself (with total update)
+            self._update_upgrade_display(tier, idx, update_total=True)
+            
             self.save_state()  # Auto-save on change
             # Update player stats live
             self._update_player_stats_live()
@@ -684,24 +818,64 @@ class BudgetOptimizerPanel:
         # Use fewer runs for faster live updates
         sim_results, avg_wave, avg_time = run_full_simulation(player, enemy, runs=50)
         
-        # Display expected results
-        wave_label = tk.Label(self.expected_results_container, 
+        # Track HP damage per wave for histogram
+        wave_damage = {}  # wave -> total damage taken
+        for wave_reached, subwave, _ in sim_results:
+            # Estimate damage: assume player dies at ~0 HP, so damage ≈ max HP
+            # Track damage for each wave up to death wave
+            for w in range(1, min(wave_reached + 1, 50)):  # Cap at wave 50 for performance
+                if w not in wave_damage:
+                    wave_damage[w] = []
+                # Rough estimate: later waves do more damage
+                estimated_dmg = player.health * (w / max(wave_reached, 1))
+                wave_damage[w].append(estimated_dmg)
+        
+        # Calculate average damage per wave
+        avg_damage_per_wave = {}
+        for wave, damages in wave_damage.items():
+            avg_damage_per_wave[wave] = sum(damages) / len(damages) if damages else 0
+        
+        # Get top 10 waves by damage
+        top_waves = sorted(avg_damage_per_wave.items(), key=lambda x: x[1], reverse=True)[:10]
+        
+        # Build histogram tooltip
+        tooltip_text = f"Wave Reach Probability:\n"
+        tooltip_text += f"  • Average Wave: {avg_wave:.1f}\n"
+        tooltip_text += f"  • Average Time: {avg_time:.1f}s\n\n"
+        
+        tooltip_text += f"Top Waves by HP Damage:\n"
+        if top_waves:
+            max_dmg = max(d[1] for d in top_waves) if top_waves else 1
+            for wave, dmg in top_waves:
+                bar_length = int((dmg / max_dmg) * 20) if max_dmg > 0 else 0
+                bar = "█" * bar_length
+                tooltip_text += f"  Wave {wave:2d}: {bar} {dmg:.0f} HP\n"
+        else:
+            tooltip_text += "  (No damage data)\n"
+        
+        tooltip_text += f"\nNote: Based on {len(sim_results)} simulation runs"
+        
+        # Display expected results with tooltip
+        header_frame = tk.Frame(self.expected_results_container, background="#E8F5E9")
+        header_frame.pack(fill=tk.X, pady=1)
+        
+        wave_label = tk.Label(header_frame, 
                              text=f"Max Wave: {avg_wave:.1f}", 
                              font=("Arial", 9, "bold"), background="#E8F5E9",
                              foreground="#1976D2", wraplength=200, justify=tk.LEFT)
-        wave_label.pack(anchor="w", pady=1)
+        wave_label.pack(side=tk.LEFT, padx=(0, 5))
+        
+        # Add help icon with tooltip
+        help_label = tk.Label(header_frame, text="❓", font=("Arial", 10),
+                            background="#E8F5E9", foreground="gray", cursor="hand2")
+        help_label.pack(side=tk.LEFT)
+        create_tooltip(help_label, tooltip_text)
         
         time_label = tk.Label(self.expected_results_container, 
                              text=f"Time/Run: {avg_time:.1f}s", 
                              font=("Arial", 9), background="#E8F5E9", 
                              wraplength=200, justify=tk.LEFT)
         time_label.pack(anchor="w", pady=1)
-    
-    def _update_upgrade_display(self, tier: int, idx: int):
-        """Update upgrade level display (not used anymore, we rebuild instead)"""
-        # This function is kept for compatibility but not actively used
-        # We rebuild the entire UI instead to handle cap upgrade changes
-        pass
     
     def _apply_recommended_upgrades(self):
         """Apply recommended upgrades from last optimization to current upgrade levels"""
@@ -730,6 +904,12 @@ class BudgetOptimizerPanel:
         # Rebuild UI to reflect changes
         self._build_upgrade_level_inputs()
         self.save_state()  # Auto-save
+        
+        # Update player stats with new upgrade levels
+        self._update_player_stats_live()
+        
+        # Update expected results with new upgrade levels
+        self._update_expected_results_live()
         
         # Disable button and show confirmation
         if applied_count > 0 and self.apply_button:
@@ -766,11 +946,59 @@ class BudgetOptimizerPanel:
         # Add eHP directly after Max HP if calculated
         if ehp_at_target:
             ehp_mult = ehp_at_target / player.health if player.health > 0 else 1.0
+            
+            # Calculate detailed multiplier breakdown
+            from .simulation import apply_upgrades, calculate_effective_hp
+            from .stats import EnemyStats as BaseEnemyStats
+            
+            # Get enemy stats from result or calculate from current upgrades
+            if hasattr(result, 'enemy_stats'):
+                enemy_stats = result.enemy_stats
+            else:
+                # Calculate enemy stats from current upgrades
+                _, enemy_stats = apply_upgrades(
+                    self.current_upgrade_levels,
+                    PlayerStats(),
+                    BaseEnemyStats(),
+                    self.budget_prestige_var.get(),
+                    self.current_gem_levels
+                )
+            
+            # Calculate multipliers
+            block_mult = 1.0 / (1.0 - player.block_chance) if player.block_chance < 1.0 else float('inf')
+            
+            # Calculate base enemy damage (no debuffs)
+            base_enemy_atk = 2.5 + next_prestige_wave * 0.6
+            base_enemy_crit = 0 + next_prestige_wave
+            base_enemy_crit_dmg = 1.0 + next_prestige_wave * 0.05
+            base_enemy_crit_chance = max(0, base_enemy_crit / 100.0)
+            base_avg_dmg = base_enemy_atk * (1.0 + base_enemy_crit_chance * (base_enemy_crit_dmg - 1.0))
+            
+            # Calculate actual enemy damage (with debuffs)
+            actual_enemy_atk = max(1, enemy_stats.atk + next_prestige_wave * enemy_stats.atk_scaling)
+            actual_enemy_crit_chance = max(0, (enemy_stats.crit + next_prestige_wave) / 100.0)
+            actual_enemy_crit_dmg = enemy_stats.crit_dmg + enemy_stats.crit_dmg_scaling * next_prestige_wave
+            actual_avg_dmg = actual_enemy_atk * (1.0 + actual_enemy_crit_chance * (actual_enemy_crit_dmg - 1.0))
+            
+            dmg_reduction_mult = base_avg_dmg / actual_avg_dmg if actual_avg_dmg > 0 else 1.0
+            
+            # Build detailed tooltip
+            ehp_tooltip = f"Effective HP Breakdown (Wave {next_prestige_wave}):\n"
+            ehp_tooltip += f"  • Base HP: {int(player.health)}\n"
+            ehp_tooltip += f"  • Block Multiplier: {block_mult:.3f}x ({player.block_chance*100:.1f}% block)\n"
+            ehp_tooltip += f"  • Damage Reduction: {dmg_reduction_mult:.3f}x\n"
+            ehp_tooltip += f"    - Base Enemy Dmg: {base_avg_dmg:.1f}/hit\n"
+            ehp_tooltip += f"    - Actual Enemy Dmg: {actual_avg_dmg:.1f}/hit\n"
+            ehp_tooltip += f"    - ATK Debuff: -{base_enemy_atk - actual_enemy_atk:.1f} ATK\n"
+            ehp_tooltip += f"    - Crit Debuff: -{base_enemy_crit - enemy_stats.crit:.1f}% crit, -{base_enemy_crit_dmg - actual_enemy_crit_dmg:.2f}x crit dmg\n"
+            ehp_tooltip += f"\nTotal eHP: {ehp_at_target:.0f} ({ehp_mult:.2f}x base HP)\n"
+            ehp_tooltip += f"Formula: HP × {block_mult:.3f} × {dmg_reduction_mult:.3f} = {ehp_at_target:.0f}"
+            
             stat_rows.append((
                 "Effective HP:", 
                 lambda: f"{ehp_at_target:.0f} ({ehp_mult:.2f}x)", 
                 "💚",
-                f"Effective HP accounts for:\n• Base HP: {int(player.health)}\n• Block Chance: {player.block_chance*100:.0f}% (reduces damage)\n• Enemy ATK Debuffs: reduces damage per hit\n\nAt Wave {next_prestige_wave}, you effectively have {ehp_at_target:.0f} HP\n({ehp_mult:.2f}x your base HP)"
+                ehp_tooltip
             ))
         
         # Add remaining stats
@@ -978,14 +1206,13 @@ class BudgetOptimizerPanel:
             error_label.pack(pady=20)
             return
         
-        # Calculate eHP at estimated max wave
-        estimated_wave = int(result.expected_wave)
-        ehp_at_target = calculate_effective_hp(result.player_stats, result.enemy_stats, estimated_wave)
-        self.update_player_stats_display(result, estimated_wave, ehp_at_target)
-        
         # Store result for applying upgrades
         self.last_optimization_result = result
         self.last_initial_state = initial_state
+        
+        # Update player stats with CURRENT upgrades (not recommended ones)
+        # This ensures the stats display shows current state, not forecast state
+        self._update_player_stats_live()
         
         # Reset apply button state (new optimization = button can be used again)
         self.apply_button = None
@@ -1061,36 +1288,6 @@ class BudgetOptimizerPanel:
                 text="Automatically apply recommended upgrades to your current levels",
                 font=("Arial", 8, "italic"), background="#E8F5E9",
                 foreground="#666666", wraplength=300, justify=tk.CENTER).pack(pady=(0, 5))
-        
-        # === EXPECTED RESULTS (compact) ===
-        results_summary_frame = tk.Frame(self.results_container, background="#FFFFFF", relief=tk.RAISED, borderwidth=1)
-        results_summary_frame.pack(fill=tk.X, padx=3, pady=2)
-        
-        # Header with tooltip
-        header_frame = tk.Frame(results_summary_frame, background="#FFFFFF")
-        header_frame.pack(fill=tk.X, padx=5, pady=2)
-        
-        tk.Label(header_frame, text="Expected Results", font=("Arial", 9, "bold"),
-                background="#FFFFFF").pack(side=tk.LEFT)
-        
-        # Calculate probability and create tooltip
-        prob_info = self._calculate_wave_probability_info(result, prestige)
-        help_label = tk.Label(header_frame, text="❓", font=("Arial", 10), 
-                             background="#FFFFFF", foreground="gray", cursor="hand2")
-        help_label.pack(side=tk.LEFT, padx=(5, 0))
-        create_tooltip(help_label, prob_info)
-        
-        results_inner = tk.Frame(results_summary_frame, background="#FFFFFF")
-        results_inner.pack(fill=tk.X, padx=5, pady=(0, 5))
-        
-        # Wave Pusher Mode: Show max wave (with word wrap)
-        wave_label = tk.Label(results_inner, text=f"Max Wave: {result.expected_wave:.1f}", 
-                font=("Arial", 9, "bold"), background="#FFFFFF",
-                foreground="#1976D2", wraplength=200, justify=tk.LEFT)
-        wave_label.pack(anchor="w", pady=2)
-        time_label = tk.Label(results_inner, text=f"Time/Run: {result.expected_time:.1f}s", 
-                font=("Arial", 9), background="#FFFFFF", wraplength=200, justify=tk.LEFT)
-        time_label.pack(anchor="w", pady=2)
         
         # === UPGRADE CARDS (Game-style) ===
         upgrades_frame = tk.Frame(self.results_container, background="#E8F5E9")
@@ -1170,15 +1367,3 @@ class BudgetOptimizerPanel:
                 tk.Label(text_frame, text=f"Lv.{level}", font=("Arial", 8),
                         background="#FFFFFF", foreground="#666666", anchor="w", wraplength=120).pack(fill=tk.X)
         
-        # === BREAKPOINT SUMMARY (compact) ===
-        if result.breakpoints:
-            bp_frame = tk.Frame(self.results_container, background="#FFFFFF", relief=tk.RAISED, borderwidth=1)
-            bp_frame.pack(fill=tk.X, padx=3, pady=2)
-            
-            tk.Label(bp_frame, text="Next Breakpoint", font=("Arial", 8, "bold"),
-                    background="#FFFFFF").pack(anchor="w", padx=5, pady=1)
-            
-            best_bp = result.breakpoints[0]
-            bp_text = f"Wave {best_bp['wave']}: +{best_bp['atk_increase']} ATK → {best_bp['target_hits']}-hit kills"
-            tk.Label(bp_frame, text=bp_text, font=("Arial", 8),
-                    background="#FFFFFF", wraplength=300, justify=tk.LEFT).pack(anchor="w", padx=5, pady=(0, 3))
