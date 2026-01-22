@@ -615,14 +615,30 @@ class BudgetOptimizerPanel:
         sim_results, avg_wave, avg_time = run_full_simulation(player, enemy, runs=200)
         
         # Calculate probability of reaching estimated wave
+        import math
         waves_reached = [r[0] + (1 - r[1] * 0.2) for r in sim_results]  # Convert to decimal wave
         times = [r[2] for r in sim_results]  # Extract times
         reached_count = sum(1 for w in waves_reached if w >= estimated_wave)
         probability = (reached_count / len(sim_results)) * 100
         
+        # Calculate standard deviations
+        if len(waves_reached) > 1:
+            wave_variance = sum((w - avg_wave) ** 2 for w in waves_reached) / len(waves_reached)
+            wave_sd = math.sqrt(wave_variance)
+        else:
+            wave_sd = 0.0
+        
+        if len(times) > 1:
+            time_variance = sum((t - avg_time) ** 2 for t in times) / len(times)
+            time_sd = math.sqrt(time_variance)
+        else:
+            time_sd = 0.0
+        
         # Calculate time statistics
         min_time = min(times)
         max_time = max(times)
+        min_wave = min(waves_reached)
+        max_wave = max(waves_reached)
         
         # Calculate probability for next few prestiges
         prestige_info = []
@@ -637,12 +653,12 @@ class BudgetOptimizerPanel:
         # Build tooltip text following design guidelines (headers end with ':')
         tooltip_text = f"Wave Reach Probability:\n"
         tooltip_text += f"  • Reach Wave {estimated_wave:.1f}: {probability:.1f}%\n"
-        tooltip_text += f"  • Average Wave: {avg_wave:.1f}\n"
-        tooltip_text += f"  • Best Run: {max(waves_reached):.1f}\n"
-        tooltip_text += f"  • Worst Run: {min(waves_reached):.1f}\n\n"
+        tooltip_text += f"  • Average Wave: {avg_wave:.1f} ± {wave_sd:.1f} (SD)\n"
+        tooltip_text += f"  • Best Run: {max_wave:.1f}\n"
+        tooltip_text += f"  • Worst Run: {min_wave:.1f}\n\n"
         
         tooltip_text += f"Run Duration:\n"
-        tooltip_text += f"  • Average Time: {avg_time:.1f}s\n"
+        tooltip_text += f"  • Average Time: {avg_time:.1f}s ± {time_sd:.1f}s (SD)\n"
         tooltip_text += f"  • Fastest Run: {min_time:.1f}s\n"
         tooltip_text += f"  • Slowest Run: {max_time:.1f}s\n\n"
         
@@ -818,42 +834,31 @@ class BudgetOptimizerPanel:
         # Use fewer runs for faster live updates
         sim_results, avg_wave, avg_time = run_full_simulation(player, enemy, runs=50)
         
-        # Track HP damage per wave for histogram
-        wave_damage = {}  # wave -> total damage taken
-        for wave_reached, subwave, _ in sim_results:
-            # Estimate damage: assume player dies at ~0 HP, so damage ≈ max HP
-            # Track damage for each wave up to death wave
-            for w in range(1, min(wave_reached + 1, 50)):  # Cap at wave 50 for performance
-                if w not in wave_damage:
-                    wave_damage[w] = []
-                # Rough estimate: later waves do more damage
-                estimated_dmg = player.health * (w / max(wave_reached, 1))
-                wave_damage[w].append(estimated_dmg)
+        # Calculate standard deviations
+        import math
+        waves_reached = [r[0] + (1 - r[1] * 0.2) for r in sim_results]  # Convert to decimal wave
+        times = [r[2] for r in sim_results]  # Extract times
         
-        # Calculate average damage per wave
-        avg_damage_per_wave = {}
-        for wave, damages in wave_damage.items():
-            avg_damage_per_wave[wave] = sum(damages) / len(damages) if damages else 0
-        
-        # Get top 10 waves by damage
-        top_waves = sorted(avg_damage_per_wave.items(), key=lambda x: x[1], reverse=True)[:10]
-        
-        # Build histogram tooltip
-        tooltip_text = f"Wave Reach Probability:\n"
-        tooltip_text += f"  • Average Wave: {avg_wave:.1f}\n"
-        tooltip_text += f"  • Average Time: {avg_time:.1f}s\n\n"
-        
-        tooltip_text += f"Top Waves by HP Damage:\n"
-        if top_waves:
-            max_dmg = max(d[1] for d in top_waves) if top_waves else 1
-            for wave, dmg in top_waves:
-                bar_length = int((dmg / max_dmg) * 20) if max_dmg > 0 else 0
-                bar = "█" * bar_length
-                tooltip_text += f"  Wave {wave:2d}: {bar} {dmg:.0f} HP\n"
+        # Calculate SD for waves
+        if len(waves_reached) > 1:
+            wave_variance = sum((w - avg_wave) ** 2 for w in waves_reached) / len(waves_reached)
+            wave_sd = math.sqrt(wave_variance)
         else:
-            tooltip_text += "  (No damage data)\n"
+            wave_sd = 0.0
         
-        tooltip_text += f"\nNote: Based on {len(sim_results)} simulation runs"
+        # Calculate SD for times
+        if len(times) > 1:
+            time_variance = sum((t - avg_time) ** 2 for t in times) / len(times)
+            time_sd = math.sqrt(time_variance)
+        else:
+            time_sd = 0.0
+        
+        # Build tooltip with SD
+        tooltip_text = f"Simulation Statistics ({len(sim_results)} runs):\n"
+        tooltip_text += f"  • Average Wave: {avg_wave:.1f} ± {wave_sd:.1f} (SD)\n"
+        tooltip_text += f"  • Average Time: {avg_time:.1f}s ± {time_sd:.1f}s (SD)\n"
+        tooltip_text += f"  • Min Wave: {min(waves_reached):.1f}\n"
+        tooltip_text += f"  • Max Wave: {max(waves_reached):.1f}"
         
         # Display expected results with tooltip
         header_frame = tk.Frame(self.expected_results_container, background="#E8F5E9")
@@ -1313,11 +1318,15 @@ class BudgetOptimizerPanel:
         upgrade_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         
         # Create upgrade cards for each tier
+        # Only show upgrades that would be ADDED (difference between current and recommended)
         for tier in range(1, 5):
             tier_upgrades = []
-            for idx, level in enumerate(result.upgrades.levels[tier]):
-                if level > 0:
-                    tier_upgrades.append((idx, level))
+            for idx, recommended_level in enumerate(result.upgrades.levels[tier]):
+                initial_level = initial_state.levels[tier][idx]
+                # Only show if recommended level is higher than current level
+                if recommended_level > initial_level:
+                    added_levels = recommended_level - initial_level
+                    tier_upgrades.append((idx, added_levels))
             
             if not tier_upgrades:
                 continue
@@ -1364,6 +1373,7 @@ class BudgetOptimizerPanel:
                 # Name (with word wrap)
                 tk.Label(text_frame, text=name, font=("Arial", 8, "bold"),
                         background="#FFFFFF", anchor="w", wraplength=120, justify=tk.LEFT).pack(fill=tk.X, pady=1)
-                tk.Label(text_frame, text=f"Lv.{level}", font=("Arial", 8),
-                        background="#FFFFFF", foreground="#666666", anchor="w", wraplength=120).pack(fill=tk.X)
+                # Show "+X" to indicate how many levels would be added
+                tk.Label(text_frame, text=f"+{level}", font=("Arial", 8),
+                        background="#FFFFFF", foreground="#4CAF50", anchor="w", wraplength=120).pack(fill=tk.X)
         

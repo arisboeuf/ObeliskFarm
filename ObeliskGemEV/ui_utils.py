@@ -97,7 +97,7 @@ def create_tooltip(widget, text, position="auto"):
         
         # Estimate tooltip dimensions based on content
         lines = text.split('\n')
-        tooltip_width = min(max(len(line) for line in lines) * 8 + 30, 350) if lines else 250
+        tooltip_width = min(max(len(line) for line in lines) * 8 + 30, 400) if lines else 250
         tooltip_height = len(lines) * 18 + 30
         
         # Get screen dimensions and calculate position

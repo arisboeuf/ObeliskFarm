@@ -542,6 +542,23 @@ class ArchaeologySimulatorWindow:
         except Exception as e:
             print(f"Warning: Could not load state: {e}")
     
+    def reset_stats_only(self):
+        """Reset only stats (skill points, level, stage) but keep upgrades (fragment_upgrade_levels, gem_upgrades)"""
+        self.level = 1
+        self.current_stage = 1
+        self.unlocked_stage = 1
+        self.skill_points = {
+            'strength': 0, 'agility': 0, 'intellect': 0, 'perception': 0, 'luck': 0,
+        }
+        self.base_damage = 10
+        self.base_armor_pen = 0
+        self.base_stamina = 100
+        self.base_crit_chance = 0.0
+        self.base_crit_damage = 1.5
+        self.base_xp_mult = 1.0
+        self.base_fragment_mult = 1.0
+        # Note: fragment_upgrade_levels and gem_upgrades are NOT reset
+    
     def reset_to_level1(self):
         self.level = 1
         self.current_stage = 1
@@ -1728,6 +1745,21 @@ class ArchaeologySimulatorWindow:
         )
         mc_stage_pusher_button.pack(side=tk.LEFT, padx=(5, 0))
         
+        # MC Fragment Farmer button
+        mc_fragment_farmer_button = tk.Button(
+            inner_crit_mc,
+            text="MC Fragment Farmer",
+            command=self.run_mc_fragment_farmer,
+            font=("Arial", 9),
+            bg="#7B1FA2",
+            fg="#FFFFFF",
+            activebackground="#9C27B0",
+            activeforeground="#FFFFFF",
+            relief=tk.RAISED,
+            borderwidth=2
+        )
+        mc_fragment_farmer_button.pack(side=tk.LEFT, padx=(5, 0))
+        
         # Center: Level display
         self.level_label = tk.Label(header_frame, text="Level: 1", font=("Arial", 12, "bold"),
                                    background="#E3F2FD", foreground="#1976D2")
@@ -1965,7 +1997,6 @@ class ArchaeologySimulatorWindow:
         self.upgrade_efficiency_labels = {}  # Stage Rush (Floors)
         self.upgrade_xp_efficiency_labels = {}  # XP efficiency
         self.upgrade_frag_efficiency_labels = {}  # Fragment efficiency
-        self.upgrade_cost_labels = {}
         self.upgrade_level_labels = {}
         self.fragment_upgrade_levels = {}  # Track levels for new FRAGMENT_UPGRADES
         
@@ -2258,7 +2289,6 @@ class ArchaeologySimulatorWindow:
         self.upgrade_efficiency_labels = {}  # Stage Rush (Floors)
         self.upgrade_xp_efficiency_labels = {}  # XP efficiency
         self.upgrade_frag_efficiency_labels = {}  # Fragment efficiency
-        self.upgrade_cost_labels = {}
         self.upgrade_level_labels = {}
         
         unlocked_stage = self.get_unlocked_stage()
@@ -2349,7 +2379,7 @@ class ArchaeologySimulatorWindow:
         tk.Label(row_frame, text=display_name, background="#E8F5E9", 
                 font=("Arial", 8), width=14, anchor=tk.W).pack(side=tk.LEFT)
         
-        # Help ? label with tooltip (includes stage unlock info)
+        # Help ? label with tooltip (includes stage unlock info and costs)
         help_label = tk.Label(row_frame, text="?", background="#E8F5E9",
                              font=("Arial", 7, "bold"), foreground="#888888", cursor="hand2")
         help_label.pack(side=tk.LEFT, padx=(0, 2))
@@ -2389,6 +2419,7 @@ class ArchaeologySimulatorWindow:
                 self.upgrade_level_labels[upgrade_key].config(
                     text=f"{self.fragment_upgrade_levels[upgrade_key]}/{max_level}")
             self.update_display()
+            self.save_state()  # Save immediately after upgrade change
     
     def _remove_fragment_upgrade(self, upgrade_key):
         """Remove a level from a fragment upgrade"""
@@ -2403,6 +2434,7 @@ class ArchaeologySimulatorWindow:
                 self.upgrade_level_labels[upgrade_key].config(
                     text=f"{self.fragment_upgrade_levels[upgrade_key]}/{max_level}")
             self.update_display()
+            self.save_state()  # Save immediately after upgrade change
     
     def _create_fragment_upgrade_tooltip(self, widget, upgrade_key, upgrade_info, color):
         """Creates a tooltip for a fragment upgrade showing details and current bonuses"""
@@ -2540,6 +2572,22 @@ class ArchaeologySimulatorWindow:
                     # Fallback for unknown bonuses
                     tk.Label(content_frame, text=f"  • {bonus_key}: {bonus_value}", 
                             font=("Arial", 9), background="#FFFFFF").pack(anchor=tk.W)
+            
+            # Next upgrade cost
+            if current_level < max_level:
+                next_cost = get_upgrade_cost(upgrade_key, current_level)
+                if next_cost is not None:
+                    tk.Label(content_frame, text=f"\nNext Upgrade Cost: {next_cost:.1f} {cost_type.capitalize()} Fragments", 
+                            font=("Arial", 9, "bold"), foreground="#1976D2",
+                            background="#FFFFFF").pack(anchor=tk.W)
+                else:
+                    tk.Label(content_frame, text=f"\nNext Upgrade Cost: —", 
+                            font=("Arial", 9, "bold"), foreground="#999999",
+                            background="#FFFFFF").pack(anchor=tk.W)
+            else:
+                tk.Label(content_frame, text=f"\nNext Upgrade Cost: MAX", 
+                        font=("Arial", 9, "bold"), foreground="#C73E1D",
+                        background="#FFFFFF").pack(anchor=tk.W)
             
             # Current level and total bonus
             tk.Label(content_frame, text=f"\nLevel: {current_level} / {max_level}", 
@@ -3629,9 +3677,6 @@ class ArchaeologySimulatorWindow:
                                                background="#E3F2FD", foreground="#2E7D32", 
                                                width=5, anchor=tk.E)
         self.forecast_1_floors_label.pack(side=tk.LEFT, padx=(3, 0))
-        self.forecast_1_gain_label = tk.Label(row_1_top, text="—", font=("Arial", 9, "bold"), 
-                                             background="#E3F2FD", foreground="#2E7D32", anchor=tk.E)
-        self.forecast_1_gain_label.pack(side=tk.RIGHT)
         
         # Path for row 1
         row_1_path = tk.Frame(row_1_frame, background="#E8F5E9")
@@ -3727,9 +3772,6 @@ class ArchaeologySimulatorWindow:
                                        background="#E1BEE7", foreground="#333333", 
                                        width=7, anchor=tk.E)
         self.budget_xp_label.pack(side=tk.LEFT)
-        self.budget_gain_label = tk.Label(result_inner, text="—", font=("Arial", 10, "bold"), 
-                                         background="#E1BEE7", foreground="#2E7D32", anchor=tk.E)
-        self.budget_gain_label.pack(side=tk.RIGHT)
         
         # Frags/h row (shows selected fragment type from Fragment Farm Planner)
         budget_frag_row = tk.Frame(budget_inner, background="#F3E5F5")
@@ -3809,9 +3851,6 @@ class ArchaeologySimulatorWindow:
                                           background="#80DEEA", foreground="#333333", 
                                           width=7, anchor=tk.E)
         self.xp_budget_xp_label.pack(side=tk.LEFT)
-        self.xp_budget_gain_label = tk.Label(xp_result_inner, text="—", font=("Arial", 10, "bold"), 
-                                            background="#80DEEA", foreground="#2E7D32", anchor=tk.E)
-        self.xp_budget_gain_label.pack(side=tk.RIGHT)
         
         # Frags/h row (shows selected fragment type from Fragment Farm Planner)
         xp_budget_frag_row = tk.Frame(xp_budget_inner, background="#B2EBF2")
@@ -3918,12 +3957,6 @@ class ArchaeologySimulatorWindow:
         self.frag_planner_xp_label = tk.Label(result_row3, text="—", font=("Arial", 9, "bold"),
                                              background="#EDE7F6", foreground="#FF6F00")
         self.frag_planner_xp_label.pack(side=tk.LEFT, padx=(3, 10))
-        
-        tk.Label(result_row3, text="Gain:", font=("Arial", 9), 
-                background="#EDE7F6", foreground="#555555").pack(side=tk.LEFT)
-        self.frag_planner_gain_label = tk.Label(result_row3, text="—", font=("Arial", 9, "bold"),
-                                               background="#EDE7F6", foreground="#2E7D32")
-        self.frag_planner_gain_label.pack(side=tk.LEFT, padx=(3, 0))
         
         # Initialize target button highlight
         self._update_frag_target_buttons()
@@ -4885,6 +4918,8 @@ class ArchaeologySimulatorWindow:
                 max_level = upgrade_info.get('max_level', 25)
                 current_level = self.fragment_upgrade_levels.get(upgrade_key, 0)
                 
+                # Cost is now shown in tooltip, no need to update label
+                
                 if current_level >= max_level:
                     # All three efficiency labels show MAX
                     self.upgrade_efficiency_labels[upgrade_key].config(text="MAX", foreground="#C73E1D")
@@ -5042,8 +5077,6 @@ class ArchaeologySimulatorWindow:
         dist_1_str = self.format_distribution(forecast_1['distribution'])
         self.forecast_1_dist_label.config(text=dist_1_str)
         self.forecast_1_floors_label.config(text=f"{forecast_1['floors_per_run']:.2f}")
-        self.forecast_1_gain_label.config(text=f"+{forecast_1['improvement_pct']:.1f}%")
-        
         # Path
         if forecast_1['path']:
             path_1_str = ' → '.join(abbrev[s] for s in forecast_1['path'])
@@ -5088,7 +5121,6 @@ class ArchaeologySimulatorWindow:
         self.budget_dist_label.config(text=dist_str)
         self.budget_floors_label.config(text=f"{stages_per_hour:.1f}")
         self.budget_xp_label.config(text=f"{xp_per_hour:.1f}")
-        self.budget_gain_label.config(text=f"+{result['improvement_pct']:.1f}%")
         
         # Update frags/h display based on selected fragment type from Fragment Farm Planner
         if hasattr(self, 'frag_target_var'):
@@ -5153,7 +5185,6 @@ class ArchaeologySimulatorWindow:
         self.xp_budget_dist_label.config(text=dist_str)
         self.xp_budget_floors_label.config(text=f"{stages_per_hour:.1f}")
         self.xp_budget_xp_label.config(text=f"{xp_per_hour:.1f}")
-        self.xp_budget_gain_label.config(text=f"+{result['improvement_pct']:.1f}%")
         
         # Update frags/h display based on selected fragment type from Fragment Farm Planner
         if hasattr(self, 'frag_target_var'):
@@ -5202,7 +5233,6 @@ class ArchaeologySimulatorWindow:
         self.frag_planner_result_label.config(text=f"{result['frags_per_hour']:.1f}")
         self.frag_planner_stages_label.config(text=f"{result['stages_per_hour']:.1f}")
         self.frag_planner_xp_label.config(text=f"{result['xp_per_hour']:.1f}")
-        self.frag_planner_gain_label.config(text=f"+{result['improvement_pct']:.1f}%")
     
     def calculate_frag_forecast(self, levels_ahead: int, target_frag_type: str):
         """
@@ -5318,6 +5348,9 @@ class ArchaeologySimulatorWindow:
         """
         import threading
         
+        # Reset stats (but keep upgrades) before MC simulation
+        self.reset_stats_only()
+        
         def run_in_thread():
             # Always start at Floor 1 (unbiased)
             starting_floor = 1
@@ -5325,7 +5358,7 @@ class ArchaeologySimulatorWindow:
             # Get planner points (shared across all planners)
             num_points = self.shared_planner_points.get() if hasattr(self, 'shared_planner_points') else 20
             
-            # Save original skill points and crit state
+            # Save original skill points and crit state (already reset, but keep for consistency)
             original_points = self.skill_points.copy()
             original_crit_state = self.crit_calc_enabled.get() if hasattr(self, 'crit_calc_enabled') else False
             
@@ -5420,6 +5453,12 @@ class ArchaeologySimulatorWindow:
                     stage_counts_with_crit[max_stage] = 0
                 stage_counts_with_crit[max_stage] += 1
             
+            # Reset stats after MC simulation (don't apply planner distribution)
+            self.window.after(0, lambda: (
+                self.reset_stats_only(),
+                self.update_display()
+            ))
+            
             # Create window with histograms
             self.window.after(0, lambda: self._show_stage_pusher_results(
                 stage_counts_no_crit, stage_counts_with_crit,
@@ -5430,6 +5469,357 @@ class ArchaeologySimulatorWindow:
         # Run in separate thread to avoid blocking UI
         thread = threading.Thread(target=run_in_thread, daemon=True)
         thread.start()
+    
+    def run_mc_fragment_farmer(self):
+        """Run 1000 Monte Carlo simulations and show histogram with fragment/hour distribution
+        
+        Runs two simulations: one without crit and one with crit.
+        Uses the recommended skill setup from Fragment Farm Planner for each.
+        Shows two histograms side by side for comparison.
+        """
+        import threading
+        
+        # Reset stats (but keep upgrades) before MC simulation
+        self.reset_stats_only()
+        
+        # Get target fragment type from Fragment Planner
+        target_frag = self.frag_target_var.get() if hasattr(self, 'frag_target_var') else 'common'
+        
+        def run_in_thread():
+            # Always start at Floor 1 (unbiased)
+            starting_floor = 1
+            
+            # Get planner points (shared across all planners)
+            num_points = self.shared_planner_points.get() if hasattr(self, 'shared_planner_points') else 20
+            
+            # Save original skill points and crit state (already reset, but keep for consistency)
+            original_points = self.skill_points.copy()
+            original_crit_state = self.crit_calc_enabled.get() if hasattr(self, 'crit_calc_enabled') else False
+            
+            enrage_enabled = self.enrage_enabled.get() if hasattr(self, 'enrage_enabled') else True
+            flurry_enabled = self.flurry_enabled.get() if hasattr(self, 'flurry_enabled') else True
+            block_cards = self.block_cards if hasattr(self, 'block_cards') else None
+            
+            # ===== SIMULATION WITHOUT CRIT =====
+            # Get Fragment Planner distribution WITHOUT crit (crit disabled)
+            if hasattr(self, 'crit_calc_enabled'):
+                self.crit_calc_enabled.set(False)
+            forecast_no_crit = self.calculate_frag_forecast(num_points, target_frag)
+            planner_dist_no_crit = forecast_no_crit['distribution']
+            
+            # Get skill points for display (current + planner distribution)
+            skill_points_display_no_crit = {}
+            for skill in ['strength', 'agility', 'intellect', 'perception', 'luck']:
+                current = self.skill_points.get(skill, 0)
+                added = planner_dist_no_crit.get(skill, 0)
+                skill_points_display_no_crit[skill] = current + added
+            
+            # Apply planner distribution temporarily to get stats
+            for skill, points in planner_dist_no_crit.items():
+                self.skill_points[skill] += points
+            
+            stats_no_crit = self.get_total_stats()
+            
+            # Restore original skill points
+            self.skill_points = original_points
+            
+            # ===== SIMULATION WITH CRIT =====
+            # Get Fragment Planner distribution WITH crit (crit enabled)
+            if hasattr(self, 'crit_calc_enabled'):
+                self.crit_calc_enabled.set(True)
+            forecast_with_crit = self.calculate_frag_forecast(num_points, target_frag)
+            planner_dist_with_crit = forecast_with_crit['distribution']
+            
+            # Get skill points for display (current + planner distribution)
+            skill_points_display_with_crit = {}
+            for skill in ['strength', 'agility', 'intellect', 'perception', 'luck']:
+                current = self.skill_points.get(skill, 0)
+                added = planner_dist_with_crit.get(skill, 0)
+                skill_points_display_with_crit[skill] = current + added
+            
+            # Apply planner distribution temporarily to get stats
+            for skill, points in planner_dist_with_crit.items():
+                self.skill_points[skill] += points
+            
+            stats_with_crit = self.get_total_stats()
+            
+            # Restore original skill points
+            self.skill_points = original_points
+            
+            # Restore crit state
+            if hasattr(self, 'crit_calc_enabled'):
+                self.crit_calc_enabled.set(original_crit_state)
+            
+            # Run 1000 simulations for both scenarios
+            from .monte_carlo_crit import MonteCarloCritSimulator
+            simulator = MonteCarloCritSimulator()
+            
+            frag_per_hour_no_crit = []  # List of frags/hour values for statistical test
+            frag_per_hour_with_crit = []
+            
+            for i in range(1000):
+                # Run simulation WITHOUT crit
+                result = simulator.simulate_run(
+                    stats_no_crit, starting_floor, use_crit=False, 
+                    enrage_enabled=enrage_enabled, flurry_enabled=flurry_enabled,
+                    block_cards=block_cards, return_metrics=True
+                )
+                
+                # Calculate fragments per hour
+                floors_cleared = result['floors_cleared']
+                fragments = result.get('fragments', {})
+                target_frag_count = fragments.get(target_frag, 0)
+                
+                # Calculate run duration (approximate: 1 hit = 1 second, but account for speed mods)
+                # Use a simplified calculation based on floors cleared
+                run_duration = self.calculate_run_duration(stats_no_crit, starting_floor)
+                # Scale duration by floors cleared ratio
+                if floors_cleared > 0:
+                    expected_floors = self.calculate_floors_per_run(stats_no_crit, starting_floor)
+                    if expected_floors > 0:
+                        run_duration = run_duration * (floors_cleared / expected_floors)
+                
+                runs_per_hour = 3600 / run_duration if run_duration > 0 else 0
+                frags_per_hour = target_frag_count * runs_per_hour
+                frag_per_hour_no_crit.append(frags_per_hour)
+            
+            for i in range(1000):
+                # Run simulation WITH crit
+                result = simulator.simulate_run(
+                    stats_with_crit, starting_floor, use_crit=True, 
+                    enrage_enabled=enrage_enabled, flurry_enabled=flurry_enabled,
+                    block_cards=block_cards, return_metrics=True
+                )
+                
+                # Calculate fragments per hour
+                floors_cleared = result['floors_cleared']
+                fragments = result.get('fragments', {})
+                target_frag_count = fragments.get(target_frag, 0)
+                
+                # Calculate run duration (approximate: 1 hit = 1 second, but account for speed mods)
+                run_duration = self.calculate_run_duration(stats_with_crit, starting_floor)
+                # Scale duration by floors cleared ratio
+                if floors_cleared > 0:
+                    expected_floors = self.calculate_floors_per_run(stats_with_crit, starting_floor)
+                    if expected_floors > 0:
+                        run_duration = run_duration * (floors_cleared / expected_floors)
+                
+                runs_per_hour = 3600 / run_duration if run_duration > 0 else 0
+                frags_per_hour = target_frag_count * runs_per_hour
+                frag_per_hour_with_crit.append(frags_per_hour)
+            
+            # Reset stats after MC simulation (don't apply planner distribution)
+            self.window.after(0, lambda: (
+                self.reset_stats_only(),
+                self.update_display()
+            ))
+            
+            # Create window with histograms
+            self.window.after(0, lambda: self._show_fragment_farmer_results(
+                frag_per_hour_no_crit, frag_per_hour_with_crit,
+                skill_points_display_no_crit, skill_points_display_with_crit, num_points,
+                target_frag
+            ))
+        
+        # Run in separate thread to avoid blocking UI
+        thread = threading.Thread(target=run_in_thread, daemon=True)
+        thread.start()
+    
+    def _show_fragment_farmer_results(self, frag_per_hour_no_crit, frag_per_hour_with_crit,
+                                     skill_points_display_no_crit, skill_points_display_with_crit, num_points,
+                                     target_frag):
+        """Show histogram window with fragment/hour distribution and skill setup for both crit and no-crit"""
+        try:
+            import matplotlib
+            matplotlib.use('TkAgg')
+            from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+            from matplotlib.figure import Figure
+            import numpy as np
+            MATPLOTLIB_AVAILABLE = True
+        except ImportError:
+            MATPLOTLIB_AVAILABLE = False
+            tk.messagebox.showerror("Error", "Matplotlib is required for histogram display.")
+            return
+        
+        # Perform statistical test
+        try:
+            from scipy import stats
+            SCIPY_AVAILABLE = True
+        except ImportError:
+            SCIPY_AVAILABLE = False
+        
+        # Create window in normal GUI style (not Matrix)
+        result_window = tk.Toplevel(self.window)
+        result_window.title(f"MC Fragment Farmer Results ({target_frag.upper()})")
+        result_window.state('zoomed')  # Maximize window on Windows
+        result_window.transient(self.window)
+        
+        # Main container
+        main_frame = ttk.Frame(result_window, padding="10")
+        main_frame.pack(fill=tk.BOTH, expand=True)
+        main_frame.columnconfigure(0, weight=1)
+        main_frame.columnconfigure(1, weight=1)
+        main_frame.rowconfigure(3, weight=1)
+        
+        # Title
+        title_label = ttk.Label(main_frame, text=f"MC Fragment Farmer Results ({target_frag.upper()}) - 1000 simulations each", 
+                               font=("Arial", 12, "bold"))
+        title_label.grid(row=0, column=0, columnspan=2, pady=(0, 10), sticky=tk.W)
+        
+        # Statistical test results
+        if SCIPY_AVAILABLE and frag_per_hour_no_crit and frag_per_hour_with_crit:
+            # Perform Mann-Whitney U test (non-parametric test, good for non-normal distributions)
+            statistic, p_value = stats.mannwhitneyu(frag_per_hour_with_crit, frag_per_hour_no_crit, 
+                                                     alternative='two-sided')
+            
+            # Calculate descriptive statistics
+            mean_no_crit = np.mean(frag_per_hour_no_crit)
+            mean_with_crit = np.mean(frag_per_hour_with_crit)
+            median_no_crit = np.median(frag_per_hour_no_crit)
+            median_with_crit = np.median(frag_per_hour_with_crit)
+            
+            # Determine which is better
+            if mean_with_crit > mean_no_crit:
+                better = "With crit skilling"
+                diff = mean_with_crit - mean_no_crit
+                diff_pct = (diff / mean_no_crit * 100) if mean_no_crit > 0 else 0
+            else:
+                better = "No crit skilling"
+                diff = mean_no_crit - mean_with_crit
+                diff_pct = (diff / mean_with_crit * 100) if mean_with_crit > 0 else 0
+            
+            # Interpret p-value
+            if p_value < 0.001:
+                significance = "*** (p < 0.001)"
+                interpretation = "Highly significant difference"
+            elif p_value < 0.01:
+                significance = "** (p < 0.01)"
+                interpretation = "Very significant difference"
+            elif p_value < 0.05:
+                significance = "* (p < 0.05)"
+                interpretation = "Significant difference"
+            else:
+                significance = f"(p = {p_value:.4f})"
+                interpretation = "No significant difference"
+            
+            # Create statistics frame
+            stats_frame = ttk.LabelFrame(main_frame, text="Statistical Analysis", padding="10")
+            stats_frame.grid(row=1, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 10))
+            
+            # Results text
+            stats_text = f"""Mann-Whitney U Test Results:
+            
+Mean {target_frag.upper()} Fragments/Hour:
+  No crit skilling:    {mean_no_crit:.2f} (median: {median_no_crit:.2f})
+  With crit skilling:  {mean_with_crit:.2f} (median: {median_with_crit:.2f})
+  Difference: {diff:.2f} frags/h ({diff_pct:+.1f}%)
+
+Statistical Test:
+  {better} performs better {significance}
+  {interpretation}"""
+            
+            stats_label = ttk.Label(stats_frame, text=stats_text, font=("Courier", 9), 
+                                   justify=tk.LEFT)
+            stats_label.pack(anchor=tk.W)
+        else:
+            # No statistical test available
+            stats_frame = ttk.LabelFrame(main_frame, text="Statistical Analysis", padding="10")
+            stats_frame.grid(row=1, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 10))
+            if not SCIPY_AVAILABLE:
+                stats_label = ttk.Label(stats_frame, 
+                                       text="scipy not available - statistical test skipped", 
+                                       foreground="gray")
+            else:
+                stats_label = ttk.Label(stats_frame, 
+                                       text="Insufficient data for statistical test", 
+                                       foreground="gray")
+            stats_label.pack()
+        
+        # Skill distribution displays (above histograms)
+        skill_frame_no_crit = ttk.LabelFrame(main_frame, text="Skill Distribution (No crit skilling)", padding="5")
+        skill_frame_no_crit.grid(row=2, column=0, sticky=(tk.W, tk.E), pady=(0, 10), padx=(0, 5))
+        
+        skill_text_parts_no_crit = []
+        for skill in ['strength', 'agility', 'intellect', 'perception', 'luck']:
+            points = skill_points_display_no_crit.get(skill, 0)
+            skill_short = skill[:3].upper()
+            skill_text_parts_no_crit.append(f"{skill_short}: {points}")
+        
+        skill_label_no_crit = ttk.Label(skill_frame_no_crit, text=" | ".join(skill_text_parts_no_crit), font=("Arial", 9))
+        skill_label_no_crit.pack()
+        
+        skill_frame_with_crit = ttk.LabelFrame(main_frame, text="Skill Distribution (With crit skilling)", padding="5")
+        skill_frame_with_crit.grid(row=2, column=1, sticky=(tk.W, tk.E), pady=(0, 10), padx=(5, 0))
+        
+        skill_text_parts_with_crit = []
+        for skill in ['strength', 'agility', 'intellect', 'perception', 'luck']:
+            points = skill_points_display_with_crit.get(skill, 0)
+            skill_short = skill[:3].upper()
+            skill_text_parts_with_crit.append(f"{skill_short}: {points}")
+        
+        skill_label_with_crit = ttk.Label(skill_frame_with_crit, text=" | ".join(skill_text_parts_with_crit), font=("Arial", 9))
+        skill_label_with_crit.pack()
+        
+        # Histogram frame
+        hist_frame = ttk.LabelFrame(main_frame, text="Fragment/Hour Distribution", padding="5")
+        hist_frame.grid(row=3, column=0, columnspan=2, sticky=(tk.W, tk.E, tk.N, tk.S))
+        hist_frame.columnconfigure(0, weight=1)
+        hist_frame.columnconfigure(1, weight=1)
+        hist_frame.rowconfigure(0, weight=1)
+        
+        if MATPLOTLIB_AVAILABLE and (frag_per_hour_no_crit or frag_per_hour_with_crit):
+            fig = Figure(figsize=(14, 6), dpi=100)
+            
+            def create_histogram_subplot(data, subplot_idx, title, color, edge_color):
+                ax = fig.add_subplot(1, 2, subplot_idx)
+                
+                if not data:
+                    ax.text(0.5, 0.5, "No data", ha='center', va='center', transform=ax.transAxes)
+                    ax.set_title(title, fontsize=12, fontweight='bold')
+                    return ax
+                
+                # Create histogram
+                counts, bins, patches = ax.hist(data, bins=30, color=color, edgecolor=edge_color, 
+                                               linewidth=1.5, alpha=0.7)
+                
+                # Add mean line
+                mean_val = np.mean(data)
+                ax.axvline(mean_val, color='red', linestyle='--', linewidth=2, label=f'Mean: {mean_val:.2f}')
+                
+                # Add median line
+                median_val = np.median(data)
+                ax.axvline(median_val, color='orange', linestyle='--', linewidth=2, label=f'Median: {median_val:.2f}')
+                
+                ax.set_xlabel(f'{target_frag.upper()} Fragments/Hour', fontsize=10, fontweight='bold')
+                ax.set_ylabel('Frequency', fontsize=10, fontweight='bold')
+                ax.set_title(title, fontsize=12, fontweight='bold')
+                ax.legend(loc='upper right', fontsize=8)
+                ax.grid(axis='y', alpha=0.3, linestyle='--')
+                
+                return ax
+            
+            # Create both histograms
+            create_histogram_subplot(frag_per_hour_no_crit, 1, "No crit skilling", '#4CAF50', '#2E7D32')
+            create_histogram_subplot(frag_per_hour_with_crit, 2, "With crit skilling", '#2196F3', '#1565C0')
+            
+            # Layout
+            fig.tight_layout()
+            
+            # Create canvas
+            canvas = FigureCanvasTkAgg(fig, hist_frame)
+            canvas.draw()
+            canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+        else:
+            # No data
+            ttk.Label(hist_frame, text="No simulation data available", 
+                     foreground="gray").pack(pady=20)
+        
+        # Close button
+        button_frame = ttk.Frame(main_frame)
+        button_frame.grid(row=4, column=0, columnspan=2, pady=(10, 0))
+        
+        close_btn = ttk.Button(button_frame, text="Close", command=result_window.destroy)
+        close_btn.pack()
     
     def _show_stage_pusher_results(self, stage_counts_no_crit, stage_counts_with_crit, 
                                    skill_points_display_no_crit, skill_points_display_with_crit, num_points,
@@ -5457,7 +5847,7 @@ class ArchaeologySimulatorWindow:
         # Create window in normal GUI style (not Matrix)
         result_window = tk.Toplevel(self.window)
         result_window.title("MC Stage Pusher Results")
-        result_window.geometry("1400x800")
+        result_window.state('zoomed')  # Maximize window on Windows
         result_window.transient(self.window)
         
         # Main container
@@ -5486,11 +5876,11 @@ class ArchaeologySimulatorWindow:
             
             # Determine which is better
             if mean_with_crit > mean_no_crit:
-                better = "With Crit"
+                better = "With crit skilling"
                 diff = mean_with_crit - mean_no_crit
                 diff_pct = (diff / mean_no_crit * 100) if mean_no_crit > 0 else 0
             else:
-                better = "No Crit"
+                better = "No crit skilling"
                 diff = mean_no_crit - mean_with_crit
                 diff_pct = (diff / mean_with_crit * 100) if mean_with_crit > 0 else 0
             
@@ -5516,8 +5906,8 @@ class ArchaeologySimulatorWindow:
             stats_text = f"""Mann-Whitney U Test Results:
             
 Mean Stage Reached:
-  No Crit:    {mean_no_crit:.2f} (median: {median_no_crit:.1f})
-  With Crit:  {mean_with_crit:.2f} (median: {median_with_crit:.1f})
+  No crit skilling:    {mean_no_crit:.2f} (median: {median_no_crit:.1f})
+  With crit skilling:  {mean_with_crit:.2f} (median: {median_with_crit:.1f})
   Difference: {diff:.2f} stages ({diff_pct:+.1f}%)
 
 Statistical Test:
@@ -5542,7 +5932,7 @@ Statistical Test:
             stats_label.pack()
         
         # Skill distribution displays (above histograms)
-        skill_frame_no_crit = ttk.LabelFrame(main_frame, text="Skill Distribution (No Crit)", padding="5")
+        skill_frame_no_crit = ttk.LabelFrame(main_frame, text="Skill Distribution (No crit skilling)", padding="5")
         skill_frame_no_crit.grid(row=2, column=0, sticky=(tk.W, tk.E), pady=(0, 10), padx=(0, 5))
         
         skill_text_parts_no_crit = []
@@ -5554,7 +5944,7 @@ Statistical Test:
         skill_label_no_crit = ttk.Label(skill_frame_no_crit, text=" | ".join(skill_text_parts_no_crit), font=("Arial", 9))
         skill_label_no_crit.pack()
         
-        skill_frame_with_crit = ttk.LabelFrame(main_frame, text="Skill Distribution (With Crit)", padding="5")
+        skill_frame_with_crit = ttk.LabelFrame(main_frame, text="Skill Distribution (With crit skilling)", padding="5")
         skill_frame_with_crit.grid(row=2, column=1, sticky=(tk.W, tk.E), pady=(0, 10), padx=(5, 0))
         
         skill_text_parts_with_crit = []
@@ -5643,8 +6033,8 @@ Statistical Test:
                 return ax
             
             # Create both histograms
-            create_histogram_subplot(stage_counts_no_crit, 1, "No Crit", '#4CAF50', '#2E7D32')
-            create_histogram_subplot(stage_counts_with_crit, 2, "With Crit", '#2196F3', '#1565C0')
+            create_histogram_subplot(stage_counts_no_crit, 1, "No crit skilling", '#4CAF50', '#2E7D32')
+            create_histogram_subplot(stage_counts_with_crit, 2, "With crit skilling", '#2196F3', '#1565C0')
             
             # Layout
             fig.tight_layout()

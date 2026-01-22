@@ -175,6 +175,12 @@ class MonteCarloCritSimulator:
         current_floor = starting_floor
         max_stage_reached = starting_floor  # Track the maximum stage reached during the run
         
+        # Fragment tracking
+        fragments_by_type = {'common': 0.0, 'rare': 0.0, 'epic': 0.0, 'legendary': 0.0, 'mythic': 0.0}
+        fragment_mult = stats.get('fragment_mult', 1.0)
+        loot_mod_chance = stats.get('loot_mod_chance', 0)
+        loot_mod_multiplier = stats.get('loot_mod_multiplier', 3.5)
+        
         # Stamina mod tracking
         stamina_mod_chance = stats.get('stamina_mod_chance', 0)
         stamina_mod_gain = stats.get('stamina_mod_gain', self.MOD_STAMINA_BONUS_AVG)
@@ -251,6 +257,15 @@ class MonteCarloCritSimulator:
                         stamina_for_floor += hits
                         blocks_killed += 1
                         
+                        # Calculate fragments from this block (only if not dirt)
+                        if selected_type != 'dirt' and selected_type in fragments_by_type:
+                            base_frag = block_data.fragment
+                            # Check for loot mod
+                            loot_mod_active = random.random() < loot_mod_chance
+                            loot_mult = loot_mod_multiplier if loot_mod_active else 1.0
+                            frag_gain = base_frag * fragment_mult * loot_mult
+                            fragments_by_type[selected_type] += frag_gain
+                        
                         # Check for stamina mod (adds stamina immediately during the floor)
                         if random.random() < stamina_mod_chance:
                             stamina_gain = random.uniform(3, 10)  # Actual range
@@ -304,6 +319,7 @@ class MonteCarloCritSimulator:
                 'floors_cleared': floors_cleared,
                 'max_stage_reached': max_stage_reached,
                 'starting_floor': starting_floor,
+                'fragments': fragments_by_type.copy(),
             }
         
         return floors_cleared
