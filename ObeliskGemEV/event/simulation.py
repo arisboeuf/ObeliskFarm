@@ -286,6 +286,66 @@ def calculate_hits_to_kill_with_crit(player_atk: float, enemy_hp: float,
     return enemy_hp / avg_dmg_per_hit
 
 
+def calculate_effective_hp(player: PlayerStats, enemy: EnemyStats, wave: int) -> float:
+    """
+    Calculate effective HP (eHP) at a specific wave.
+    
+    eHP accounts for all damage reduction factors:
+    - Base HP
+    - Block Chance: reduces damage by block% (eHP = HP / (1 - block))
+    - Enemy ATK Debuffs: reduces base damage per hit
+    - Enemy Crit Debuffs: reduces average damage per hit (via crit chance/dmg reduction)
+    
+    Formula:
+    eHP = HP / (1 - block_chance) * (base_avg_dmg / actual_avg_dmg)
+    
+    Where:
+    - base_avg_dmg = damage without debuffs
+    - actual_avg_dmg = damage with debuffs applied
+    
+    Args:
+        player: Player stats
+        enemy: Enemy stats (with debuffs applied)
+        wave: Wave number to calculate for
+    
+    Returns:
+        Effective HP as float
+    """
+    import math
+    
+    # Base HP
+    base_hp = player.health
+    
+    # Block chance: eHP multiplier = 1 / (1 - block)
+    # Example: 15% block = 1 / 0.85 = 1.176x eHP
+    block_multiplier = 1.0 / (1.0 - player.block_chance) if player.block_chance < 1.0 else float('inf')
+    
+    # Calculate actual enemy damage at this wave (with debuffs)
+    actual_enemy_atk = max(1, enemy.atk + wave * enemy.atk_scaling)
+    actual_enemy_crit_chance = max(0, (enemy.crit + wave) / 100.0)  # 0-1 range
+    actual_enemy_crit_dmg = enemy.crit_dmg + enemy.crit_dmg_scaling * wave
+    
+    # Average damage per hit (with debuffs)
+    actual_avg_dmg = actual_enemy_atk * (1.0 + actual_enemy_crit_chance * (actual_enemy_crit_dmg - 1.0))
+    
+    # Calculate base enemy damage (without debuffs) for comparison
+    base_enemy_atk = 2.5 + wave * 0.6  # From ENEMY_BASE_STATS
+    base_enemy_crit = 0 + wave  # Base crit = wave
+    base_enemy_crit_dmg = 1.0 + wave * 0.05  # Base crit dmg scaling
+    
+    base_enemy_crit_chance = max(0, base_enemy_crit / 100.0)
+    base_avg_dmg = base_enemy_atk * (1.0 + base_enemy_crit_chance * (base_enemy_crit_dmg - 1.0))
+    
+    # Damage reduction factor from debuffs
+    # If actual_dmg < base_dmg, we get eHP boost
+    dmg_reduction_factor = base_avg_dmg / actual_avg_dmg if actual_avg_dmg > 0 else 1.0
+    
+    # Effective HP = HP * block_multiplier * dmg_reduction_factor
+    ehp = base_hp * block_multiplier * dmg_reduction_factor
+    
+    return ehp
+
+
 def get_enemy_hp_at_wave(enemy: EnemyStats, wave: int) -> int:
     """Get enemy HP at a specific wave"""
     return enemy.base_health + enemy.health_scaling * wave

@@ -14,7 +14,8 @@ from .constants import (
 from .stats import PlayerStats, EnemyStats
 from .simulation import (
     apply_upgrades, get_enemy_hp_at_wave, calculate_hits_to_kill,
-    run_full_simulation, calculate_materials
+    run_full_simulation, calculate_materials,
+    calculate_damage_breakpoints, calculate_breakpoint_efficiency
 )
 
 
@@ -57,6 +58,7 @@ class OptimizationResult:
     player_stats: PlayerStats
     enemy_stats: EnemyStats
     recommendations: List[str]
+    breakpoints: List[Dict] = field(default_factory=list)  # Breakpoint analysis
 
 
 def calculate_upgrade_cost(base_price: float, current_level: int, target_level: int) -> float:
@@ -143,10 +145,21 @@ def greedy_optimize(
     
     enemy = EnemyStats()
     
-    # Determine target wave if not specified
-    if target_wave is None:
-        # Aim for next prestige
-        target_wave = (prestige + 2) * 5
+    # Determine target wave and optimization mode
+    wave_pusher_mode = target_wave is None
+    
+    if wave_pusher_mode:
+        # Wave Pusher Mode: Maximize wave reachable with budget
+        # Start by estimating what wave we can reach with current state
+        player_current, _ = calculate_player_stats(state, prestige)
+        # Rough estimate: aim for 20-30% wave increase
+        estimated_wave, _ = estimate_max_wave(player_current, enemy, runs=20)
+        target_wave = int(estimated_wave * 1.3)  # Aim 30% higher as target
+        recommendations.append(f"Wave Pusher Mode: Maximizing wave with available budget")
+        recommendations.append(f"Current estimated wave: {estimated_wave:.1f}, targeting: {target_wave}")
+    else:
+        # Target Wave Mode: Reach specific wave
+        recommendations.append(f"Target Wave Mode: Reaching Wave {target_wave}")
     
     # Phase 1: Damage Breakpoints
     # Calculate what ATK we need to kill enemies at target_wave efficiently
@@ -156,7 +169,8 @@ def greedy_optimize(
     target_hits = max(1, min(4, target_enemy_hp // 30))
     required_atk = calculate_atk_for_breakpoint(target_wave, target_hits, enemy)
     
-    recommendations.append(f"Target: Wave {target_wave} ({target_hits}-hit kills, need {required_atk} ATK)")
+    if not wave_pusher_mode:
+        recommendations.append(f"Target: Wave {target_wave} ({target_hits}-hit kills, need {required_atk} ATK)")
     
     # Phase 2: Buy upgrades greedily
     # Priority order for each tier based on value
@@ -240,16 +254,31 @@ def greedy_optimize(
                 # Adjust priority based on current needs
                 effective_score = priority
                 
-                # Boost ATK upgrades if we're below breakpoint
                 player, _ = calculate_player_stats(state, prestige)
-                if category in ["atk", "atk_hp", "atk_speed"] and player.atk < required_atk:
-                    effective_score += 50
                 
-                # Boost HP upgrades after we have enough ATK
-                if category in ["hp", "hp_speed", "atk_hp"] and player.atk >= required_atk:
-                    effective_score += 30
+                if wave_pusher_mode:
+                    # Wave Pusher Mode: Optimize for maximum wave
+                    # Prioritize upgrades that increase wave potential
+                    # ATK is always valuable (more damage = more waves)
+                    if category in ["atk", "atk_hp", "atk_speed"]:
+                        effective_score += 40
+                    # HP and debuffs help survive longer
+                    if category in ["hp", "hp_speed", "atk_hp", "debuff"]:
+                        effective_score += 30
+                    # Speed helps clear faster (more waves per time)
+                    if category in ["speed"]:
+                        effective_score += 20
+                else:
+                    # Target Wave Mode: Optimize for specific wave
+                    # Boost ATK upgrades if we're below breakpoint
+                    if category in ["atk", "atk_hp", "atk_speed"] and player.atk < required_atk:
+                        effective_score += 50
+                    
+                    # Boost HP upgrades after we have enough ATK
+                    if category in ["hp", "hp_speed", "atk_hp"] and player.atk >= required_atk:
+                        effective_score += 30
                 
-                # Efficiency: lower cost = better
+                # Efficiency: lower cost = better (always)
                 cost_efficiency = 100 / (next_cost + 1)
                 effective_score += cost_efficiency * 0.5
                 
@@ -271,14 +300,42 @@ def greedy_optimize(
     # Estimate wave (use fewer runs for speed)
     avg_wave, avg_time = estimate_max_wave(player, enemy_modified, runs=50)
     
-    # Generate recommendations
-    recommendations.append(f"Final ATK: {player.atk} (target was {required_atk})")
-    recommendations.append(f"Final HP: {player.health}")
-    recommendations.append(f"Estimated Wave: {avg_wave:.1f}")
-    recommendations.append(f"Estimated Time: {avg_time:.1f}s per run")
+    # Calculate breakpoints for the optimized build
+    # Use crit if player has meaningful crit stats
+    use_crit = player.crit >= 5  # Use crit calculation if 5%+ crit
     
-    # Check if we hit target
-    if avg_wave < target_wave:
+    # For wave pusher mode, calculate breakpoints up to estimated max wave
+    bp_target_wave = int(avg_wave * 1.2) if wave_pusher_mode else target_wave
+    breakpoints = calculate_damage_breakpoints(
+        player, enemy_modified, bp_target_wave, max_breakpoints=10, use_crit=use_crit
+    )
+    breakpoints_with_eff = calculate_breakpoint_efficiency(
+        breakpoints, player, enemy_modified, bp_target_wave
+    )
+    
+    # Generate recommendations
+    if wave_pusher_mode:
+        recommendations.append(f"Final ATK: {player.atk}")
+        recommendations.append(f"Final HP: {player.health}")
+        recommendations.append(f"Estimated Max Wave: {avg_wave:.1f}")
+        recommendations.append(f"Estimated Time: {avg_time:.1f}s per run")
+    else:
+        recommendations.append(f"Final ATK: {player.atk} (target was {required_atk})")
+        recommendations.append(f"Final HP: {player.health}")
+        recommendations.append(f"Estimated Wave: {avg_wave:.1f}")
+        recommendations.append(f"Estimated Time: {avg_time:.1f}s per run")
+    
+    # Add breakpoint info
+    if breakpoints_with_eff:
+        best_bp = breakpoints_with_eff[0]
+        next_wave = best_bp['wave']
+        next_atk = best_bp['required_atk']
+        atk_needed = best_bp['atk_increase']
+        if atk_needed > 0:
+            recommendations.append(f"Next Breakpoint: Wave {next_wave} needs +{atk_needed} ATK (→ {next_atk} total)")
+    
+    # Check if we hit target (only in target wave mode)
+    if not wave_pusher_mode and avg_wave < target_wave:
         recommendations.append(f"WARNING: May not reach target wave {target_wave}!")
         recommendations.append("Consider: More prestiges, gem upgrades, or lower target")
     
@@ -290,7 +347,8 @@ def greedy_optimize(
         materials_remaining=remaining,
         player_stats=player,
         enemy_stats=enemy_modified,
-        recommendations=recommendations
+        recommendations=recommendations,
+        breakpoints=breakpoints_with_eff
     )
 
 

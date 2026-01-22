@@ -13,6 +13,7 @@ from .constants import (
     TIER_COLORS, TIER_MAT_NAMES
 )
 from .simulation import (
+    calculate_effective_hp,
     apply_upgrades, run_full_simulation, calculate_materials,
     calculate_total_costs, get_highest_wave_killed_in_x_hits,
     get_current_max_level, get_gem_max_level
@@ -361,6 +362,8 @@ class Love2DSimulatorPanel:
         self.player_stats_text.delete(1.0, tk.END)
         
         text = f"Max HP:         {int(player.health)}\n"
+        
+        # Calculate eHP at example waves (need enemy stats, so calculate later if available)
         text += f"Atk Dmg:        {int(player.atk)}\n"
         text += f"Atk Spd:        {player.atk_speed:.2f}\n"
         text += f"Move Spd:       {player.walk_speed:.2f}\n"
@@ -384,10 +387,18 @@ class Love2DSimulatorPanel:
         atk1_until = max(0, int((-1 * enemy.atk + 1) / enemy.atk_scaling))
         no_crits_until = int((-1 * (enemy.crit_dmg - 1)) / enemy.crit_dmg_scaling)
         
+        # Calculate eHP at example waves
+        ehp_wave10 = calculate_effective_hp(player, enemy, 10)
+        ehp_wave20 = calculate_effective_hp(player, enemy, 20)
+        ehp_mult_wave10 = ehp_wave10 / player.health if player.health > 0 else 1.0
+        ehp_mult_wave20 = ehp_wave20 / player.health if player.health > 0 else 1.0
+        
         text = f"Max oneshot wave:  {oneshot_wave}\n"
         text += f"Enemy atk 1 until: wave {atk1_until}\n"
         text += f"Base atk speed:    {enemy.atk_speed:.2f}\n"
-        text += f"No crits until:    wave {no_crits_until}"
+        text += f"No crits until:    wave {no_crits_until}\n"
+        text += f"\neHP @ Wave 10:     {ehp_wave10:.0f} ({ehp_mult_wave10:.2f}x)\n"
+        text += f"eHP @ Wave 20:     {ehp_wave20:.0f} ({ehp_mult_wave20:.2f}x)"
         
         self.enemy_stats_text.insert(1.0, text)
         self.enemy_stats_text.config(state=tk.DISABLED)

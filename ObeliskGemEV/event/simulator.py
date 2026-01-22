@@ -20,7 +20,8 @@ class EventSimulatorWindow:
     def __init__(self, parent):
         self.window = tk.Toplevel(parent)
         self.window.title("Event Simulator")
-        self.window.geometry("1100x750")
+        # Fullscreen mode
+        self.window.state('zoomed')  # Windows fullscreen
         self.window.minsize(900, 650)
         
         # Current mode
@@ -42,6 +43,9 @@ class EventSimulatorWindow:
         
         # Build initial mode
         self.build_current_mode()
+        
+        # Save state when window closes
+        self.window.protocol("WM_DELETE_WINDOW", self.on_close)
     
     def create_mode_toggle(self):
         """Create the mode toggle bar at the top"""
@@ -65,16 +69,16 @@ class EventSimulatorWindow:
         )
         self.budget_btn.pack(side=tk.LEFT, padx=2)
         
-        # Love2D Simulator button
-        self.love2d_btn = tk.Button(
-            inner_frame, text="Love2D Simulator",
-            font=("Arial", 9, "bold"),
-            command=lambda: self.switch_mode(self.MODE_LOVE2D),
-            relief=tk.SUNKEN if self.current_mode == self.MODE_LOVE2D else tk.RAISED,
-            bg="#2196F3" if self.current_mode == self.MODE_LOVE2D else "#757575",
-            fg="white", width=16
-        )
-        self.love2d_btn.pack(side=tk.LEFT, padx=2)
+        # Love2D Simulator button (hidden for now)
+        # self.love2d_btn = tk.Button(
+        #     inner_frame, text="Love2D Simulator",
+        #     font=("Arial", 9, "bold"),
+        #     command=lambda: self.switch_mode(self.MODE_LOVE2D),
+        #     relief=tk.SUNKEN if self.current_mode == self.MODE_LOVE2D else tk.RAISED,
+        #     bg="#2196F3" if self.current_mode == self.MODE_LOVE2D else "#757575",
+        #     fg="white", width=16
+        # )
+        # self.love2d_btn.pack(side=tk.LEFT, padx=2)
         
         # Info label
         self.mode_info_label = tk.Label(
@@ -101,15 +105,21 @@ class EventSimulatorWindow:
         # Update button states
         if new_mode == self.MODE_BUDGET:
             self.budget_btn.config(relief=tk.SUNKEN, bg="#4CAF50")
-            self.love2d_btn.config(relief=tk.RAISED, bg="#757575")
+            # self.love2d_btn.config(relief=tk.RAISED, bg="#757575")
         else:
             self.budget_btn.config(relief=tk.RAISED, bg="#757575")
-            self.love2d_btn.config(relief=tk.SUNKEN, bg="#2196F3")
+            # self.love2d_btn.config(relief=tk.SUNKEN, bg="#2196F3")
         
         self.update_mode_info()
         
         # Rebuild content
         self.build_current_mode()
+    
+    def on_close(self):
+        """Handle window close - save state"""
+        if self.active_panel and hasattr(self.active_panel, 'save_state'):
+            self.active_panel.save_state()
+        self.window.destroy()
     
     def build_current_mode(self):
         """Build the UI for the current mode"""
