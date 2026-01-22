@@ -11,7 +11,7 @@ import json
 import math
 from PIL import Image, ImageTk
 
-from .block_spawn_rates import get_block_mix_for_stage, get_stage_range_label, STAGE_RANGES, get_normalized_spawn_rates
+from .block_spawn_rates import get_block_mix_for_stage, get_stage_range_label, STAGE_RANGES, get_normalized_spawn_rates, spawn_block_for_slot, get_total_spawn_probability
 from .block_stats import get_block_at_floor, get_block_mix_for_floor, BlockData, BLOCK_TYPES
 from .upgrade_costs import get_upgrade_cost, get_total_cost, get_max_level
 from .monte_carlo_crit import run_crit_analysis, MonteCarloCritSimulator, debug_single_run
@@ -36,6 +36,52 @@ def get_user_data_path() -> Path:
 # Save file path (in user data folder for persistence)
 SAVE_DIR = get_user_data_path()
 SAVE_FILE = SAVE_DIR / "archaeology_save.json"
+
+
+class CollapsibleFrame:
+    """A collapsible/expandable frame with toggle button"""
+    def __init__(self, parent, title, bg_color="#FFF3E0", expanded=True):
+        self.expanded = expanded
+        self.bg_color = bg_color
+        
+        # Main frame
+        self.main_frame = tk.Frame(parent, background=bg_color)
+        self.main_frame.pack(fill=tk.X, padx=5, pady=2)
+        
+        # Header with toggle button
+        self.header = tk.Frame(self.main_frame, background=bg_color)
+        self.header.pack(fill=tk.X)
+        
+        # Toggle button (arrow indicator)
+        self.toggle_btn = tk.Label(self.header, text="▼" if expanded else "▶", 
+                                   font=("Arial", 9, "bold"), 
+                                   background=bg_color, cursor="hand2",
+                                   foreground="#1976D2")
+        self.toggle_btn.pack(side=tk.LEFT, padx=(0, 3))
+        self.toggle_btn.bind("<Button-1>", self.toggle)
+        
+        # Title
+        self.title_label = tk.Label(self.header, text=title, 
+                                   font=("Arial", 10, "bold"), 
+                                   background=bg_color)
+        self.title_label.pack(side=tk.LEFT)
+        self.title_label.bind("<Button-1>", self.toggle)
+        
+        # Content frame
+        self.content = tk.Frame(self.main_frame, background=bg_color)
+        if expanded:
+            self.content.pack(fill=tk.X, padx=(15, 0), pady=2)
+        else:
+            self.content.pack_forget()
+    
+    def toggle(self, event=None):
+        self.expanded = not self.expanded
+        if self.expanded:
+            self.content.pack(fill=tk.X, padx=(15, 0), pady=2)
+            self.toggle_btn.config(text="▼")
+        else:
+            self.content.pack_forget()
+            self.toggle_btn.config(text="▶")
 
 
 class ArchaeologySimulatorWindow:
@@ -401,10 +447,13 @@ class ArchaeologySimulatorWindow:
     }
     
     # Game constants
-    # Blocks per floor varies between 8-15, average ~11.5
-    BLOCKS_PER_FLOOR_MIN = 8
-    BLOCKS_PER_FLOOR_MAX = 15
-    BLOCKS_PER_FLOOR = 11.5  # Average for calculations (8+15)/2
+    # Stage structure: 6 columns x 4 rows = 24 slots
+    # Each slot CAN spawn a block (but doesn't have to)
+    # Blocks per floor varies between 0-24 based on spawn probabilities
+    SLOTS_PER_FLOOR = 24
+    BLOCKS_PER_FLOOR_MIN = 0
+    BLOCKS_PER_FLOOR_MAX = 24
+    BLOCKS_PER_FLOOR = 19.0  # Average for calculations (realistic estimate, will be calculated dynamically)
     
     def __init__(self, parent):
         self.parent = parent
@@ -455,6 +504,8 @@ class ArchaeologySimulatorWindow:
             'crit_calc_enabled': self.crit_calc_enabled.get() if hasattr(self, 'crit_calc_enabled') else False,
             'forecast_levels_1': self.forecast_levels_1.get() if hasattr(self, 'forecast_levels_1') else 5,
             'shared_planner_points': self.shared_planner_points.get() if hasattr(self, 'shared_planner_points') else 20,
+            'stats_collapsible_expanded': self.stats_collapsible.expanded if hasattr(self, 'stats_collapsible') else True,
+            'levelup_collapsible_expanded': self.levelup_collapsible.expanded if hasattr(self, 'levelup_collapsible') else False,
             'frag_target_type': self.frag_target_var.get() if hasattr(self, 'frag_target_var') else 'common',
         }
         try:
@@ -539,6 +590,17 @@ class ArchaeologySimulatorWindow:
             # Rebuild upgrade widgets after loading fragment_upgrade_levels
             if hasattr(self, 'upgrades_container'):
                 self._rebuild_upgrade_widgets()
+            
+            # Restore collapsible frame states
+            if hasattr(self, 'stats_collapsible'):
+                stats_expanded = state.get('stats_collapsible_expanded', True)
+                if stats_expanded != self.stats_collapsible.expanded:
+                    self.stats_collapsible.toggle()
+            
+            if hasattr(self, 'levelup_collapsible'):
+                levelup_expanded = state.get('levelup_collapsible_expanded', False)
+                if levelup_expanded != self.levelup_collapsible.expanded:
+                    self.levelup_collapsible.toggle()
         except Exception as e:
             print(f"Warning: Could not load state: {e}")
     
@@ -943,9 +1005,10 @@ class ArchaeologySimulatorWindow:
         - Stamina Mod: Each block has a chance to give +6.5 stamina (avg of 3-10)
         - Flurry ability: 5 charges × 5 stamina every 120 seconds (if enabled)
         """
-        # Use average blocks per floor (11.5) if not specified
+        # Calculate expected blocks per floor based on spawn probabilities if not specified
         if blocks_per_floor is None:
-            blocks_per_floor = self.BLOCKS_PER_FLOOR
+            # Will be calculated per floor based on spawn rates
+            blocks_per_floor = None
         
         max_stamina = stats['max_stamina']
         stamina_remaining = max_stamina
@@ -981,6 +1044,14 @@ class ArchaeologySimulatorWindow:
             spawn_rates = get_normalized_spawn_rates(current_floor)
             block_mix = get_block_mix_for_floor(current_floor)
             
+            # Calculate expected blocks per floor: 24 slots * (total spawn probability / 100)
+            if blocks_per_floor is None:
+                total_spawn_prob = get_total_spawn_probability(current_floor)
+                expected_blocks = self.SLOTS_PER_FLOOR * (total_spawn_prob / 100.0)
+                floor_blocks = expected_blocks
+            else:
+                floor_blocks = blocks_per_floor
+            
             avg_hits_per_block = 0
             for block_type, spawn_chance in spawn_rates.items():
                 if spawn_chance <= 0:
@@ -995,7 +1066,7 @@ class ArchaeologySimulatorWindow:
             # Net stamina cost per block = hits - stamina gained from mod
             # But stamina gained can't exceed max_stamina, so we cap the effective gain
             net_stamina_per_block = max(0.1, avg_hits_per_block - avg_stamina_per_block)
-            stamina_for_floor = net_stamina_per_block * blocks_per_floor
+            stamina_for_floor = net_stamina_per_block * floor_blocks
             
             if stamina_remaining >= stamina_for_floor:
                 stamina_remaining -= stamina_for_floor
@@ -1050,6 +1121,10 @@ class ArchaeologySimulatorWindow:
             spawn_rates = get_normalized_spawn_rates(current_floor)
             block_mix = get_block_mix_for_floor(current_floor)
             
+            # Calculate expected blocks per floor: 24 slots * (total spawn probability / 100)
+            total_spawn_prob = get_total_spawn_probability(current_floor)
+            expected_blocks = self.SLOTS_PER_FLOOR * (total_spawn_prob / 100.0)
+            
             floor_xp = 0.0
             for block_type, spawn_chance in spawn_rates.items():
                 if spawn_chance <= 0:
@@ -1068,8 +1143,8 @@ class ArchaeologySimulatorWindow:
                 # Weight by spawn chance
                 floor_xp += spawn_chance * block_xp
             
-            # XP for this floor: blocks * avg_xp * xp_mult * arch_xp_mult * exp_mod_factor
-            floor_total_xp = self.BLOCKS_PER_FLOOR * floor_xp * xp_mult * arch_xp_mult * exp_mod_factor
+            # XP for this floor: expected_blocks * avg_xp * xp_mult * arch_xp_mult * exp_mod_factor
+            floor_total_xp = expected_blocks * floor_xp * xp_mult * arch_xp_mult * exp_mod_factor
             total_xp += floor_total_xp * floor_mult
             
             current_floor += 1
@@ -1112,6 +1187,10 @@ class ArchaeologySimulatorWindow:
             spawn_rates = get_normalized_spawn_rates(current_floor)
             block_mix = get_block_mix_for_floor(current_floor)
             
+            # Calculate expected blocks per floor: 24 slots * (total spawn probability / 100)
+            total_spawn_prob = get_total_spawn_probability(current_floor)
+            expected_blocks = self.SLOTS_PER_FLOOR * (total_spawn_prob / 100.0)
+            
             for block_type, spawn_chance in spawn_rates.items():
                 if spawn_chance <= 0 or block_type == 'dirt':
                     continue  # Dirt doesn't drop fragments
@@ -1123,8 +1202,8 @@ class ArchaeologySimulatorWindow:
                 base_frag = block_data.fragment
                 
                 # Fragments from this block type on this floor
-                # blocks_per_floor * spawn_chance * base_frag * mult * loot_mod
-                frag_gain = self.BLOCKS_PER_FLOOR * spawn_chance * base_frag * fragment_mult * loot_mod_factor * floor_mult
+                # expected_blocks * spawn_chance * base_frag * mult * loot_mod
+                frag_gain = expected_blocks * spawn_chance * base_frag * fragment_mult * loot_mod_factor * floor_mult
                 
                 # Map block_type to fragment type (they're the same names)
                 if block_type in fragments_by_type:
@@ -1638,7 +1717,7 @@ class ArchaeologySimulatorWindow:
         controls_frame = tk.Frame(header_frame, background="#E3F2FD")
         controls_frame.pack(side=tk.RIGHT, padx=10, pady=5)
         
-        tk.Label(controls_frame, text="Stage:", font=("Arial", 10), 
+        tk.Label(controls_frame, text="Goal Stage:", font=("Arial", 10), 
                 background="#E3F2FD").pack(side=tk.LEFT, padx=(0, 3))
         
         self.stage_var = tk.StringVar(value="1-2")
@@ -1657,35 +1736,6 @@ class ArchaeologySimulatorWindow:
                                    cursor="hand2", foreground="#1976D2", background="#E3F2FD")
         stage_help_label.pack(side=tk.LEFT, padx=(0, 10))
         self._create_stage_help_tooltip(stage_help_label)
-        
-        # Unlocked Stage input - determines which upgrades are available
-        tk.Label(controls_frame, text="Unlocked:", font=("Arial", 10), 
-                background="#E3F2FD").pack(side=tk.LEFT, padx=(0, 3))
-        
-        # Minus button
-        unlocked_minus_btn = tk.Button(controls_frame, text="-", width=2, font=("Arial", 8, "bold"),
-                                       command=self._decrease_unlocked_stage)
-        unlocked_minus_btn.pack(side=tk.LEFT, padx=(0, 1))
-        
-        self.unlocked_stage_var = tk.StringVar(value="1")
-        self.unlocked_stage_entry = ttk.Entry(
-            controls_frame,
-            textvariable=self.unlocked_stage_var,
-            width=4
-        )
-        self.unlocked_stage_entry.pack(side=tk.LEFT, padx=(0, 1))
-        self.unlocked_stage_var.trace_add('write', self._on_unlocked_stage_changed)
-        
-        # Plus button
-        unlocked_plus_btn = tk.Button(controls_frame, text="+", width=2, font=("Arial", 8, "bold"),
-                                      command=self._increase_unlocked_stage)
-        unlocked_plus_btn.pack(side=tk.LEFT, padx=(0, 3))
-        
-        # Help icon for unlocked stage
-        unlocked_help_label = tk.Label(controls_frame, text="?", font=("Arial", 9, "bold"), 
-                                      cursor="hand2", foreground="#1976D2", background="#E3F2FD")
-        unlocked_help_label.pack(side=tk.LEFT, padx=(0, 10))
-        self._create_unlocked_stage_help_tooltip(unlocked_help_label)
         
         # Enrage toggle checkbox
         self.enrage_enabled = tk.BooleanVar(value=True)
@@ -1925,7 +1975,7 @@ class ArchaeologySimulatorWindow:
         
         for i, (skill, info) in enumerate(skill_info.items()):
             row_frame = tk.Frame(skills_frame, background="#E8F5E9")
-            row_frame.pack(fill=tk.X, pady=1)
+            row_frame.pack(fill=tk.X, pady=0)
             
             # -5 button
             minus5_btn = tk.Button(row_frame, text="-5", width=2, font=("Arial", 8, "bold"),
@@ -1970,10 +2020,42 @@ class ArchaeologySimulatorWindow:
         
         # Fragment Upgrades Section - dynamically built based on unlocked stage
         upgrade_header_frame = tk.Frame(col_frame, background="#E8F5E9")
-        upgrade_header_frame.pack(fill=tk.X, padx=5, pady=(0, 3))
+        upgrade_header_frame.pack(fill=tk.X, padx=5, pady=(0, 2))
         
         tk.Label(upgrade_header_frame, text="Fragment Upgrades", font=("Arial", 10, "bold"), 
                 background="#E8F5E9").pack(side=tk.LEFT)
+        
+        # Unlocked Stages input - moved here from header
+        unlocked_frame = tk.Frame(upgrade_header_frame, background="#E8F5E9")
+        unlocked_frame.pack(side=tk.LEFT, padx=(10, 0))
+        
+        tk.Label(unlocked_frame, text="Unlocked Stages:", font=("Arial", 8), 
+                background="#E8F5E9").pack(side=tk.LEFT, padx=(0, 2))
+        
+        # Minus button
+        unlocked_minus_btn = tk.Button(unlocked_frame, text="-", width=2, font=("Arial", 7, "bold"),
+                                       command=self._decrease_unlocked_stage)
+        unlocked_minus_btn.pack(side=tk.LEFT, padx=(0, 1))
+        
+        self.unlocked_stage_var = tk.StringVar(value="1")
+        self.unlocked_stage_entry = ttk.Entry(
+            unlocked_frame,
+            textvariable=self.unlocked_stage_var,
+            width=3
+        )
+        self.unlocked_stage_entry.pack(side=tk.LEFT, padx=(0, 1))
+        self.unlocked_stage_var.trace_add('write', self._on_unlocked_stage_changed)
+        
+        # Plus button
+        unlocked_plus_btn = tk.Button(unlocked_frame, text="+", width=2, font=("Arial", 7, "bold"),
+                                      command=self._increase_unlocked_stage)
+        unlocked_plus_btn.pack(side=tk.LEFT, padx=(0, 2))
+        
+        # Help icon for unlocked stage
+        unlocked_help_label = tk.Label(unlocked_frame, text="?", font=("Arial", 8, "bold"), 
+                                      cursor="hand2", foreground="#1976D2", background="#E8F5E9")
+        unlocked_help_label.pack(side=tk.LEFT, padx=(0, 0))
+        self._create_unlocked_stage_help_tooltip(unlocked_help_label)
         
         # Load fragment icons for each type
         self._load_fragment_icons()
@@ -1987,7 +2069,7 @@ class ArchaeologySimulatorWindow:
         
         # Container for dynamically built upgrades (will be rebuilt when unlocked_stage changes)
         self.upgrades_container = tk.Frame(col_frame, background="#E8F5E9")
-        self.upgrades_container.pack(fill=tk.X, padx=5, pady=2)
+        self.upgrades_container.pack(fill=tk.X, padx=5, pady=1)
         
         # Store reference to parent column frame for rebuilding
         self.skills_col_frame = col_frame
@@ -2037,35 +2119,40 @@ class ArchaeologySimulatorWindow:
             'fragment': ("Fragment", "+2% Frags, +0.05% Loot Mod", 25),
         }
         
+        # Single row for all gem upgrades (more compact)
+        gem_row = tk.Frame(gem_upgrades_frame, background="#E8F5E9")
+        gem_row.pack(fill=tk.X, pady=2)
+        
         for gem_upgrade, (display_name, info, max_lvl) in gem_upgrade_info.items():
-            row_frame = tk.Frame(gem_upgrades_frame, background="#E8F5E9")
-            row_frame.pack(fill=tk.X, pady=1)
+            # Each upgrade in its own frame within the row
+            upgrade_frame = tk.Frame(gem_row, background="#E8F5E9")
+            upgrade_frame.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
             
-            minus_btn = tk.Button(row_frame, text="-", width=2, font=("Arial", 8, "bold"),
+            minus_btn = tk.Button(upgrade_frame, text="-", width=2, font=("Arial", 8, "bold"),
                                  command=lambda u=gem_upgrade: self.remove_gem_upgrade(u))
             minus_btn.pack(side=tk.LEFT, padx=(0, 1))
             
-            plus_btn = tk.Button(row_frame, text="+", width=2, font=("Arial", 8, "bold"),
+            plus_btn = tk.Button(upgrade_frame, text="+", width=2, font=("Arial", 8, "bold"),
                                 command=lambda u=gem_upgrade: self.add_gem_upgrade(u))
-            plus_btn.pack(side=tk.LEFT, padx=(0, 3))
+            plus_btn.pack(side=tk.LEFT, padx=(0, 2))
             
             # Level display with gem icon indicator
-            level_label = tk.Label(row_frame, text="0", background="#E8F5E9", 
-                                  font=("Arial", 9, "bold"), foreground="#9932CC", width=3, anchor=tk.E)
-            level_label.pack(side=tk.LEFT, padx=(0, 3))
+            level_label = tk.Label(upgrade_frame, text="0", background="#E8F5E9", 
+                                  font=("Arial", 9, "bold"), foreground="#9932CC", width=2, anchor=tk.E)
+            level_label.pack(side=tk.LEFT, padx=(0, 2))
             self.gem_upgrade_labels[gem_upgrade] = level_label
             
-            tk.Label(row_frame, text=display_name, background="#E8F5E9", 
-                    font=("Arial", 9, "bold"), width=8, anchor=tk.W).pack(side=tk.LEFT)
+            tk.Label(upgrade_frame, text=display_name, background="#E8F5E9", 
+                    font=("Arial", 8, "bold"), anchor=tk.W).pack(side=tk.LEFT, padx=(0, 2))
             
-            eff_label = tk.Label(row_frame, text="—", background="#E8F5E9", 
-                                font=("Arial", 9, "bold"), foreground="#2E7D32", width=7, anchor=tk.E)
-            eff_label.pack(side=tk.LEFT, padx=(0, 3))
+            eff_label = tk.Label(upgrade_frame, text="—", background="#E8F5E9", 
+                                font=("Arial", 8, "bold"), foreground="#2E7D32", width=5, anchor=tk.E)
+            eff_label.pack(side=tk.LEFT, padx=(0, 1))
             self.gem_upgrade_efficiency_labels[gem_upgrade] = eff_label
             
             # Info tooltip
-            info_label = tk.Label(row_frame, text="?", background="#E8F5E9", 
-                                 font=("Arial", 9, "bold"), foreground="#1976D2", cursor="hand2")
+            info_label = tk.Label(upgrade_frame, text="?", background="#E8F5E9", 
+                                 font=("Arial", 8, "bold"), foreground="#1976D2", cursor="hand2")
             info_label.pack(side=tk.LEFT)
             self._create_gem_upgrade_tooltip(info_label, gem_upgrade, info, max_lvl)
             
@@ -2133,50 +2220,65 @@ class ArchaeologySimulatorWindow:
         
         self.card_labels = {}
         
-        for block_type in BLOCK_TYPES:
-            row_frame = tk.Frame(self.cards_container, background="#E8F5E9")
-            row_frame.pack(fill=tk.X, pady=1)
+        # Create cards in a grid layout (2 per row)
+        current_row = None
+        col_index = 0
+        
+        for i, block_type in enumerate(BLOCK_TYPES):
+            # Create new row every 2 cards
+            if col_index == 0:
+                current_row = tk.Frame(self.cards_container, background="#E8F5E9")
+                current_row.pack(fill=tk.X, pady=1)
+            
+            # Card frame (half width for 2 per row) - no border for cleaner look
+            card_frame = tk.Frame(current_row, background="#E8F5E9")
+            card_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=2)
             
             color = self.BLOCK_COLORS.get(block_type, '#888888')
             
             # Block icon if available
             if hasattr(self, 'block_icons') and block_type in self.block_icons:
-                tk.Label(row_frame, image=self.block_icons[block_type], 
-                        background="#E8F5E9").pack(side=tk.LEFT, padx=(0, 3))
+                tk.Label(card_frame, image=self.block_icons[block_type], 
+                        background="#E8F5E9").pack(side=tk.LEFT, padx=(2, 2))
             
             # Block name
-            name_label = tk.Label(row_frame, text=f"{block_type.capitalize()}", 
+            name_label = tk.Label(card_frame, text=f"{block_type.capitalize()}", 
                                  font=("Arial", 8, "bold"), foreground=color,
-                                 background="#E8F5E9", width=8, anchor=tk.W)
-            name_label.pack(side=tk.LEFT)
+                                 background="#E8F5E9", anchor=tk.W)
+            name_label.pack(side=tk.LEFT, padx=(0, 2))
             
             # Card button (normal card: -10% HP, +10% XP)
-            card_btn = tk.Label(row_frame, text="Card", font=("Arial", 8),
+            card_btn = tk.Label(card_frame, text="Card", font=("Arial", 7),
                                cursor="hand2", foreground="#888888", background="#E8F5E9",
-                               padx=3, relief=tk.RAISED, borderwidth=1)
-            card_btn.pack(side=tk.LEFT, padx=(0, 3))
+                               padx=2, relief=tk.RAISED, borderwidth=1)
+            card_btn.pack(side=tk.LEFT, padx=(0, 1))
             card_btn.bind("<Button-1>", lambda e, bt=block_type: self._toggle_card(bt, 1))
             
             # Gilded card button (gilded: -20% HP, +20% XP)
-            gilded_btn = tk.Label(row_frame, text="Gilded", font=("Arial", 8),
+            gilded_btn = tk.Label(card_frame, text="Gild", font=("Arial", 7),
                                  cursor="hand2", foreground="#888888", background="#E8F5E9",
-                                 padx=3, relief=tk.RAISED, borderwidth=1)
-            gilded_btn.pack(side=tk.LEFT, padx=(0, 3))
+                                 padx=2, relief=tk.RAISED, borderwidth=1)
+            gilded_btn.pack(side=tk.LEFT, padx=(0, 1))
             gilded_btn.bind("<Button-1>", lambda e, bt=block_type: self._toggle_card(bt, 2))
             
-            # Gilded improvement indicator
-            gilded_improve_label = tk.Label(row_frame, text="", font=("Arial", 8),
+            # Gilded improvement indicator (smaller)
+            gilded_improve_label = tk.Label(card_frame, text="", font=("Arial", 7),
                                            foreground="#B8860B", background="#E8F5E9",
-                                           width=7, anchor=tk.W)
+                                           width=5, anchor=tk.W)
             gilded_improve_label.pack(side=tk.LEFT)
             
             self.card_labels[block_type] = {
-                'row': row_frame,
+                'row': card_frame,
                 'name': name_label,
                 'card_btn': card_btn,
                 'gilded_btn': gilded_btn,
                 'gilded_improve': gilded_improve_label,
             }
+            
+            # Move to next column, wrap to new row if needed
+            col_index += 1
+            if col_index >= 2:
+                col_index = 0
     
     def _create_cards_help_tooltip(self, widget):
         """Creates a tooltip explaining the Cards feature"""
@@ -2295,7 +2397,7 @@ class ArchaeologySimulatorWindow:
         
         # Column headers for the three efficiency types
         header_row = tk.Frame(self.upgrades_container, background="#E8F5E9")
-        header_row.pack(fill=tk.X, pady=(0, 3))
+        header_row.pack(fill=tk.X, pady=(0, 1))
         
         # Spacer for buttons and level (left side)
         tk.Label(header_row, text="", background="#E8F5E9", width=28).pack(side=tk.LEFT)
@@ -2334,7 +2436,7 @@ class ArchaeologySimulatorWindow:
             
             # Type header
             header_frame = tk.Frame(self.upgrades_container, background="#E8F5E9")
-            header_frame.pack(fill=tk.X, pady=(3, 1))
+            header_frame.pack(fill=tk.X, pady=(2, 0))
             
             # Fragment icon if available
             if cost_type in self.fragment_icons:
@@ -2352,7 +2454,7 @@ class ArchaeologySimulatorWindow:
     def _create_upgrade_row(self, upgrade_key, upgrade_info, color):
         """Create a single upgrade row widget with three efficiency columns"""
         row_frame = tk.Frame(self.upgrades_container, background="#E8F5E9")
-        row_frame.pack(fill=tk.X, pady=1)
+        row_frame.pack(fill=tk.X, pady=0)
         
         # Initialize level if not exists
         if upgrade_key not in self.fragment_upgrade_levels:
@@ -2837,7 +2939,7 @@ class ArchaeologySimulatorWindow:
             content_frame.pack()
             
             # Title
-            tk.Label(content_frame, text="How to Choose Stage", 
+            tk.Label(content_frame, text="Goal Stage", 
                     font=("Arial", 11, "bold"), foreground="#1976D2", 
                     background="#FFFFFF").pack(anchor=tk.W)
             
@@ -2852,7 +2954,7 @@ class ArchaeologySimulatorWindow:
             
             # Explanation
             lines = [
-                "The Stage selector determines which blocks are",
+                "The Goal Stage determines which blocks are",
                 "used for efficiency calculations.",
                 "",
                 "Choose the stage where you typically END or",
@@ -3356,16 +3458,17 @@ class ArchaeologySimulatorWindow:
         self.results_canvas = canvas
         self.results_inner_frame = col_frame
         
-        # === TOP ROW: Run Statistics + Spawn Chart side by side ===
-        top_row = tk.Frame(col_frame, background="#FFF3E0")
-        top_row.pack(fill=tk.X, padx=5, pady=(5, 0))
+        # === COLLAPSIBLE: Stage Statistics + Avg Block Stats ===
+        self.stats_collapsible = CollapsibleFrame(col_frame, "Stage Statistics & Avg Block Stats", 
+                                            bg_color="#FFF3E0", expanded=True)
         
-        # Left: Run Statistics
+        # Top row: Stage Statistics + Spawn Chart side by side
+        top_row = tk.Frame(self.stats_collapsible.content, background="#FFF3E0")
+        top_row.pack(fill=tk.X)
+        
+        # Left: Stage Statistics
         stats_frame = tk.Frame(top_row, background="#FFF3E0")
         stats_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        
-        tk.Label(stats_frame, text="Run Statistics", font=("Arial", 10, "bold"), 
-                background="#FFF3E0").pack(anchor=tk.W)
         
         results_grid = tk.Frame(stats_frame, background="#FFF3E0")
         results_grid.pack(fill=tk.X, pady=2)
@@ -3414,16 +3517,9 @@ class ArchaeologySimulatorWindow:
                                       highlightbackground="#CCCCCC")
         self.chart_canvas.pack()
         
-        ttk.Separator(col_frame, orient='horizontal').pack(fill=tk.X, pady=5, padx=5)
-        
-        # === SECOND ROW: Avg Block Stats (compact) ===
-        avg_stats_header = tk.Frame(col_frame, background="#FFF3E0")
-        avg_stats_header.pack(fill=tk.X, padx=5)
-        tk.Label(avg_stats_header, text="Avg Block Stats", font=("Arial", 9, "bold"), 
-                background="#FFF3E0").pack(side=tk.LEFT)
-        
-        avg_stats_grid = tk.Frame(col_frame, background="#FFF3E0")
-        avg_stats_grid.pack(fill=tk.X, padx=5, pady=2)
+        # Avg Block Stats (below Stage Statistics)
+        avg_stats_grid = tk.Frame(self.stats_collapsible.content, background="#FFF3E0")
+        avg_stats_grid.pack(fill=tk.X, pady=(3, 0))
         
         # Row 1: HP and Armor
         tk.Label(avg_stats_grid, text="HP:", font=("Arial", 8), 
@@ -3464,20 +3560,18 @@ class ArchaeologySimulatorWindow:
         
         ttk.Separator(col_frame, orient='horizontal').pack(fill=tk.X, pady=5, padx=5)
         
-        # === LEVEL UP TIMER SECTION ===
-        levelup_header = tk.Frame(col_frame, background="#E8F5E9")
-        levelup_header.pack(fill=tk.X, padx=5)
+        # === COLLAPSIBLE: Level Up Timer ===
+        self.levelup_collapsible = CollapsibleFrame(col_frame, "Level Up Timer", 
+                                              bg_color="#E8F5E9", expanded=False)
         
-        tk.Label(levelup_header, text="Level Up Timer", font=("Arial", 9, "bold"), 
-                background="#E8F5E9").pack(side=tk.LEFT)
-        
-        levelup_help = tk.Label(levelup_header, text="?", font=("Arial", 8, "bold"), 
+        # Help icon in header
+        levelup_help = tk.Label(self.levelup_collapsible.header, text="?", font=("Arial", 8, "bold"), 
                                cursor="hand2", foreground="#2E7D32", background="#E8F5E9")
         levelup_help.pack(side=tk.LEFT, padx=(5, 0))
         self._create_levelup_help_tooltip(levelup_help)
         
-        levelup_frame = tk.Frame(col_frame, background="#E8F5E9")
-        levelup_frame.pack(fill=tk.X, padx=5, pady=2)
+        levelup_frame = tk.Frame(self.levelup_collapsible.content, background="#E8F5E9")
+        levelup_frame.pack(fill=tk.X, pady=2)
         
         # Row 1: XP/Run and Run Duration
         levelup_row1 = tk.Frame(levelup_frame, background="#E8F5E9")
@@ -3524,94 +3618,6 @@ class ArchaeologySimulatorWindow:
                                            font=("Arial", 9, "bold"), 
                                            background="#E8F5E9", foreground="#C73E1D")
         self.time_to_level_label.pack(side=tk.LEFT, padx=(5, 0))
-        
-        ttk.Separator(col_frame, orient='horizontal').pack(fill=tk.X, pady=5, padx=5)
-        
-        # === FRAGMENTS PER HOUR SECTION ===
-        frag_hour_header = tk.Frame(col_frame, background="#F3E5F5")
-        frag_hour_header.pack(fill=tk.X, padx=5)
-        
-        tk.Label(frag_hour_header, text="Fragments / Hour", font=("Arial", 10, "bold"), 
-                background="#F3E5F5", foreground="#7B1FA2").pack(side=tk.LEFT)
-        
-        frag_help_label = tk.Label(frag_hour_header, text="?", font=("Arial", 9, "bold"), 
-                                  cursor="hand2", foreground="#7B1FA2", background="#F3E5F5")
-        frag_help_label.pack(side=tk.LEFT, padx=(5, 0))
-        self._create_fragments_hour_help_tooltip(frag_help_label)
-        
-        # Fragments per hour container
-        frag_hour_frame = tk.Frame(col_frame, background="#F3E5F5", relief=tk.GROOVE, borderwidth=1)
-        frag_hour_frame.pack(fill=tk.X, padx=5, pady=(3, 5))
-        
-        frag_hour_inner = tk.Frame(frag_hour_frame, background="#F3E5F5", padx=8, pady=5)
-        frag_hour_inner.pack(fill=tk.X)
-        
-        # Total fragments per run/hour
-        total_row = tk.Frame(frag_hour_inner, background="#F3E5F5")
-        total_row.pack(fill=tk.X, pady=(0, 5))
-        
-        tk.Label(total_row, text="Total Frags/Run:", font=("Arial", 9, "bold"), 
-                background="#F3E5F5").pack(side=tk.LEFT)
-        self.frags_per_run_label = tk.Label(total_row, text="—", font=("Arial", 9, "bold"),
-                                           background="#F3E5F5", foreground="#7B1FA2")
-        self.frags_per_run_label.pack(side=tk.LEFT, padx=(5, 15))
-        
-        tk.Label(total_row, text="Frags/Hour:", font=("Arial", 9, "bold"), 
-                background="#F3E5F5").pack(side=tk.LEFT)
-        self.frags_per_hour_label = tk.Label(total_row, text="—", font=("Arial", 9, "bold"),
-                                            background="#F3E5F5", foreground="#9932CC")
-        self.frags_per_hour_label.pack(side=tk.LEFT, padx=(5, 0))
-        
-        # Fragment breakdown by type
-        self.frag_hour_labels = {}
-        
-        # Header row
-        header_row = tk.Frame(frag_hour_inner, background="#F3E5F5")
-        header_row.pack(fill=tk.X, pady=(3, 2))
-        
-        tk.Label(header_row, text="Type", font=("Arial", 8, "bold"), 
-                background="#F3E5F5", width=10, anchor=tk.W).pack(side=tk.LEFT)
-        tk.Label(header_row, text="/Run", font=("Arial", 8, "bold"), 
-                background="#F3E5F5", width=8, anchor=tk.E).pack(side=tk.LEFT)
-        tk.Label(header_row, text="/Hour", font=("Arial", 8, "bold"), 
-                background="#F3E5F5", width=8, anchor=tk.E).pack(side=tk.LEFT)
-        
-        # Fragment types (common, rare, epic, legendary, mythic - no dirt)
-        frag_types = ['common', 'rare', 'epic', 'legendary', 'mythic']
-        type_colors = {
-            'common': '#808080',    # Gray
-            'rare': '#4169E1',      # Blue  
-            'epic': '#9932CC',      # Purple
-            'legendary': '#FFD700', # Gold
-            'mythic': '#FF4500',    # Orange
-        }
-        
-        for frag_type in frag_types:
-            row = tk.Frame(frag_hour_inner, background="#F3E5F5")
-            row.pack(fill=tk.X, pady=1)
-            
-            color = type_colors.get(frag_type, '#888888')
-            
-            # Fragment icon if available
-            if hasattr(self, 'fragment_icons') and frag_type in self.fragment_icons:
-                tk.Label(row, image=self.fragment_icons[frag_type], 
-                        background="#F3E5F5").pack(side=tk.LEFT, padx=(0, 3))
-            
-            tk.Label(row, text=f"{frag_type.capitalize()}", font=("Arial", 8, "bold"),
-                    foreground="#333333", background="#F3E5F5", width=8, anchor=tk.W).pack(side=tk.LEFT)
-            
-            per_run_label = tk.Label(row, text="—", font=("Arial", 8),
-                                    background="#F3E5F5", foreground="#555555", width=8, anchor=tk.E)
-            per_run_label.pack(side=tk.LEFT)
-            
-            per_hour_label = tk.Label(row, text="—", font=("Arial", 8, "bold"),
-                                     background="#F3E5F5", foreground="#333333", width=8, anchor=tk.E)
-            per_hour_label.pack(side=tk.LEFT)
-            
-            self.frag_hour_labels[frag_type] = {
-                'per_run': per_run_label,
-                'per_hour': per_hour_label,
-            }
         
         ttk.Separator(col_frame, orient='horizontal').pack(fill=tk.X, pady=5, padx=5)
         
@@ -4232,61 +4238,6 @@ class ArchaeologySimulatorWindow:
         widget.bind("<Enter>", on_enter)
         widget.bind("<Leave>", on_leave)
     
-    def _create_fragments_hour_help_tooltip(self, widget):
-        """Creates a tooltip explaining the Fragments/Hour feature"""
-        def on_enter(event):
-            tooltip = tk.Toplevel()
-            tooltip.wm_overrideredirect(True)
-            
-            tooltip_width = 300
-            tooltip_height = 280
-            screen_width = tooltip.winfo_screenwidth()
-            screen_height = tooltip.winfo_screenheight()
-            x, y = calculate_tooltip_position(event, tooltip_width, tooltip_height, screen_width, screen_height)
-            tooltip.wm_geometry(f"+{x}+{y}")
-            
-            outer_frame = tk.Frame(tooltip, background="#7B1FA2", relief=tk.FLAT)
-            outer_frame.pack(padx=2, pady=2)
-            
-            inner_frame = tk.Frame(outer_frame, background="#FFFFFF")
-            inner_frame.pack(padx=1, pady=1)
-            
-            content = tk.Frame(inner_frame, background="#FFFFFF", padx=10, pady=8)
-            content.pack()
-            
-            tk.Label(content, text="Fragments / Hour", font=("Arial", 10, "bold"),
-                    background="#FFFFFF", foreground="#7B1FA2").pack(anchor="w")
-            
-            lines = [
-                "",
-                "Estimated fragment income per hour.",
-                "",
-                "Based on:",
-                "  - Floors/Run × Blocks/Floor",
-                "  - Block spawn rates per stage",
-                "  - Fragment drop per block type",
-                "  - Fragment multiplier (PER + upgrades)",
-                "  - Loot Mod chance & bonus",
-                "  - Run duration",
-                "",
-                "Use this to plan upgrade purchases",
-                "and estimate farming time.",
-            ]
-            
-            for line in lines:
-                tk.Label(content, text=line, font=("Arial", 9),
-                        background="#FFFFFF", justify=tk.LEFT).pack(anchor="w")
-            
-            widget.tooltip = tooltip
-        
-        def on_leave(event):
-            if hasattr(widget, 'tooltip'):
-                widget.tooltip.destroy()
-                del widget.tooltip
-        
-        widget.bind("<Enter>", on_enter)
-        widget.bind("<Leave>", on_leave)
-    
     def _create_levelup_help_tooltip(self, widget):
         """Creates a tooltip explaining the Level Up Timer feature"""
         def on_enter(event):
@@ -4670,33 +4621,6 @@ class ArchaeologySimulatorWindow:
                 else:
                     gilded_improve_label.config(text="")
     
-    def update_fragments_hour_display(self, stats):
-        """Update the Fragments/Hour display"""
-        if not hasattr(self, 'frag_hour_labels'):
-            return
-        
-        # Calculate fragments per run
-        frags_per_run = self.calculate_fragments_per_run(stats, self.current_stage)
-        
-        # Calculate run duration
-        run_duration_sec = self.calculate_run_duration(stats, self.current_stage)
-        runs_per_hour = 3600 / run_duration_sec if run_duration_sec > 0 else 0
-        
-        # Total fragments
-        total_per_run = sum(frags_per_run.values())
-        total_per_hour = total_per_run * runs_per_hour
-        
-        self.frags_per_run_label.config(text=f"{total_per_run:.3f}")
-        self.frags_per_hour_label.config(text=f"{total_per_hour:.1f}")
-        
-        # Update per-type breakdown
-        for frag_type, labels in self.frag_hour_labels.items():
-            per_run = frags_per_run.get(frag_type, 0)
-            per_hour = per_run * runs_per_hour
-            
-            labels['per_run'].config(text=f"{per_run:.4f}")
-            labels['per_hour'].config(text=f"{per_hour:.3f}")
-    
     def update_avg_block_stats(self):
         """Calculate and display weighted average block stats for current stage"""
         if not hasattr(self, 'avg_block_hp_label'):
@@ -4987,9 +4911,6 @@ class ArchaeologySimulatorWindow:
         
         # Update cards display (middle column)
         self.update_cards_display()
-        
-        # Update fragments per hour
-        self.update_fragments_hour_display(stats)
         
         # Update level up timer
         self.update_levelup_timer(stats)
@@ -5339,6 +5260,62 @@ class ArchaeologySimulatorWindow:
         
         self.update_display()
     
+    def _show_loading_dialog(self, message="Running Monte Carlo simulation..."):
+        """Show a modal loading dialog that blocks interaction with main window"""
+        loading_window = tk.Toplevel(self.window)
+        loading_window.title("Loading...")
+        loading_window.transient(self.window)
+        loading_window.grab_set()  # Make it modal
+        loading_window.resizable(False, False)
+        
+        # Center the window (wider for text wrapping)
+        loading_window.update_idletasks()
+        x = (loading_window.winfo_screenwidth() // 2) - (350 // 2)
+        y = (loading_window.winfo_screenheight() // 2) - (120 // 2)
+        loading_window.geometry(f"350x120+{x}+{y}")
+        
+        # Disable main window
+        self.window.attributes('-disabled', True)
+        
+        # Loading content
+        main_frame = tk.Frame(loading_window, padx=20, pady=20)
+        main_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Message with wrapping
+        message_label = tk.Label(main_frame, text=message, font=("Arial", 10), 
+                                wraplength=300, justify=tk.LEFT)
+        message_label.pack(pady=(0, 10))
+        
+        # Progress percentage label
+        progress_label = tk.Label(main_frame, text="0%", 
+                                 font=("Arial", 11, "bold"), foreground="#1976D2")
+        progress_label.pack()
+        
+        # Store references for cleanup and progress updates
+        loading_window.loading_refs = {
+            'window': loading_window,
+            'progress_label': progress_label,
+            'main_window': self.window
+        }
+        
+        loading_window.update()
+        return loading_window
+    
+    def _update_loading_progress(self, loading_window, current, total):
+        """Update the progress percentage in the loading dialog"""
+        if loading_window and hasattr(loading_window, 'loading_refs'):
+            percentage = int((current / total) * 100) if total > 0 else 0
+            loading_window.loading_refs['progress_label'].config(text=f"{percentage}%")
+            loading_window.update()
+    
+    def _close_loading_dialog(self, loading_window):
+        """Close the loading dialog and re-enable main window"""
+        if loading_window and loading_window.winfo_exists():
+            loading_window.grab_release()
+            loading_window.destroy()
+        self.window.attributes('-disabled', False)
+        self.window.focus_set()
+    
     def run_mc_stage_pusher(self):
         """Run 1000 Monte Carlo simulations and show histogram with stage distribution
         
@@ -5350,6 +5327,9 @@ class ArchaeologySimulatorWindow:
         
         # Reset stats (but keep upgrades) before MC simulation
         self.reset_stats_only()
+        
+        # Show loading dialog
+        loading_window = self._show_loading_dialog("Running MC Stage Pusher simulation...")
         
         def run_in_thread():
             # Always start at Floor 1 (unbiased)
@@ -5425,6 +5405,9 @@ class ArchaeologySimulatorWindow:
             raw_data_no_crit = []  # List of max_stage values for statistical test
             raw_data_with_crit = []
             
+            total_sims = 2000  # 1000 without crit + 1000 with crit
+            sim_count = 0
+            
             for i in range(1000):
                 # Run simulation WITHOUT crit
                 result = simulator.simulate_run(
@@ -5438,6 +5421,12 @@ class ArchaeologySimulatorWindow:
                 if max_stage not in stage_counts_no_crit:
                     stage_counts_no_crit[max_stage] = 0
                 stage_counts_no_crit[max_stage] += 1
+                
+                # Update progress
+                sim_count += 1
+                current_count = sim_count  # Capture current value
+                self.window.after(0, lambda c=current_count, t=total_sims: 
+                                 self._update_loading_progress(loading_window, c, t))
             
             for i in range(1000):
                 # Run simulation WITH crit
@@ -5452,6 +5441,12 @@ class ArchaeologySimulatorWindow:
                 if max_stage not in stage_counts_with_crit:
                     stage_counts_with_crit[max_stage] = 0
                 stage_counts_with_crit[max_stage] += 1
+                
+                # Update progress
+                sim_count += 1
+                current_count = sim_count  # Capture current value
+                self.window.after(0, lambda c=current_count, t=total_sims: 
+                                 self._update_loading_progress(loading_window, c, t))
             
             # Reset stats after MC simulation (don't apply planner distribution)
             self.window.after(0, lambda: (
@@ -5459,11 +5454,14 @@ class ArchaeologySimulatorWindow:
                 self.update_display()
             ))
             
-            # Create window with histograms
-            self.window.after(0, lambda: self._show_stage_pusher_results(
-                stage_counts_no_crit, stage_counts_with_crit,
-                skill_points_display_no_crit, skill_points_display_with_crit, num_points,
-                raw_data_no_crit, raw_data_with_crit
+            # Close loading dialog and show results
+            self.window.after(0, lambda: (
+                self._close_loading_dialog(loading_window),
+                self._show_stage_pusher_results(
+                    stage_counts_no_crit, stage_counts_with_crit,
+                    skill_points_display_no_crit, skill_points_display_with_crit, num_points,
+                    raw_data_no_crit, raw_data_with_crit
+                )
             ))
         
         # Run in separate thread to avoid blocking UI
@@ -5484,6 +5482,9 @@ class ArchaeologySimulatorWindow:
         
         # Get target fragment type from Fragment Planner
         target_frag = self.frag_target_var.get() if hasattr(self, 'frag_target_var') else 'common'
+        
+        # Show loading dialog
+        loading_window = self._show_loading_dialog(f"Running MC Fragment Farmer simulation ({target_frag.upper()})...")
         
         def run_in_thread():
             # Always start at Floor 1 (unbiased)
@@ -5557,6 +5558,9 @@ class ArchaeologySimulatorWindow:
             frag_per_hour_no_crit = []  # List of frags/hour values for statistical test
             frag_per_hour_with_crit = []
             
+            total_sims = 2000  # 1000 without crit + 1000 with crit
+            sim_count = 0
+            
             for i in range(1000):
                 # Run simulation WITHOUT crit
                 result = simulator.simulate_run(
@@ -5582,6 +5586,12 @@ class ArchaeologySimulatorWindow:
                 runs_per_hour = 3600 / run_duration if run_duration > 0 else 0
                 frags_per_hour = target_frag_count * runs_per_hour
                 frag_per_hour_no_crit.append(frags_per_hour)
+                
+                # Update progress
+                sim_count += 1
+                current_count = sim_count  # Capture current value
+                self.window.after(0, lambda c=current_count, t=total_sims: 
+                                 self._update_loading_progress(loading_window, c, t))
             
             for i in range(1000):
                 # Run simulation WITH crit
@@ -5607,6 +5617,12 @@ class ArchaeologySimulatorWindow:
                 runs_per_hour = 3600 / run_duration if run_duration > 0 else 0
                 frags_per_hour = target_frag_count * runs_per_hour
                 frag_per_hour_with_crit.append(frags_per_hour)
+                
+                # Update progress
+                sim_count += 1
+                current_count = sim_count  # Capture current value
+                self.window.after(0, lambda c=current_count, t=total_sims: 
+                                 self._update_loading_progress(loading_window, c, t))
             
             # Reset stats after MC simulation (don't apply planner distribution)
             self.window.after(0, lambda: (
@@ -5614,11 +5630,14 @@ class ArchaeologySimulatorWindow:
                 self.update_display()
             ))
             
-            # Create window with histograms
-            self.window.after(0, lambda: self._show_fragment_farmer_results(
-                frag_per_hour_no_crit, frag_per_hour_with_crit,
-                skill_points_display_no_crit, skill_points_display_with_crit, num_points,
-                target_frag
+            # Close loading dialog and show results
+            self.window.after(0, lambda: (
+                self._close_loading_dialog(loading_window),
+                self._show_fragment_farmer_results(
+                    frag_per_hour_no_crit, frag_per_hour_with_crit,
+                    skill_points_display_no_crit, skill_points_display_with_crit, num_points,
+                    target_frag
+                )
             ))
         
         # Run in separate thread to avoid blocking UI

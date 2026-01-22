@@ -18,6 +18,7 @@ These override the normal spawn rates.
 """
 
 from typing import Dict, Tuple, Optional
+import random
 
 # Boss floors with 100% spawn rate for a single block type
 # Format: floor -> block_type
@@ -312,6 +313,71 @@ def get_stage_range_label(stage: int) -> str:
 def get_all_boss_floors() -> Dict[int, str]:
     """Get all boss floors and their block types."""
     return BOSS_FLOORS.copy()
+
+
+def spawn_block_for_slot(stage: int, rng=None) -> Optional[str]:
+    """
+    Spawn a block for a single slot based on spawn rates.
+    
+    Each slot has a chance to spawn a block based on the sum of all spawn rates.
+    If a block spawns, its type is determined by the normalized spawn rates.
+    
+    Args:
+        stage: The current floor/stage number (1-based)
+        rng: Optional random number generator (for reproducibility)
+    
+    Returns:
+        Block type name if a block spawns, None if no block spawns.
+    
+    Example:
+        >>> block = spawn_block_for_slot(1)
+        >>> block in ['dirt', 'common', None]
+        True
+    """
+    if rng is None:
+        rng = random
+    
+    raw_rates = get_spawn_rates_for_stage(stage)
+    
+    # Calculate total spawn probability (sum of all rates)
+    total_spawn_chance = sum(raw_rates.values())
+    
+    # Check if a block spawns at all
+    if rng.random() * 100.0 > total_spawn_chance:
+        return None
+    
+    # A block spawns - determine type based on normalized rates
+    normalized_rates = get_normalized_spawn_rates(stage)
+    
+    # Select block type using weighted random
+    rand = rng.random()
+    cumulative = 0.0
+    for block_type, spawn_chance in normalized_rates.items():
+        cumulative += spawn_chance
+        if rand <= cumulative:
+            return block_type
+    
+    # Fallback (shouldn't happen)
+    return None
+
+
+def get_total_spawn_probability(stage: int) -> float:
+    """
+    Get the total probability that a block spawns in a slot (sum of all spawn rates).
+    
+    Args:
+        stage: The current floor/stage number (1-based)
+    
+    Returns:
+        Total spawn probability as a percentage (0-100)
+    
+    Example:
+        >>> prob = get_total_spawn_probability(1)
+        >>> 0 <= prob <= 100
+        True
+    """
+    raw_rates = get_spawn_rates_for_stage(stage)
+    return sum(raw_rates.values())
 
 
 def print_spawn_table():

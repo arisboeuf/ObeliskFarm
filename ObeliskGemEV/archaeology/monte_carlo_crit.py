@@ -13,7 +13,7 @@ from dataclasses import dataclass
 import statistics
 
 from .block_stats import get_block_at_floor, get_block_mix_for_floor, BlockData
-from .block_spawn_rates import get_normalized_spawn_rates
+from .block_spawn_rates import get_normalized_spawn_rates, spawn_block_for_slot
 
 
 @dataclass
@@ -45,9 +45,10 @@ class MonteCarloCritSimulator:
     FLURRY_COOLDOWN = 120
     FLURRY_STAMINA_BONUS = 5
     MOD_STAMINA_BONUS_AVG = 6.5
-    # Blocks per floor varies 8–15 in-game; use random per floor for MC variance
-    BLOCKS_PER_FLOOR_MIN = 8
-    BLOCKS_PER_FLOOR_MAX = 15
+    # Stage structure: 6 columns x 4 rows = 24 slots
+    # Each slot CAN spawn a block (but doesn't have to)
+    # Blocks per floor varies 0–24 in-game based on spawn probabilities
+    SLOTS_PER_FLOOR = 24
     
     def __init__(self, seed: Optional[int] = None):
         """Initialize simulator with optional random seed"""
@@ -217,54 +218,44 @@ class MonteCarloCritSimulator:
             print("-" * 100)
         
         for floor_iter in range(1000):  # Max floors safety
-            spawn_rates = get_normalized_spawn_rates(current_floor)
             block_mix = get_block_mix_for_floor(current_floor)
             
-            # Blocks per floor varies 8–15 in-game; random per floor for variance
-            num_blocks_this_floor = random.randint(
-                self.BLOCKS_PER_FLOOR_MIN, self.BLOCKS_PER_FLOOR_MAX
-            )
+            # Go through all 24 slots and spawn blocks based on spawn probabilities
             stamina_for_floor = 0
             blocks_killed = 0
             stamina_before_floor = stamina_remaining
             stamina_mods_this_floor = 0
             block_types_spawned = {}  # Track block types spawned this floor
             
-            for _ in range(num_blocks_this_floor):
-                # Randomly select block type based on spawn rates
-                rand = random.random()
-                cumulative = 0.0
-                selected_type = None
-                for block_type, spawn_chance in spawn_rates.items():
-                    cumulative += spawn_chance
-                    if rand <= cumulative:
-                        selected_type = block_type
-                        break
+            # Spawn blocks slot by slot (6 columns x 4 rows = 24 slots)
+            for slot in range(self.SLOTS_PER_FLOOR):
+                # Spawn a block for this slot (returns block type or None)
+                block_type = spawn_block_for_slot(current_floor, rng=random)
                 
-                if selected_type:
-                    block_data = block_mix.get(selected_type)
+                if block_type:
+                    block_data = block_mix.get(block_type)
                     if block_data:
                         # Track block type
-                        if selected_type not in block_types_spawned:
-                            block_types_spawned[selected_type] = 0
-                        block_types_spawned[selected_type] += 1
+                        if block_type not in block_types_spawned:
+                            block_types_spawned[block_type] = 0
+                        block_types_spawned[block_type] += 1
                         
                         # Simulate killing this block (pass enrage state and cards)
                         hits, enrage_state = self.simulate_block_kill(
                             stats, block_data.health, block_data.armor, 
-                            selected_type, use_crit, enrage_state, block_cards
+                            block_type, use_crit, enrage_state, block_cards
                         )
                         stamina_for_floor += hits
                         blocks_killed += 1
                         
                         # Calculate fragments from this block (only if not dirt)
-                        if selected_type != 'dirt' and selected_type in fragments_by_type:
+                        if block_type != 'dirt' and block_type in fragments_by_type:
                             base_frag = block_data.fragment
                             # Check for loot mod
                             loot_mod_active = random.random() < loot_mod_chance
                             loot_mult = loot_mod_multiplier if loot_mod_active else 1.0
                             frag_gain = base_frag * fragment_mult * loot_mult
-                            fragments_by_type[selected_type] += frag_gain
+                            fragments_by_type[block_type] += frag_gain
                         
                         # Check for stamina mod (adds stamina immediately during the floor)
                         if random.random() < stamina_mod_chance:
@@ -294,7 +285,7 @@ class MonteCarloCritSimulator:
             if debug:
                 flurry_str = f"+{flurry_stamina_bonus}" if flurry_triggered else ""
                 mod_str = f"+{stamina_mods_this_floor:.1f}" if stamina_mods_this_floor > 0 else ""
-                print(f"{current_floor:<8} {stamina_before_floor:<12.1f} {num_blocks_this_floor:<8} {block_types_str:<30} "
+                print(f"{current_floor:<8} {stamina_before_floor:<12.1f} {blocks_killed:<8} {block_types_str:<30} "
                       f"{stamina_for_floor:<12.1f} {mod_str:<10} {stamina_after_floor:<12.1f} {'✓' if cleared else '✗':<8}")
             
             if stamina_remaining >= stamina_for_floor:
@@ -517,4 +508,4 @@ if __name__ == "__main__":
     
     print("Example Monte Carlo Crit Analysis")
     print("=" * 80)
-    run_crit_analysis(example_stats, starting_floor=1, num_simulations=500)
+    run_crit_analysis(example_stats, starting_floor=1, num_simulations=1000)
