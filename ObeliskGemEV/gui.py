@@ -69,6 +69,240 @@ except ImportError:
     OBELISK_LEVEL = 30
 
 
+class MainMenuWindow:
+    """Startup menu window for selecting which module to open"""
+    
+    def __init__(self, root):
+        self.root = root
+        self.root.title("ObeliskGemEV - Select Module")
+        self.root.geometry("600x500")
+        self.root.resizable(False, False)
+        
+        # Center window on screen
+        self.root.update_idletasks()
+        width = self.root.winfo_width()
+        height = self.root.winfo_height()
+        x = (self.root.winfo_screenwidth() // 2) - (width // 2)
+        y = (self.root.winfo_screenheight() // 2) - (height // 2)
+        self.root.geometry(f'{width}x{height}+{x}+{y}')
+        
+        # Set icon
+        try:
+            icon_path = get_resource_path("sprites/common/gem.png")
+            if icon_path.exists():
+                icon_image = Image.open(icon_path)
+                icon_photo = ImageTk.PhotoImage(icon_image)
+                self.root.iconphoto(False, icon_photo)
+                self.icon_photo = icon_photo
+        except:
+            pass
+        
+        # Main container
+        main_frame = ttk.Frame(self.root, padding="20")
+        main_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Title
+        title_label = ttk.Label(
+            main_frame,
+            text="ObeliskGemEV",
+            font=("Arial", 24, "bold")
+        )
+        title_label.pack(pady=(0, 10))
+        
+        subtitle_label = ttk.Label(
+            main_frame,
+            text="Select a module to open:",
+            font=("Arial", 12)
+        )
+        subtitle_label.pack(pady=(0, 30))
+        
+        # Buttons frame
+        buttons_frame = ttk.Frame(main_frame)
+        buttons_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Button style
+        button_style = {
+            'width': 30,
+            'padding': 10
+        }
+        
+        # Gem EV Button
+        gem_ev_button = ttk.Button(
+            buttons_frame,
+            text="💎 Gem EV Calculator",
+            command=self.open_gem_ev,
+            **button_style
+        )
+        gem_ev_button.pack(pady=10)
+        
+        # Archaeology Button
+        arch_button = ttk.Button(
+            buttons_frame,
+            text="🔍 Archaeology Simulator",
+            command=self.open_archaeology,
+            **button_style
+        )
+        arch_button.pack(pady=10)
+        
+        # Event Button
+        event_button = ttk.Button(
+            buttons_frame,
+            text="🎉 Event Simulator",
+            command=self.open_event,
+            **button_style
+        )
+        event_button.pack(pady=10)
+        
+        # Stargazing Button
+        stargazing_button = ttk.Button(
+            buttons_frame,
+            text="⭐ Stargazing Optimizer",
+            command=self.open_stargazing,
+            **button_style
+        )
+        stargazing_button.pack(pady=10)
+        
+        # Lootbug Button
+        lootbug_button = ttk.Button(
+            buttons_frame,
+            text="🐛 Option Analyzer",
+            command=self.open_lootbug,
+            **button_style
+        )
+        lootbug_button.pack(pady=10)
+        
+        # Store reference to prevent garbage collection
+        self.root.protocol("WM_DELETE_WINDOW", self._on_close)
+    
+    def _on_close(self):
+        """Handle window close"""
+        self.root.destroy()
+    
+    def open_gem_ev(self):
+        """Open Gem EV Calculator - replaces menu window"""
+        # Destroy menu widgets
+        for widget in self.root.winfo_children():
+            widget.destroy()
+        
+        # Create Gem EV GUI in the same root window
+        app = ObeliskGemEVGUI(self.root)
+        # Window will be maximized by ObeliskGemEVGUI.__init__
+    
+    def _open_toplevel_module(self, module_class, *args):
+        """Helper to open a Toplevel module window and handle cleanup"""
+        # Create a hidden root for the Toplevel window
+        hidden_root = tk.Tk()
+        hidden_root.withdraw()  # Hide the root window
+        
+        # Track the Toplevel window
+        toplevel_window = None
+        
+        def check_and_close():
+            """Check if Toplevel is still alive, close root if not"""
+            try:
+                if toplevel_window and toplevel_window.window.winfo_exists():
+                    # Toplevel still exists, check again later
+                    hidden_root.after(100, check_and_close)
+                else:
+                    # Toplevel closed, close root and menu
+                    hidden_root.quit()
+                    hidden_root.destroy()
+                    # Also destroy menu if it still exists
+                    try:
+                        if self.root.winfo_exists():
+                            self.root.quit()
+                            self.root.destroy()
+                    except:
+                        pass
+            except:
+                # Toplevel destroyed, close root and menu
+                try:
+                    hidden_root.quit()
+                    hidden_root.destroy()
+                except:
+                    pass
+                try:
+                    if self.root.winfo_exists():
+                        self.root.quit()
+                        self.root.destroy()
+                except:
+                    pass
+        
+        # Open the module
+        try:
+            # Make hidden_root visible temporarily to allow image loading
+            hidden_root.deiconify()
+            hidden_root.update_idletasks()
+            
+            # Create the module window
+            toplevel_window = module_class(hidden_root, *args)
+            
+            # Force multiple updates to ensure all widgets and images are fully loaded
+            # Process updates multiple times to ensure everything is initialized
+            for _ in range(5):
+                hidden_root.update_idletasks()
+                toplevel_window.window.update_idletasks()
+                hidden_root.update()
+                toplevel_window.window.update()
+            
+            # Now hide the hidden_root again (images are already loaded and associated with it)
+            hidden_root.withdraw()
+            
+            # Lower menu window to back (but don't hide/destroy - keep it alive for image references)
+            # This ensures images stay in memory while allowing the Toplevel to be in front
+            try:
+                if self.root.winfo_exists():
+                    # Move menu to back and minimize it (but don't destroy)
+                    self.root.lower()  # Send to back
+                    try:
+                        self.root.state('iconic')  # Minimize (Windows)
+                    except:
+                        try:
+                            self.root.iconify()  # Alternative minimize method
+                        except:
+                            pass
+            except:
+                pass
+            
+            # Start checking for Toplevel closure
+            hidden_root.after(100, check_and_close)
+        except Exception as e:
+            messagebox.showerror(
+                "Error",
+                f"Error opening module:\n{str(e)}"
+            )
+            hidden_root.destroy()
+            return
+        
+        # Run the hidden root's mainloop
+        hidden_root.mainloop()
+    
+    def open_archaeology(self):
+        """Open Archaeology Simulator - opens in new window, closes menu"""
+        self._open_toplevel_module(ArchaeologySimulatorWindow)
+    
+    def open_event(self):
+        """Open Event Simulator - opens in new window, closes menu"""
+        self._open_toplevel_module(EventSimulatorWindow)
+    
+    def open_stargazing(self):
+        """Open Stargazing Optimizer - opens in new window, closes menu"""
+        self._open_toplevel_module(StargazingWindow)
+    
+    def open_lootbug(self):
+        """Open Option Analyzer - opens in new window, closes menu"""
+        # Create a calculator for LootbugWindow
+        try:
+            params = GameParameters()
+            calculator = FreebieEVCalculator(params)
+            self._open_toplevel_module(LootbugWindow, calculator)
+        except Exception as e:
+            messagebox.showerror(
+                "Error",
+                f"Error opening Option Analyzer:\n{str(e)}"
+            )
+
+
 class ObeliskGemEVGUI:
     """GUI for the ObeliskGemEV Calculator"""
     
@@ -197,18 +431,6 @@ class ObeliskGemEVGUI:
             font=("Arial", 16, "bold")
         )
         title_label.pack(side=tk.LEFT, padx=(0, 10))
-        
-        # Lootbug-Button direkt daneben (nicht weit entfernt)
-        self.create_lootbug_button(title_frame)
-        
-        # Archaeology-Button daneben
-        self.create_archaeology_button(title_frame)
-        
-        # Event-Button daneben
-        self.create_event_button(title_frame)
-        
-        # Stargazing-Button daneben
-        self.create_stargazing_button(title_frame)
         
         # Linke Spalte: Parameter
         self.create_parameter_section(main_frame)
@@ -1530,7 +1752,7 @@ class ObeliskGemEVGUI:
 def main():
     """Main function"""
     root = tk.Tk()
-    app = ObeliskGemEVGUI(root)
+    menu = MainMenuWindow(root)
     root.mainloop()
 
 

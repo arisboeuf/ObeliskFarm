@@ -66,7 +66,7 @@ class StargazingWindow:
             icon_path = get_resource_path("sprites/stargazing/stargazing.png")
             if icon_path.exists():
                 icon_image = Image.open(icon_path)
-                icon_photo = ImageTk.PhotoImage(icon_image)
+                icon_photo = ImageTk.PhotoImage(icon_image, master=self.window)
                 self.window.iconphoto(False, icon_photo)
                 self.icon_photo = icon_photo
         except:
@@ -151,7 +151,8 @@ class StargazingWindow:
                 if path.exists():
                     img = Image.open(path)
                     img = img.resize((18, 18), Image.Resampling.LANCZOS)
-                    self.sprites[key] = ImageTk.PhotoImage(img)
+                    # Use window as master to ensure image is associated with the correct root
+                    self.sprites[key] = ImageTk.PhotoImage(img, master=self.window)
             except:
                 pass
         
@@ -162,7 +163,8 @@ class StargazingWindow:
                 if path.exists():
                     img = Image.open(path)
                     img = img.resize((16, 16), Image.Resampling.LANCZOS)
-                    self.sprites[f'star_{key}'] = ImageTk.PhotoImage(img)
+                    # Use window as master to ensure image is associated with the correct root
+                    self.sprites[f'star_{key}'] = ImageTk.PhotoImage(img, master=self.window)
             except:
                 pass
         
@@ -173,7 +175,8 @@ class StargazingWindow:
                 if path.exists():
                     img = Image.open(path)
                     img = img.resize((16, 16), Image.Resampling.LANCZOS)
-                    self.sprites[key] = ImageTk.PhotoImage(img)
+                    # Use window as master to ensure image is associated with the correct root
+                    self.sprites[key] = ImageTk.PhotoImage(img, master=self.window)
             except:
                 pass
     
@@ -346,7 +349,8 @@ class StargazingWindow:
             if icon_path.exists():
                 icon_image = Image.open(icon_path)
                 icon_image = icon_image.resize((24, 24), Image.Resampling.LANCZOS)
-                self.title_icon = ImageTk.PhotoImage(icon_image)
+                # Use window as master to ensure image is associated with the correct root
+                self.title_icon = ImageTk.PhotoImage(icon_image, master=self.window)
                 tk.Label(title_frame, image=self.title_icon).pack(side=tk.LEFT, padx=(0, 8))
         except:
             pass

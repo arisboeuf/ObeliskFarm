@@ -99,7 +99,8 @@ class BudgetOptimizerPanel:
                 if icon_path.exists():
                     icon_image = Image.open(icon_path)
                     icon_image = icon_image.resize((24, 24), Image.Resampling.LANCZOS)
-                    self.currency_icons[tier] = ImageTk.PhotoImage(icon_image)
+                    # Use window as master to ensure image is associated with the correct root
+                    self.currency_icons[tier] = ImageTk.PhotoImage(icon_image, master=self.window)
         except Exception:
             pass  # Graceful fallback if icons can't be loaded
     
@@ -155,7 +156,8 @@ class BudgetOptimizerPanel:
                 if icon_path.exists():
                     icon_image = Image.open(icon_path)
                     icon_image = icon_image.resize((32, 32), Image.Resampling.LANCZOS)
-                    self.upgrade_icons[(tier, idx)] = ImageTk.PhotoImage(icon_image)
+                    # Use window as master to ensure image is associated with the correct root
+                    self.upgrade_icons[(tier, idx)] = ImageTk.PhotoImage(icon_image, master=self.window)
         except Exception as e:
             print(f"Warning: Could not load upgrade icons: {e}")
             pass  # Graceful fallback
@@ -1094,13 +1096,14 @@ class BudgetOptimizerPanel:
             with open(SAVE_FILE, 'r') as f:
                 state = json.load(f)
             
-            print(f"Loading state from: {SAVE_FILE}")
-            print(f"State keys: {state.keys()}")
+            # Debug prints removed
+            # print(f"Loading state from: {SAVE_FILE}")
+            # print(f"State keys: {state.keys()}")
             
             # Load prestige
             if 'prestige' in state:
                 self.budget_prestige_var.set(state['prestige'])
-                print(f"Loaded prestige: {state['prestige']}")
+                # Debug print removed: print(f"Loaded prestige: {state['prestige']}")
             
             # Load upgrade levels
             if 'upgrade_levels' in state:
@@ -1117,19 +1120,19 @@ class BudgetOptimizerPanel:
                         # Ensure we have the right length
                         if isinstance(saved_levels, list) and len(saved_levels) == len(self.current_upgrade_levels[tier]):
                             self.current_upgrade_levels[tier] = saved_levels.copy()
-                            total = sum(saved_levels)
-                            print(f"Loaded Tier {tier} upgrades: {saved_levels} (total: {total})")
+                            # Debug print removed: print(f"Loaded Tier {tier} upgrades: {saved_levels} (total: {sum(saved_levels)})")
                         else:
-                            print(f"Warning: Tier {tier} upgrade levels length mismatch: {len(saved_levels)} != {len(self.current_upgrade_levels[tier])}")
-                    else:
-                        print(f"Warning: Tier {tier} not found in upgrade_levels")
+                            # Debug print removed: print(f"Warning: Tier {tier} upgrade levels length mismatch: {len(saved_levels)} != {len(self.current_upgrade_levels[tier])}")
+                            pass
+                    # else:
+                        # Debug print removed: print(f"Warning: Tier {tier} not found in upgrade_levels")
             
             # Load gem levels
             if 'gem_levels' in state:
                 saved_gems = state['gem_levels']
                 if isinstance(saved_gems, list) and len(saved_gems) == len(self.current_gem_levels):
                     self.current_gem_levels = saved_gems.copy()
-                    print(f"Loaded gem levels: {saved_gems}")
+                    # Debug print removed: print(f"Loaded gem levels: {saved_gems}")
             
             # Rebuild UI to reflect loaded state
             self._build_upgrade_level_inputs()
