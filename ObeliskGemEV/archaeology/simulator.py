@@ -5312,8 +5312,9 @@ class ArchaeologySimulatorWindow:
     def run_mc_stage_pusher(self):
         """Run 1000 Monte Carlo simulations and show histogram with stage distribution
         
-        Uses the recommended skill setup from Stage Pusher planner (without crit).
-        Shows histogram with skill distribution above it.
+        Runs two simulations: one without crit and one with crit.
+        Uses the recommended skill setup from Stage Pusher planner for each.
+        Shows two histograms side by side for comparison.
         """
         import threading
         
@@ -5328,24 +5329,52 @@ class ArchaeologySimulatorWindow:
             original_points = self.skill_points.copy()
             original_crit_state = self.crit_calc_enabled.get() if hasattr(self, 'crit_calc_enabled') else False
             
+            enrage_enabled = self.enrage_enabled.get() if hasattr(self, 'enrage_enabled') else True
+            flurry_enabled = self.flurry_enabled.get() if hasattr(self, 'flurry_enabled') else True
+            block_cards = self.block_cards if hasattr(self, 'block_cards') else None
+            
+            # ===== SIMULATION WITHOUT CRIT =====
             # Get planner distribution WITHOUT crit (crit disabled)
             if hasattr(self, 'crit_calc_enabled'):
                 self.crit_calc_enabled.set(False)
-            forecast = self.calculate_forecast(num_points)
-            planner_dist = forecast['distribution']
+            forecast_no_crit = self.calculate_forecast(num_points)
+            planner_dist_no_crit = forecast_no_crit['distribution']
             
             # Get skill points for display (current + planner distribution)
-            skill_points_display = {}
+            skill_points_display_no_crit = {}
             for skill in ['strength', 'agility', 'intellect', 'perception', 'luck']:
                 current = self.skill_points.get(skill, 0)
-                added = planner_dist.get(skill, 0)
-                skill_points_display[skill] = current + added
+                added = planner_dist_no_crit.get(skill, 0)
+                skill_points_display_no_crit[skill] = current + added
             
             # Apply planner distribution temporarily to get stats
-            for skill, points in planner_dist.items():
+            for skill, points in planner_dist_no_crit.items():
                 self.skill_points[skill] += points
             
-            stats = self.get_total_stats()
+            stats_no_crit = self.get_total_stats()
+            
+            # Restore original skill points
+            self.skill_points = original_points
+            
+            # ===== SIMULATION WITH CRIT =====
+            # Get planner distribution WITH crit (crit enabled)
+            if hasattr(self, 'crit_calc_enabled'):
+                self.crit_calc_enabled.set(True)
+            forecast_with_crit = self.calculate_forecast(num_points)
+            planner_dist_with_crit = forecast_with_crit['distribution']
+            
+            # Get skill points for display (current + planner distribution)
+            skill_points_display_with_crit = {}
+            for skill in ['strength', 'agility', 'intellect', 'perception', 'luck']:
+                current = self.skill_points.get(skill, 0)
+                added = planner_dist_with_crit.get(skill, 0)
+                skill_points_display_with_crit[skill] = current + added
+            
+            # Apply planner distribution temporarily to get stats
+            for skill, points in planner_dist_with_crit.items():
+                self.skill_points[skill] += points
+            
+            stats_with_crit = self.get_total_stats()
             
             # Restore original skill points
             self.skill_points = original_points
@@ -5354,44 +5383,58 @@ class ArchaeologySimulatorWindow:
             if hasattr(self, 'crit_calc_enabled'):
                 self.crit_calc_enabled.set(original_crit_state)
             
-            enrage_enabled = self.enrage_enabled.get() if hasattr(self, 'enrage_enabled') else True
-            flurry_enabled = self.flurry_enabled.get() if hasattr(self, 'flurry_enabled') else True
-            block_cards = self.block_cards if hasattr(self, 'block_cards') else None
-            
-            # Run 1000 simulations
+            # Run 1000 simulations for both scenarios
             from .monte_carlo_crit import MonteCarloCritSimulator
             simulator = MonteCarloCritSimulator()
             
-            stage_counts = {}  # stage -> count of simulations that reached this as max stage
+            stage_counts_no_crit = {}  # stage -> count of simulations that reached this as max stage
+            stage_counts_with_crit = {}
+            raw_data_no_crit = []  # List of max_stage values for statistical test
+            raw_data_with_crit = []
             
-            print(f"\nRunning 1000 MC simulations (Stage Pusher, no crit)...")
             for i in range(1000):
-                if (i + 1) % 100 == 0:
-                    print(f"  Progress: {i + 1}/1000")
-                
-                # Run simulation with return_metrics to get max_stage_reached
+                # Run simulation WITHOUT crit
                 result = simulator.simulate_run(
-                    stats, starting_floor, use_crit=False, 
+                    stats_no_crit, starting_floor, use_crit=False, 
                     enrage_enabled=enrage_enabled, flurry_enabled=flurry_enabled,
                     block_cards=block_cards, return_metrics=True
                 )
                 
                 max_stage = int(result['max_stage_reached'])
-                
-                # Count how many simulations reached each stage as their maximum
-                if max_stage not in stage_counts:
-                    stage_counts[max_stage] = 0
-                stage_counts[max_stage] += 1
+                raw_data_no_crit.append(max_stage)
+                if max_stage not in stage_counts_no_crit:
+                    stage_counts_no_crit[max_stage] = 0
+                stage_counts_no_crit[max_stage] += 1
             
-            # Create window with histogram
-            self.window.after(0, lambda: self._show_stage_pusher_results(stage_counts, skill_points_display, num_points))
+            for i in range(1000):
+                # Run simulation WITH crit
+                result = simulator.simulate_run(
+                    stats_with_crit, starting_floor, use_crit=True, 
+                    enrage_enabled=enrage_enabled, flurry_enabled=flurry_enabled,
+                    block_cards=block_cards, return_metrics=True
+                )
+                
+                max_stage = int(result['max_stage_reached'])
+                raw_data_with_crit.append(max_stage)
+                if max_stage not in stage_counts_with_crit:
+                    stage_counts_with_crit[max_stage] = 0
+                stage_counts_with_crit[max_stage] += 1
+            
+            # Create window with histograms
+            self.window.after(0, lambda: self._show_stage_pusher_results(
+                stage_counts_no_crit, stage_counts_with_crit,
+                skill_points_display_no_crit, skill_points_display_with_crit, num_points,
+                raw_data_no_crit, raw_data_with_crit
+            ))
         
         # Run in separate thread to avoid blocking UI
         thread = threading.Thread(target=run_in_thread, daemon=True)
         thread.start()
     
-    def _show_stage_pusher_results(self, stage_counts, skill_points_display, num_points):
-        """Show histogram window with stage distribution and skill setup"""
+    def _show_stage_pusher_results(self, stage_counts_no_crit, stage_counts_with_crit, 
+                                   skill_points_display_no_crit, skill_points_display_with_crit, num_points,
+                                   raw_data_no_crit, raw_data_with_crit):
+        """Show histogram window with stage distribution and skill setup for both crit and no-crit"""
         try:
             import matplotlib
             matplotlib.use('TkAgg')
@@ -5404,97 +5447,204 @@ class ArchaeologySimulatorWindow:
             tk.messagebox.showerror("Error", "Matplotlib is required for histogram display.")
             return
         
+        # Perform statistical test
+        try:
+            from scipy import stats
+            SCIPY_AVAILABLE = True
+        except ImportError:
+            SCIPY_AVAILABLE = False
+        
         # Create window in normal GUI style (not Matrix)
         result_window = tk.Toplevel(self.window)
         result_window.title("MC Stage Pusher Results")
-        result_window.geometry("900x600")
+        result_window.geometry("1400x800")
         result_window.transient(self.window)
         
         # Main container
         main_frame = ttk.Frame(result_window, padding="10")
         main_frame.pack(fill=tk.BOTH, expand=True)
         main_frame.columnconfigure(0, weight=1)
-        main_frame.rowconfigure(2, weight=1)
+        main_frame.columnconfigure(1, weight=1)
+        main_frame.rowconfigure(3, weight=1)
         
         # Title
-        title_label = ttk.Label(main_frame, text="MC Stage Pusher Results (1000 simulations, no crit)", 
+        title_label = ttk.Label(main_frame, text="MC Stage Pusher Results (1000 simulations each)", 
                                font=("Arial", 12, "bold"))
-        title_label.grid(row=0, column=0, pady=(0, 10), sticky=tk.W)
+        title_label.grid(row=0, column=0, columnspan=2, pady=(0, 10), sticky=tk.W)
         
-        # Skill distribution display (above histogram)
-        skill_frame = ttk.LabelFrame(main_frame, text="Skill Distribution", padding="5")
-        skill_frame.grid(row=1, column=0, sticky=(tk.W, tk.E), pady=(0, 10))
+        # Statistical test results
+        if SCIPY_AVAILABLE and raw_data_no_crit and raw_data_with_crit:
+            # Perform Mann-Whitney U test (non-parametric test, good for non-normal distributions)
+            statistic, p_value = stats.mannwhitneyu(raw_data_with_crit, raw_data_no_crit, 
+                                                     alternative='two-sided')
+            
+            # Calculate descriptive statistics
+            mean_no_crit = np.mean(raw_data_no_crit)
+            mean_with_crit = np.mean(raw_data_with_crit)
+            median_no_crit = np.median(raw_data_no_crit)
+            median_with_crit = np.median(raw_data_with_crit)
+            
+            # Determine which is better
+            if mean_with_crit > mean_no_crit:
+                better = "With Crit"
+                diff = mean_with_crit - mean_no_crit
+                diff_pct = (diff / mean_no_crit * 100) if mean_no_crit > 0 else 0
+            else:
+                better = "No Crit"
+                diff = mean_no_crit - mean_with_crit
+                diff_pct = (diff / mean_with_crit * 100) if mean_with_crit > 0 else 0
+            
+            # Interpret p-value
+            if p_value < 0.001:
+                significance = "*** (p < 0.001)"
+                interpretation = "Highly significant difference"
+            elif p_value < 0.01:
+                significance = "** (p < 0.01)"
+                interpretation = "Very significant difference"
+            elif p_value < 0.05:
+                significance = "* (p < 0.05)"
+                interpretation = "Significant difference"
+            else:
+                significance = f"(p = {p_value:.4f})"
+                interpretation = "No significant difference"
+            
+            # Create statistics frame
+            stats_frame = ttk.LabelFrame(main_frame, text="Statistical Analysis", padding="10")
+            stats_frame.grid(row=1, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 10))
+            
+            # Results text
+            stats_text = f"""Mann-Whitney U Test Results:
+            
+Mean Stage Reached:
+  No Crit:    {mean_no_crit:.2f} (median: {median_no_crit:.1f})
+  With Crit:  {mean_with_crit:.2f} (median: {median_with_crit:.1f})
+  Difference: {diff:.2f} stages ({diff_pct:+.1f}%)
+
+Statistical Test:
+  {better} performs better {significance}
+  {interpretation}"""
+            
+            stats_label = ttk.Label(stats_frame, text=stats_text, font=("Courier", 9), 
+                                   justify=tk.LEFT)
+            stats_label.pack(anchor=tk.W)
+        else:
+            # No statistical test available
+            stats_frame = ttk.LabelFrame(main_frame, text="Statistical Analysis", padding="10")
+            stats_frame.grid(row=1, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 10))
+            if not SCIPY_AVAILABLE:
+                stats_label = ttk.Label(stats_frame, 
+                                       text="scipy not available - statistical test skipped", 
+                                       foreground="gray")
+            else:
+                stats_label = ttk.Label(stats_frame, 
+                                       text="Insufficient data for statistical test", 
+                                       foreground="gray")
+            stats_label.pack()
         
-        skill_text_parts = []
+        # Skill distribution displays (above histograms)
+        skill_frame_no_crit = ttk.LabelFrame(main_frame, text="Skill Distribution (No Crit)", padding="5")
+        skill_frame_no_crit.grid(row=2, column=0, sticky=(tk.W, tk.E), pady=(0, 10), padx=(0, 5))
+        
+        skill_text_parts_no_crit = []
         for skill in ['strength', 'agility', 'intellect', 'perception', 'luck']:
-            points = skill_points_display.get(skill, 0)
+            points = skill_points_display_no_crit.get(skill, 0)
             skill_short = skill[:3].upper()
-            skill_text_parts.append(f"{skill_short}: {points}")
+            skill_text_parts_no_crit.append(f"{skill_short}: {points}")
         
-        skill_label = ttk.Label(skill_frame, text=" | ".join(skill_text_parts), font=("Arial", 10))
-        skill_label.pack()
+        skill_label_no_crit = ttk.Label(skill_frame_no_crit, text=" | ".join(skill_text_parts_no_crit), font=("Arial", 9))
+        skill_label_no_crit.pack()
         
-        # Histogram frame
-        hist_frame = ttk.LabelFrame(main_frame, text="Stage Distribution", padding="5")
-        hist_frame.grid(row=2, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        skill_frame_with_crit = ttk.LabelFrame(main_frame, text="Skill Distribution (With Crit)", padding="5")
+        skill_frame_with_crit.grid(row=2, column=1, sticky=(tk.W, tk.E), pady=(0, 10), padx=(5, 0))
+        
+        skill_text_parts_with_crit = []
+        for skill in ['strength', 'agility', 'intellect', 'perception', 'luck']:
+            points = skill_points_display_with_crit.get(skill, 0)
+            skill_short = skill[:3].upper()
+            skill_text_parts_with_crit.append(f"{skill_short}: {points}")
+        
+        skill_label_with_crit = ttk.Label(skill_frame_with_crit, text=" | ".join(skill_text_parts_with_crit), font=("Arial", 9))
+        skill_label_with_crit.pack()
+        
+        # Histogram frame (spans both columns)
+        hist_frame = ttk.LabelFrame(main_frame, text="Stage Distribution Comparison", padding="5")
+        hist_frame.grid(row=3, column=0, columnspan=2, sticky=(tk.W, tk.E, tk.N, tk.S))
         hist_frame.columnconfigure(0, weight=1)
         hist_frame.rowconfigure(0, weight=1)
         
-        # Create histogram
-        if stage_counts:
-            # Get all stages and create bins
-            all_stages = sorted(stage_counts.keys())
-            if not all_stages:
-                all_stages = [1]
+        # Create figure with two subplots side by side
+        if stage_counts_no_crit or stage_counts_with_crit:
+            # Determine common y-axis range for both histograms
+            all_counts = []
+            if stage_counts_no_crit:
+                all_counts.extend(stage_counts_no_crit.values())
+            if stage_counts_with_crit:
+                all_counts.extend(stage_counts_with_crit.values())
+            max_count = max(all_counts) if all_counts else 100
             
-            # Create bins (centered on integers)
-            bins = np.arange(min(all_stages) - 0.5, max(all_stages) + 1.5, 1)
+            # Create figure with two subplots
+            fig = Figure(figsize=(12, 4), facecolor='white')
             
-            # Get counts for each stage
-            counts = []
-            bin_centers = []
-            for stage in range(int(min(all_stages)), int(max(all_stages)) + 1):
-                count = stage_counts.get(stage, 0)
-                counts.append(count)
-                bin_centers.append(stage)
+            # Helper function to create histogram subplot
+            def create_histogram_subplot(stage_counts, subplot_idx, title, color, edge_color):
+                """Create a histogram subplot"""
+                if not stage_counts:
+                    return None
+                
+                # Get all stages
+                all_stages = sorted(stage_counts.keys())
+                if not all_stages:
+                    all_stages = [1]
+                
+                # Get counts for each stage
+                counts = []
+                bin_centers = []
+                for stage in range(int(min(all_stages)), int(max(all_stages)) + 1):
+                    count = stage_counts.get(stage, 0)
+                    counts.append(count)
+                    bin_centers.append(stage)
+                
+                # Create subplot
+                ax = fig.add_subplot(1, 2, subplot_idx, facecolor='white')
+                
+                # Create bar chart (histogram-style)
+                bars = ax.bar(bin_centers, counts, width=0.8, 
+                             color=color, edgecolor=edge_color, 
+                             linewidth=1.5, alpha=0.8)
+                
+                # Add labels on top of bars with count and percentage
+                total = sum(counts)
+                for bar, count in zip(bars, counts):
+                    if count > 0:
+                        height = bar.get_height()
+                        pct = (count / total * 100) if total > 0 else 0
+                        # Position label above bar
+                        label_y = height + max(counts) * 0.02 if counts else 0
+                        ax.text(bar.get_x() + bar.get_width()/2., label_y,
+                               f'{count}\n({pct:.1f}%)',
+                               ha='center', va='bottom', color=edge_color,
+                               fontsize=8, fontweight='bold')
+                
+                ax.set_xlabel('Stage Reached', fontsize=10, fontweight='bold')
+                ax.set_ylabel('Count', fontsize=10, fontweight='bold')
+                ax.set_title(title, fontsize=11, fontweight='bold', pad=10)
+                
+                # Normal GUI style colors
+                ax.tick_params(colors='black', labelsize=8)
+                for spine in ax.spines.values():
+                    spine.set_color('#CCCCCC')
+                ax.grid(True, color='#E0E0E0', alpha=0.5, linestyle='--', linewidth=0.5)
+                ax.set_xticks(bin_centers)
+                ax.set_xticklabels([f'{int(x)}' for x in bin_centers])
+                
+                # Set y-axis to start at 0
+                ax.set_ylim(0, max_count * 1.1)
+                
+                return ax
             
-            # Create figure with normal GUI style (light background, compact)
-            fig = Figure(figsize=(6, 3), facecolor='white')
-            ax = fig.add_subplot(111, facecolor='white')
-            
-            # Create bar chart (histogram-style)
-            bars = ax.bar(bin_centers, counts, width=0.8, 
-                         color='#4CAF50', edgecolor='#2E7D32', 
-                         linewidth=1.5, alpha=0.8)
-            
-            # Add labels on top of bars with count and percentage
-            total = sum(counts)
-            for bar, count in zip(bars, counts):
-                if count > 0:
-                    height = bar.get_height()
-                    pct = (count / total * 100) if total > 0 else 0
-                    # Position label above bar
-                    label_y = height + max(counts) * 0.02 if counts else 0
-                    ax.text(bar.get_x() + bar.get_width()/2., label_y,
-                           f'{count}\n({pct:.1f}%)',
-                           ha='center', va='bottom', color='#2E7D32',
-                           fontsize=9, fontweight='bold')
-            
-            ax.set_xlabel('Stage Reached', fontsize=11, fontweight='bold')
-            ax.set_ylabel('Count', fontsize=11, fontweight='bold')
-            ax.set_title('Stage Distribution (1000 simulations)', fontsize=12, 
-                        fontweight='bold', pad=15)
-            
-            # Normal GUI style colors
-            ax.tick_params(colors='black', labelsize=9)
-            for spine in ax.spines.values():
-                spine.set_color('#CCCCCC')
-            ax.grid(True, color='#E0E0E0', alpha=0.5, linestyle='--', linewidth=0.5)
-            ax.set_xticks(bin_centers)
-            ax.set_xticklabels([f'{int(x)}' for x in bin_centers])
-            
-            # Set y-axis to start at 0
-            ax.set_ylim(bottom=0)
+            # Create both histograms
+            create_histogram_subplot(stage_counts_no_crit, 1, "No Crit", '#4CAF50', '#2E7D32')
+            create_histogram_subplot(stage_counts_with_crit, 2, "With Crit", '#2196F3', '#1565C0')
             
             # Layout
             fig.tight_layout()
@@ -5510,7 +5660,7 @@ class ArchaeologySimulatorWindow:
         
         # Close button
         button_frame = ttk.Frame(main_frame)
-        button_frame.grid(row=3, column=0, pady=(10, 0))
+        button_frame.grid(row=4, column=0, columnspan=2, pady=(10, 0))
         
         close_btn = ttk.Button(button_frame, text="Close", command=result_window.destroy)
         close_btn.pack()
