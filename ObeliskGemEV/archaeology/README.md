@@ -243,10 +243,23 @@ The simulator does this automatically and shows the efficiency of each option.
 archaeology/
 ├── __init__.py           # Package exports
 ├── README.md             # This documentation
+├── MC_GUIDELINES.md      # Monte Carlo simulation rules and principles
 ├── simulator.py          # Main GUI and calculations
+├── monte_carlo_crit.py   # Monte Carlo simulation engine
 ├── block_stats.py        # Block HP/Armor/XP data by tier
 └── block_spawn_rates.py  # Spawn rates by stage
 ```
+
+### Monte Carlo Simulations
+
+For guidelines on implementing and using Monte Carlo simulations, see **[MC_GUIDELINES.md](MC_GUIDELINES.md)**.
+
+This document covers:
+- When to use MC vs. deterministic calculations
+- Rules for MC Stage Pusher (dual simulations, starting floor, etc.)
+- Statistical testing principles
+- Code organization and best practices
+- Common mistakes to avoid
 
 ## Usage
 

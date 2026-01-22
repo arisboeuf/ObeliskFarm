@@ -34,8 +34,7 @@ class EventSimulatorWindow:
         self.main_container = ttk.Frame(self.window, padding="5")
         self.main_container.pack(fill=tk.BOTH, expand=True)
         
-        # Mode toggle at top
-        self.create_mode_toggle()
+        # Mode toggle removed for more space
         
         # Content frame (will be replaced when switching modes)
         self.content_frame = ttk.Frame(self.main_container)

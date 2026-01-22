@@ -186,8 +186,8 @@ class LootbugWindow:
         self.parent = parent
         self.calculator = calculator
         
-        # Cost modifier (0 = free, 1 = normal, 0.5 = half price)
-        self.gem_cost_modifier = 1.0
+        # Cost reduction (flat amount to subtract from all gem costs, can be negative)
+        self.gem_cost_reduction = 0
         
         # Create new window - larger and resizable
         self.window = tk.Toplevel(parent)
@@ -220,7 +220,7 @@ class LootbugWindow:
     def save_state(self):
         """Save current state to file"""
         state = {
-            'gem_cost_modifier': self.gem_cost_modifier,
+            'gem_cost_reduction': self.gem_cost_reduction,
         }
         try:
             SAVE_DIR.mkdir(parents=True, exist_ok=True)
@@ -236,9 +236,20 @@ class LootbugWindow:
         try:
             with open(SAVE_FILE, 'r') as f:
                 state = json.load(f)
-            self.gem_cost_modifier = state.get('gem_cost_modifier', 1.0)
-            if hasattr(self, 'cost_modifier_var'):
-                self.cost_modifier_var.set(str(int(self.gem_cost_modifier * 100)))
+            # Support both old (modifier) and new (reduction) format for migration
+            if 'gem_cost_reduction' in state:
+                self.gem_cost_reduction = state.get('gem_cost_reduction', 0)
+            elif 'gem_cost_modifier' in state:
+                # Migrate old percentage-based modifier to flat reduction
+                # Old: 0.0 = free, 1.0 = normal, 0.5 = half price
+                # New: flat reduction in gems
+                old_modifier = state.get('gem_cost_modifier', 1.0)
+                # For migration, we can't perfectly convert, so set to 0
+                self.gem_cost_reduction = 0
+            else:
+                self.gem_cost_reduction = 0
+            if hasattr(self, 'cost_reduction_var'):
+                self.cost_reduction_var.set(str(self.gem_cost_reduction))
             self._update_loot_tables()
         except Exception as e:
             print(f"Warning: Could not load lootbug state: {e}")
@@ -259,34 +270,34 @@ class LootbugWindow:
         )
         title_label.pack(side=tk.LEFT, padx=10, pady=5)
         
-        # Right: Cost modifier controls
+        # Right: Cost reduction controls
         controls_frame = tk.Frame(header_frame, background="#E3F2FD")
         controls_frame.pack(side=tk.RIGHT, padx=10, pady=5)
         
-        tk.Label(controls_frame, text="Gem Cost:", font=("Arial", 10), 
+        tk.Label(controls_frame, text="Gem Cost Reduction:", font=("Arial", 10), 
                 background="#E3F2FD").pack(side=tk.LEFT, padx=(0, 3))
         
         # Preset buttons
-        tk.Button(controls_frame, text="0%", width=3, font=("Arial", 8),
-                 command=lambda: self._set_cost_modifier(0)).pack(side=tk.LEFT, padx=1)
-        tk.Button(controls_frame, text="50%", width=3, font=("Arial", 8),
-                 command=lambda: self._set_cost_modifier(50)).pack(side=tk.LEFT, padx=1)
-        tk.Button(controls_frame, text="100%", width=4, font=("Arial", 8),
-                 command=lambda: self._set_cost_modifier(100)).pack(side=tk.LEFT, padx=1)
+        tk.Button(controls_frame, text="-1", width=3, font=("Arial", 8),
+                 command=lambda: self._set_cost_reduction(-1)).pack(side=tk.LEFT, padx=1)
+        tk.Button(controls_frame, text="0", width=3, font=("Arial", 8),
+                 command=lambda: self._set_cost_reduction(0)).pack(side=tk.LEFT, padx=1)
+        tk.Button(controls_frame, text="+1", width=3, font=("Arial", 8),
+                 command=lambda: self._set_cost_reduction(1)).pack(side=tk.LEFT, padx=1)
         
         # Custom entry
-        self.cost_modifier_var = tk.StringVar(value="100")
-        cost_entry = ttk.Entry(controls_frame, textvariable=self.cost_modifier_var, width=4)
+        self.cost_reduction_var = tk.StringVar(value="0")
+        cost_entry = ttk.Entry(controls_frame, textvariable=self.cost_reduction_var, width=5)
         cost_entry.pack(side=tk.LEFT, padx=(5, 1))
-        tk.Label(controls_frame, text="%", font=("Arial", 10), 
+        tk.Label(controls_frame, text="Gems", font=("Arial", 10), 
                 background="#E3F2FD").pack(side=tk.LEFT)
-        self.cost_modifier_var.trace_add('write', self._on_cost_modifier_changed)
+        self.cost_reduction_var.trace_add('write', self._on_cost_reduction_changed)
         
         # Help icon
         help_label = tk.Label(controls_frame, text="?", font=("Arial", 9, "bold"), 
                              cursor="hand2", foreground="#1976D2", background="#E3F2FD")
         help_label.pack(side=tk.LEFT, padx=(5, 0))
-        self._create_cost_modifier_tooltip(help_label)
+        self._create_cost_reduction_tooltip(help_label)
         
         # Main content - two columns
         content_frame = tk.Frame(self.window)
@@ -367,7 +378,7 @@ class LootbugWindow:
         # Duration and cost
         duration = buff['duration'] if buff['duration'] else "Instant"
         original_cost = buff['cost']
-        actual_cost = original_cost * self.gem_cost_modifier
+        actual_cost = max(0, original_cost - self.gem_cost_reduction)
         cost_str = "FREE" if actual_cost == 0 else f"{actual_cost:.0f} Gems"
         
         info_frame = tk.Frame(parent, background=bg_color)
@@ -674,28 +685,28 @@ class LootbugWindow:
         """Show cost note for buffs without EV calculation"""
         ttk.Separator(parent, orient='horizontal').pack(fill=tk.X, pady=5)
         if cost == 0:
-            tk.Label(parent, text="FREE! (0% cost modifier)",
+            reduction_text = f"FREE! ({self.gem_cost_reduction:+d} gem reduction)"
+            tk.Label(parent, text=reduction_text,
                     font=("Arial", 10, "bold"), foreground="green", background=bg_color).pack()
         else:
             tk.Label(parent, text=f"Cost: {cost:.0f} Gems",
                     font=("Arial", 10), foreground="#C73E1D", background=bg_color).pack()
     
-    def _set_cost_modifier(self, percent):
-        """Set cost modifier to a specific percentage"""
-        self.cost_modifier_var.set(str(percent))
+    def _set_cost_reduction(self, reduction):
+        """Set cost reduction to a specific value"""
+        self.cost_reduction_var.set(str(reduction))
     
-    def _on_cost_modifier_changed(self, *args):
-        """Called when cost modifier input changes"""
+    def _on_cost_reduction_changed(self, *args):
+        """Called when cost reduction input changes"""
         try:
-            value = int(self.cost_modifier_var.get())
-            value = max(0, min(100, value))
-            self.gem_cost_modifier = value / 100.0
+            value = int(self.cost_reduction_var.get())
+            self.gem_cost_reduction = value
             self._update_loot_tables()
         except ValueError:
             pass
     
     def _update_loot_tables(self):
-        """Update the gem buffs table with current cost modifier"""
+        """Update the gem buffs table with current cost reduction"""
         if hasattr(self, 'gem_buffs_tree'):
             # Update the cost column in gem buffs
             for item in self.gem_buffs_tree.get_children():
@@ -705,13 +716,11 @@ class LootbugWindow:
                 for buff in GEM_BUFFS:
                     if buff['name'] == buff_name:
                         original_cost = buff['cost']
-                        new_cost = original_cost * self.gem_cost_modifier
+                        new_cost = max(0, original_cost - self.gem_cost_reduction)
                         if new_cost == 0:
                             values[2] = "FREE"
-                        elif new_cost == int(new_cost):
-                            values[2] = f"{int(new_cost)} Gems"
                         else:
-                            values[2] = f"{new_cost:.1f} Gems"
+                            values[2] = f"{int(new_cost)} Gems"
                         self.gem_buffs_tree.item(item, values=values)
                         break
         
@@ -719,8 +728,8 @@ class LootbugWindow:
         if self.selected_buff:
             self._build_analyzer_content()
     
-    def _create_cost_modifier_tooltip(self, widget):
-        """Creates tooltip for cost modifier"""
+    def _create_cost_reduction_tooltip(self, widget):
+        """Creates tooltip for cost reduction"""
         def on_enter(event):
             tooltip = tk.Toplevel()
             tooltip.wm_overrideredirect(True)
@@ -741,17 +750,20 @@ class LootbugWindow:
             content_frame = tk.Frame(inner_frame, background="#FFFFFF", padx=10, pady=8)
             content_frame.pack()
             
-            tk.Label(content_frame, text="Gem Cost Modifier", 
+            tk.Label(content_frame, text="Gem Cost Reduction", 
                     font=("Arial", 10, "bold"), foreground="#1976D2", 
                     background="#FFFFFF").pack(anchor=tk.W)
             
             lines = [
                 "",
-                "Adjust gem costs for special conditions:",
+                "Flat reduction applied to all gem costs:",
                 "",
-                "0% = Golden Lootbug (free gems!)",
-                "50% = Half price modifier",
-                "100% = Normal cost",
+                "-1 = All costs reduced by 1 gem",
+                "0 = Normal costs (no reduction)",
+                "+1 = All costs increased by 1 gem",
+                "",
+                "Example: With -1 reduction,",
+                "a 15 gem cost becomes 14 gems.",
                 "",
                 "This affects the Gem Buffs table",
                 "and Option Analyzer calculations.",
@@ -916,8 +928,8 @@ class LootbugWindow:
         ttk.Separator(option_frame, orient='horizontal').pack(fill=tk.X, pady=5)
         
         # Description with dynamic cost
-        cost = 15 * self.gem_cost_modifier
-        cost_str = "FREE" if cost == 0 else f"{cost:.0f} Gems" if cost == int(cost) else f"{cost:.1f} Gems"
+        cost = max(0, 15 - self.gem_cost_reduction)
+        cost_str = "FREE" if cost == 0 else f"{cost:.0f} Gems"
         
         desc_label = tk.Label(
             option_frame,
@@ -1015,12 +1027,12 @@ class LootbugWindow:
         ).grid(row=row, column=1, sticky=tk.W, pady=2)
         row += 1
         
-        # Cost (with modifier)
+        # Cost (with reduction)
         ttk.Label(details_frame, text="Cost:").grid(
             row=row, column=0, sticky=tk.W, padx=(0, 10), pady=2
         )
-        actual_cost = 15.0 * self.gem_cost_modifier
-        cost_display = "FREE!" if actual_cost == 0 else f"{actual_cost:.1f} Gems"
+        actual_cost = max(0, 15 - self.gem_cost_reduction)
+        cost_display = "FREE!" if actual_cost == 0 else f"{actual_cost:.0f} Gems"
         cost_color = "green" if actual_cost == 0 else "red"
         ttk.Label(
             details_frame,
@@ -1125,8 +1137,8 @@ class LootbugWindow:
         gain_without_speed = affected_ev * (10.0 / 60.0)  # 10 minutes value
         additional_gain = gain_with_speed - gain_without_speed
         
-        # Cost with modifier
-        cost = 15.0 * self.gem_cost_modifier
+        # Cost with reduction
+        cost = max(0, 15.0 - self.gem_cost_reduction)
         
         # Net profit
         profit = additional_gain - cost

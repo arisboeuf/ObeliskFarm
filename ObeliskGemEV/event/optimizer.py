@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 
 from .constants import (
     COSTS, MAX_LEVELS, CAP_UPGRADES, PRESTIGE_UNLOCKED, 
-    UPGRADE_SHORT_NAMES, PRESTIGE_BONUS_BASE
+    UPGRADE_SHORT_NAMES, PRESTIGE_BONUS_BASE, get_prestige_wave_requirement
 )
 from .stats import PlayerStats, EnemyStats
 from .simulation import (
@@ -115,6 +115,116 @@ def calculate_atk_for_breakpoint(target_wave: int, target_hits: int, enemy: Enem
     return math.ceil(enemy_hp / target_hits)
 
 
+def calculate_breakpoint_value_for_upgrade(
+    state: UpgradeState,
+    tier: int,
+    idx: int,
+    prestige: int,
+    enemy: EnemyStats,
+    max_wave: int
+) -> float:
+    """
+    Calculate the breakpoint value of buying this upgrade.
+    
+    Returns a score representing how many breakpoints this upgrade helps reach
+    across all waves, with special weighting for prestige waves.
+    
+    Args:
+        state: Current upgrade state
+        tier: Upgrade tier
+        idx: Upgrade index
+        prestige: Current prestige level
+        enemy: Enemy stats
+        max_wave: Maximum wave to analyze (typically estimated max wave)
+    
+    Returns:
+        Breakpoint value score (higher = better)
+    """
+    from .simulation import get_enemy_hp_at_wave, calculate_hits_to_kill_with_crit
+    
+    # Get current stats
+    player_current, _ = calculate_player_stats(state, prestige)
+    
+    # Simulate buying this upgrade
+    state_test = state.copy()
+    current_level = state_test.get_level(tier, idx)
+    max_level = get_max_level_with_caps(tier, idx, state_test)
+    
+    if current_level >= max_level:
+        return 0.0  # Can't buy more
+    
+    state_test.set_level(tier, idx, current_level + 1)
+    player_after, _ = calculate_player_stats(state_test, prestige)
+    
+    # Calculate ATK increase
+    atk_increase = player_after.atk - player_current.atk
+    
+    if atk_increase <= 0:
+        return 0.0  # This upgrade doesn't increase ATK
+    
+    # Analyze breakpoints across all waves
+    total_value = 0.0
+    use_crit = player_current.crit >= 5
+    
+    # Get all prestige waves up to max_wave
+    prestige_waves = set()
+    for p in range(prestige + 1, 20):  # Look ahead a few prestiges
+        pw = get_prestige_wave_requirement(p)
+        if pw <= max_wave:
+            prestige_waves.add(pw)
+    
+    # Analyze waves 1 to max_wave
+    for wave in range(1, min(max_wave + 1, 200)):  # Cap at wave 200 for performance
+        enemy_hp = get_enemy_hp_at_wave(enemy, wave)
+        
+        # Calculate hits needed before and after upgrade
+        if use_crit:
+            hits_before = calculate_hits_to_kill_with_crit(
+                player_current.atk, enemy_hp, player_current.crit, player_current.crit_dmg
+            )
+            hits_after = calculate_hits_to_kill_with_crit(
+                player_after.atk, enemy_hp, player_after.crit, player_after.crit_dmg
+            )
+        else:
+            hits_before = math.ceil(enemy_hp / player_current.atk) if player_current.atk > 0 else 999
+            hits_after = math.ceil(enemy_hp / player_after.atk) if player_after.atk > 0 else 999
+        
+        # Check if we reach a breakpoint (fewer hits needed)
+        if hits_after < hits_before:
+            hits_saved = hits_before - hits_after
+            
+            # Base value: time saved per enemy (5 enemies per wave)
+            time_per_hit = player_current.default_atk_time / player_current.atk_speed
+            base_value = hits_saved * time_per_hit * 5
+            
+            # Weight by wave importance
+            wave_weight = 1.0
+            
+            # Prestige waves are MUCH more important (3x weight)
+            if wave in prestige_waves:
+                wave_weight = 3.0
+            
+            # Early waves are less important (diminishing returns)
+            if wave < 10:
+                wave_weight *= 0.5
+            elif wave < 20:
+                wave_weight *= 0.75
+            
+            # Later waves are more important (harder to reach)
+            if wave > 50:
+                wave_weight *= 1.5
+            if wave > 100:
+                wave_weight *= 2.0
+            
+            total_value += base_value * wave_weight
+    
+    # Normalize by ATK increase (value per ATK point)
+    if atk_increase > 0:
+        return total_value / atk_increase
+    
+    return 0.0
+
+
 def greedy_optimize(
     budget: Dict[int, float],
     prestige: int,
@@ -148,29 +258,24 @@ def greedy_optimize(
     # Determine target wave and optimization mode
     wave_pusher_mode = target_wave is None
     
+    # Estimate max wave for breakpoint analysis
+    player_current, _ = calculate_player_stats(state, prestige)
+    estimated_wave, _ = estimate_max_wave(player_current, enemy, runs=20)
+    
     if wave_pusher_mode:
         # Wave Pusher Mode: Maximize wave reachable with budget
-        # Start by estimating what wave we can reach with current state
-        player_current, _ = calculate_player_stats(state, prestige)
         # Rough estimate: aim for 20-30% wave increase
-        estimated_wave, _ = estimate_max_wave(player_current, enemy, runs=20)
         target_wave = int(estimated_wave * 1.3)  # Aim 30% higher as target
         recommendations.append(f"Wave Pusher Mode: Maximizing wave with available budget")
-        recommendations.append(f"Current estimated wave: {estimated_wave:.1f}, targeting: {target_wave}")
+        recommendations.append(f"Current estimated wave: {estimated_wave:.1f}, analyzing up to wave {target_wave}")
     else:
         # Target Wave Mode: Reach specific wave
         recommendations.append(f"Target Wave Mode: Reaching Wave {target_wave}")
+        estimated_wave = target_wave  # Use target as estimate for analysis
     
-    # Phase 1: Damage Breakpoints
-    # Calculate what ATK we need to kill enemies at target_wave efficiently
-    target_enemy_hp = get_enemy_hp_at_wave(enemy, target_wave)
-    
-    # We want to kill in reasonable number of hits (3-4 is good for mid-game)
-    target_hits = max(1, min(4, target_enemy_hp // 30))
-    required_atk = calculate_atk_for_breakpoint(target_wave, target_hits, enemy)
-    
-    if not wave_pusher_mode:
-        recommendations.append(f"Target: Wave {target_wave} ({target_hits}-hit kills, need {required_atk} ATK)")
+    # Use estimated max wave for breakpoint analysis (with some buffer)
+    max_wave_for_analysis = int(estimated_wave * 1.2)  # Analyze 20% beyond estimated
+    recommendations.append(f"Breakpoint analysis: Analyzing waves 1-{max_wave_for_analysis} with prestige wave weighting")
     
     # Phase 2: Buy upgrades greedily
     # Priority order for each tier based on value
@@ -256,27 +361,27 @@ def greedy_optimize(
                 
                 player, _ = calculate_player_stats(state, prestige)
                 
-                if wave_pusher_mode:
-                    # Wave Pusher Mode: Optimize for maximum wave
-                    # Prioritize upgrades that increase wave potential
-                    # ATK is always valuable (more damage = more waves)
-                    if category in ["atk", "atk_hp", "atk_speed"]:
-                        effective_score += 40
-                    # HP and debuffs help survive longer
-                    if category in ["hp", "hp_speed", "atk_hp", "debuff"]:
-                        effective_score += 30
-                    # Speed helps clear faster (more waves per time)
-                    if category in ["speed"]:
-                        effective_score += 20
-                else:
-                    # Target Wave Mode: Optimize for specific wave
-                    # Boost ATK upgrades if we're below breakpoint
-                    if category in ["atk", "atk_hp", "atk_speed"] and player.atk < required_atk:
-                        effective_score += 50
-                    
-                    # Boost HP upgrades after we have enough ATK
-                    if category in ["hp", "hp_speed", "atk_hp"] and player.atk >= required_atk:
-                        effective_score += 30
+                # Breakpoint-aware scoring: Calculate value across all waves
+                if category in ["atk", "atk_hp", "atk_speed"]:
+                    # Calculate breakpoint value for ATK upgrades
+                    bp_value = calculate_breakpoint_value_for_upgrade(
+                        state, tier, idx, prestige, enemy, max_wave_for_analysis
+                    )
+                    # Scale breakpoint value to score (normalize to 0-100 range)
+                    effective_score += min(100, bp_value * 0.1)  # Scale factor may need tuning
+                
+                # HP and survivability upgrades
+                if category in ["hp", "hp_speed", "atk_hp", "debuff"]:
+                    # HP helps survive longer = reach higher waves
+                    # Value increases with estimated wave (harder waves need more HP)
+                    hp_bonus = min(50, estimated_wave * 0.5)
+                    effective_score += hp_bonus
+                
+                # Speed upgrades help clear faster
+                if category in ["speed"]:
+                    # Speed is valuable but less than ATK/HP
+                    speed_bonus = 20
+                    effective_score += speed_bonus
                 
                 # Efficiency: lower cost = better (always)
                 cost_efficiency = 100 / (next_cost + 1)

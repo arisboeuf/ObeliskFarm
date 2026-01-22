@@ -81,6 +81,12 @@ class BudgetOptimizerPanel:
         
         # Load saved state
         self.load_state()
+        
+        # Update player stats after loading (if upgrades were loaded)
+        self._update_player_stats_live()
+        
+        # Update expected results after loading
+        self._update_expected_results_live()
     
     def _load_currency_icons(self):
         """Load currency icons from sprites folder"""
@@ -155,21 +161,24 @@ class BudgetOptimizerPanel:
             pass  # Graceful fallback
     
     def build_ui(self):
-        """Build the Budget Optimizer UI - Three columns: Budget/Upgrades | Forecast | Stats"""
-        self.parent.columnconfigure(0, weight=1)
-        self.parent.columnconfigure(1, weight=1)
-        self.parent.columnconfigure(2, weight=1)
+        """Build the Budget Optimizer UI - Three columns: Upgrades | Budget/Forecast | Stats"""
+        # Initialize prestige var early (needed by _build_upgrade_level_inputs)
+        self.budget_prestige_var = tk.IntVar(value=0)
+        
+        self.parent.columnconfigure(0, weight=2)  # Left (upgrades) - more space
+        self.parent.columnconfigure(1, weight=2)  # Middle (budget + forecast) - more space
+        self.parent.columnconfigure(2, weight=1)  # Right (player stats) - narrower
         self.parent.rowconfigure(0, weight=1)
         
         # Main container with three columns
         main_container = tk.Frame(self.parent)
         main_container.grid(row=0, column=0, sticky="nsew", padx=5, pady=5)
-        main_container.columnconfigure(0, weight=1)  # Left (budget + upgrades)
-        main_container.columnconfigure(1, weight=1)   # Middle (forecast/results)
-        main_container.columnconfigure(2, weight=1)   # Right (player stats)
+        main_container.columnconfigure(0, weight=2)  # Left (upgrades) - more space
+        main_container.columnconfigure(1, weight=2)   # Middle (budget + forecast) - more space
+        main_container.columnconfigure(2, weight=1)   # Right (player stats) - narrower
         main_container.rowconfigure(0, weight=1)
         
-        # === LEFT COLUMN: Budget + Upgrades (no scrolling) ===
+        # === LEFT COLUMN: Upgrades only ===
         left_column = tk.Frame(main_container, background="#F5F5F5")
         left_column.grid(row=0, column=0, sticky="nsew", padx=(0, 3))
         left_column.columnconfigure(0, weight=1)
@@ -178,11 +187,68 @@ class BudgetOptimizerPanel:
         header_frame = tk.Frame(left_column, background="#4CAF50", relief=tk.RIDGE, borderwidth=2)
         header_frame.pack(fill=tk.X, padx=3, pady=2)
         
-        tk.Label(header_frame, text="Budget & Upgrades", font=("Arial", 10, "bold"),
+        tk.Label(header_frame, text="Upgrades", font=("Arial", 10, "bold"),
                 background="#4CAF50", foreground="white").pack(pady=3)
         
-        # === MATERIAL INPUT ===
-        input_frame = tk.Frame(left_column, background="#E8F5E9", relief=tk.RIDGE, borderwidth=2)
+        # === CURRENT UPGRADE LEVELS (Forecast Mode) ===
+        current_upgrades_frame = tk.Frame(left_column, background="#FFF3E0", relief=tk.RIDGE, borderwidth=2)
+        current_upgrades_frame.pack(fill=tk.BOTH, expand=True, padx=3, pady=2)
+        
+        # Header with reset button and total points
+        upgrade_header = tk.Frame(current_upgrades_frame, background="#FFF3E0")
+        upgrade_header.pack(fill=tk.X, padx=5, pady=(3, 2))
+        
+        tk.Label(upgrade_header, text="Current Upgrade Levels", font=("Arial", 9, "bold"),
+                background="#FFF3E0").pack(side=tk.LEFT)
+        
+        # Total points label
+        self.total_points_label = tk.Label(upgrade_header, text="Total: 0", 
+                                          font=("Arial", 9, "bold"), background="#FFF3E0",
+                                          foreground="#1976D2")
+        self.total_points_label.pack(side=tk.LEFT, padx=(10, 0))
+        
+        # Reset button
+        reset_btn = tk.Button(upgrade_header, text="Reset", 
+                            font=("Arial", 8, "bold"), bg="#F44336", fg="white",
+                            command=self._reset_upgrades, padx=8, pady=2)
+        reset_btn.pack(side=tk.RIGHT)
+        
+        # Upgrade levels container (scrollable)
+        upgrade_canvas = tk.Canvas(current_upgrades_frame, highlightthickness=0, background="#FFF3E0")
+        upgrade_scrollbar = ttk.Scrollbar(current_upgrades_frame, orient="vertical", command=upgrade_canvas.yview)
+        self.upgrades_container = tk.Frame(upgrade_canvas, background="#FFF3E0")
+        
+        self.upgrades_container.bind(
+            "<Configure>",
+            lambda e: upgrade_canvas.configure(scrollregion=upgrade_canvas.bbox("all"))
+        )
+        
+        self.upgrade_canvas_window = upgrade_canvas.create_window((0, 0), window=self.upgrades_container, anchor="nw")
+        upgrade_canvas.configure(yscrollcommand=upgrade_scrollbar.set)
+        
+        # Update canvas width when container width changes
+        def configure_canvas_width(event):
+            canvas_width = event.width
+            upgrade_canvas.itemconfig(self.upgrade_canvas_window, width=canvas_width)
+        upgrade_canvas.bind('<Configure>', configure_canvas_width)
+        
+        # Enable mousewheel scrolling
+        def on_mousewheel(event):
+            upgrade_canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+        upgrade_canvas.bind_all("<MouseWheel>", on_mousewheel)
+        
+        upgrade_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=3, pady=(0, 3))
+        upgrade_scrollbar.pack(side=tk.RIGHT, fill=tk.Y, pady=(0, 3))
+        
+        self._build_upgrade_level_inputs()
+        
+        # === MIDDLE COLUMN: Budget + Forecast/Results ===
+        middle_column = tk.Frame(main_container, background="#F5F5F5")
+        middle_column.grid(row=0, column=1, sticky="nsew", padx=3)
+        middle_column.columnconfigure(0, weight=1)
+        
+        # === MATERIAL INPUT (Budget) ===
+        input_frame = tk.Frame(middle_column, background="#E8F5E9", relief=tk.RIDGE, borderwidth=2)
         input_frame.pack(fill=tk.X, padx=3, pady=2)
         
         tk.Label(input_frame, text="Materials", font=("Arial", 9, "bold"),
@@ -222,7 +288,7 @@ class BudgetOptimizerPanel:
         tk.Label(prestige_frame, text="P", font=("Arial", 7, "bold"),
                 background="#E8F5E9").pack()
         
-        self.budget_prestige_var = tk.IntVar(value=0)
+        # budget_prestige_var is already initialized at the start of build_ui()
         prestige_spin = ttk.Spinbox(prestige_frame, from_=0, to=20, width=4,
                                     textvariable=self.budget_prestige_var,
                                     command=self._on_prestige_change)
@@ -237,33 +303,53 @@ class BudgetOptimizerPanel:
                             command=self.calculate_optimal_upgrades)
         calc_btn.pack(pady=3)
         
-        # === CURRENT UPGRADE LEVELS (Forecast Mode) ===
-        current_upgrades_frame = tk.Frame(left_column, background="#FFF3E0", relief=tk.RIDGE, borderwidth=2)
-        current_upgrades_frame.pack(fill=tk.BOTH, expand=True, padx=3, pady=2)
-        
-        tk.Label(current_upgrades_frame, text="Current Upgrade Levels", font=("Arial", 9, "bold"),
-                background="#FFF3E0").pack(anchor="w", padx=5, pady=(3, 2))
-        
-        # Upgrade levels container (compact, no scrolling)
-        self.upgrades_container = tk.Frame(current_upgrades_frame, background="#FFF3E0")
-        self.upgrades_container.pack(fill=tk.BOTH, expand=True, padx=3, pady=(0, 3))
-        self._build_upgrade_level_inputs()
-        
-        # === MIDDLE COLUMN: Forecast/Results ===
-        middle_column = tk.Frame(main_container, background="#F5F5F5")
-        middle_column.grid(row=0, column=1, sticky="nsew", padx=3)
-        middle_column.columnconfigure(0, weight=1)
-        
         # === RESULTS (fixed at top, no scrolling) ===
         results_frame = tk.Frame(middle_column, background="#E8F5E9", relief=tk.RIDGE, borderwidth=2)
         results_frame.pack(fill=tk.BOTH, expand=True, padx=3, pady=2)
+        results_frame.rowconfigure(0, weight=0)  # Expected Results - fixed at top
+        results_frame.rowconfigure(1, weight=1)  # Rest of results - scrollable
         
-        tk.Label(results_frame, text="Forecast Results", font=("Arial", 10, "bold"),
+        # === EXPECTED RESULTS (always visible at top) ===
+        expected_results_frame = tk.Frame(results_frame, background="#E8F5E9", relief=tk.RAISED, borderwidth=1)
+        expected_results_frame.grid(row=0, column=0, sticky="ew", padx=3, pady=(3, 2))
+        
+        tk.Label(expected_results_frame, text="Expected Results", font=("Arial", 10, "bold"),
                 background="#E8F5E9").pack(anchor="w", padx=5, pady=(3, 2))
         
-        # Results container (will be populated dynamically)
-        self.results_container = tk.Frame(results_frame, background="#E8F5E9")
-        self.results_container.pack(fill=tk.BOTH, expand=True, padx=3, pady=3)
+        # Expected results container (will be updated live)
+        self.expected_results_container = tk.Frame(expected_results_frame, background="#E8F5E9")
+        self.expected_results_container.pack(fill=tk.X, padx=5, pady=(0, 3))
+        
+        # Initial expected results display
+        self._update_expected_results_live()
+        
+        # === SCROLLABLE RESULTS CONTAINER ===
+        # Canvas for scrollable content below expected results
+        results_canvas = tk.Canvas(results_frame, highlightthickness=0, background="#E8F5E9")
+        results_scrollbar = ttk.Scrollbar(results_frame, orient="vertical", command=results_canvas.yview)
+        self.results_container = tk.Frame(results_canvas, background="#E8F5E9")
+        
+        self.results_container.bind(
+            "<Configure>",
+            lambda e: results_canvas.configure(scrollregion=results_canvas.bbox("all"))
+        )
+        
+        self.results_canvas_window = results_canvas.create_window((0, 0), window=self.results_container, anchor="nw")
+        results_canvas.configure(yscrollcommand=results_scrollbar.set)
+        
+        # Update canvas width when container width changes
+        def configure_results_canvas_width(event):
+            canvas_width = event.width
+            results_canvas.itemconfig(self.results_canvas_window, width=canvas_width)
+        results_canvas.bind('<Configure>', configure_results_canvas_width)
+        
+        # Enable mousewheel scrolling
+        def on_mousewheel(event):
+            results_canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+        results_canvas.bind_all("<MouseWheel>", on_mousewheel)
+        
+        results_canvas.grid(row=1, column=0, sticky="nsew", padx=3, pady=(0, 3))
+        results_scrollbar.grid(row=1, column=1, sticky="ns", pady=(0, 3))
         
         # Initial placeholder
         self.show_initial_instructions()
@@ -303,29 +389,34 @@ class BudgetOptimizerPanel:
         
         prestige = self.budget_prestige_var.get()
         
-        # Use grid for more compact layout
+        # Configure grid with uniform column widths
+        self.upgrades_container.columnconfigure(0, weight=1, uniform="col")
+        self.upgrades_container.columnconfigure(1, weight=1, uniform="col")
+        
+        # Use grid for uniform layout
         row = 0
         for tier in range(1, 5):
-            # Tier header (compact)
+            # Tier header
             tier_header = tk.Frame(self.upgrades_container, background=TIER_COLORS[tier], relief=tk.RAISED, borderwidth=1)
             tier_header.grid(row=row, column=0, columnspan=2, sticky="ew", padx=1, pady=(2, 1))
             row += 1
             
             tk.Label(tier_header, text=f"T{tier}", 
-                    font=("Arial", 7, "bold"), background=TIER_COLORS[tier]).pack(side=tk.LEFT, padx=3, pady=1)
+                    font=("Arial", 11, "bold"), background=TIER_COLORS[tier]).pack(side=tk.LEFT, padx=5, pady=2)
             
-            # Upgrade rows (compact, 2 columns)
+            # Upgrade rows (2 columns, uniform size)
             for idx, name in enumerate(UPGRADE_SHORT_NAMES[tier]):
                 col = idx % 2
-                if idx % 2 == 0:
-                    # New row every 2 upgrades
-                    pass
-                
-                row_frame = tk.Frame(self.upgrades_container, background="#FFFFFF", relief=tk.FLAT, borderwidth=1)
-                row_frame.grid(row=row, column=col, sticky="ew", padx=1, pady=0)
-                
                 if col == 0:
                     row += 1
+                
+                # Uniform row frame with fixed height
+                row_frame = tk.Frame(self.upgrades_container, background="#FFFFFF", relief=tk.RAISED, borderwidth=1)
+                row_frame.grid(row=row, column=col, sticky="ew", padx=2, pady=1)
+                # Configure columns - buttons next to name, level with cost below
+                row_frame.columnconfigure(0, weight=0, minsize=25)   # Buttons column (vertical)
+                row_frame.columnconfigure(1, weight=1, minsize=100)  # Name column
+                row_frame.columnconfigure(2, weight=0, minsize=60)  # Level + Cost column (wider for cost text)
                 
                 # Check if unlocked
                 prestige_req = PRESTIGE_UNLOCKED[tier][idx]
@@ -333,64 +424,151 @@ class BudgetOptimizerPanel:
                 
                 if locked:
                     row_frame.config(background="#CCCCCC")
-                    tk.Label(row_frame, text=f"{name[:8]} (P{prestige_req})", 
-                            font=("Arial", 6), background="#CCCCCC", 
-                            foreground="#666666", anchor="w").pack(side=tk.LEFT, padx=2)
+                    tk.Label(row_frame, text=f"{name[:12]} (P{prestige_req})", 
+                            font=("Arial", 9), background="#CCCCCC", 
+                            foreground="#666666", anchor="w").grid(row=0, column=0, sticky="w", padx=3, pady=2)
                     continue
                 
                 # Get max level
                 max_level = get_max_level_with_caps(tier, idx, temp_state)
                 current_level = self.current_upgrade_levels[tier][idx]
                 
-                # Compact layout: [Name] [Level] [Cost] [+/-]
-                # Name (truncated)
-                name_label = tk.Label(row_frame, text=name[:10], font=("Arial", 6), 
-                                     background="#FFFFFF", anchor="w", width=10)
-                name_label.pack(side=tk.LEFT, padx=2)
+                # Buttons column (vertical: + on top, - below)
+                buttons_frame = tk.Frame(row_frame, background="#FFFFFF")
+                buttons_frame.grid(row=0, column=0, padx=2, pady=2, sticky="n")
                 
-                # Level display (compact)
+                # Plus button (on top)
+                plus_btn = tk.Button(buttons_frame, text="+", width=2, height=1, font=("Arial", 9, "bold"),
+                                   command=lambda t=tier, i=idx: self._increment_upgrade(t, i),
+                                   state='disabled' if current_level >= max_level else 'normal',
+                                   bg="#44AA44" if current_level < max_level else "#CCCCCC",
+                                   fg="white" if current_level < max_level else "#666666",
+                                   relief=tk.RAISED, borderwidth=1,
+                                   cursor="hand2" if current_level < max_level else "arrow")
+                plus_btn.pack(pady=(0, 1))
+                
+                # Minus button (below)
+                minus_btn = tk.Button(buttons_frame, text="−", width=2, height=1, font=("Arial", 9, "bold"),
+                                    command=lambda t=tier, i=idx: self._decrement_upgrade(t, i),
+                                    state='disabled' if current_level == 0 else 'normal',
+                                    bg="#FF4444" if current_level > 0 else "#CCCCCC",
+                                    fg="white" if current_level > 0 else "#666666",
+                                    relief=tk.RAISED, borderwidth=1,
+                                    cursor="hand2" if current_level > 0 else "arrow")
+                minus_btn.pack(pady=(1, 0))
+                
+                # Name (with tooltip for full name)
+                name_display = name[:15] + "..." if len(name) > 15 else name
+                name_label = tk.Label(row_frame, text=name_display, font=("Arial", 9), 
+                                     background="#FFFFFF", anchor="w")
+                name_label.grid(row=0, column=1, sticky="w", padx=3, pady=2)
+                if len(name) > 15:
+                    create_tooltip(name_label, name)  # Show full name on hover
+                
+                # Level display with cost below
+                level_frame = tk.Frame(row_frame, background="#FFFFFF")
+                level_frame.grid(row=0, column=2, padx=2, pady=2)
+                
+                # Level text
                 level_text = f"{current_level}/{max_level}"
-                level_label = tk.Label(row_frame, text=level_text, 
-                                      font=("Arial", 6, "bold"), background="#FFFFFF", 
-                                      width=5, anchor=tk.CENTER)
-                level_label.pack(side=tk.LEFT, padx=1)
+                level_label = tk.Label(level_frame, text=level_text, 
+                                      font=("Arial", 9, "bold"), background="#FFFFFF", 
+                                      anchor=tk.CENTER)
+                level_label.pack()
                 
-                # Next cost (compact)
+                # Next cost (small, below level)
                 if current_level < max_level:
                     from .constants import COSTS
                     base_cost = COSTS[tier][idx]
                     next_cost = round(base_cost * (1.25 ** current_level))
                     cost_text = f"{next_cost:,}" if next_cost < 1000 else f"{next_cost/1000:.1f}k"
-                    cost_label = tk.Label(row_frame, text=cost_text, 
-                                         font=("Arial", 5), background="#FFFFFF", 
-                                         foreground="#666666", anchor="e", width=6)
-                    cost_label.pack(side=tk.LEFT, padx=1)
+                    cost_label = tk.Label(level_frame, text=cost_text, 
+                                         font=("Arial", 7), background="#FFFFFF", 
+                                         foreground="#666666", anchor=tk.CENTER)
+                    cost_label.pack()
                 else:
-                    tk.Label(row_frame, text="MAX", font=("Arial", 5), background="#FFFFFF", 
-                            foreground="#999999", anchor="e", width=6).pack(side=tk.LEFT, padx=1)
-                
-                # Minus button (compact)
-                minus_btn = tk.Button(row_frame, text="-", width=1, font=("Arial", 6, "bold"),
-                                    command=lambda t=tier, i=idx: self._decrement_upgrade(t, i),
-                                    state='disabled' if current_level == 0 else 'normal')
-                minus_btn.pack(side=tk.LEFT, padx=(1, 0))
-                
-                # Plus button (compact)
-                plus_btn = tk.Button(row_frame, text="+", width=1, font=("Arial", 6, "bold"),
-                                   command=lambda t=tier, i=idx: self._increment_upgrade(t, i),
-                                   state='disabled' if current_level >= max_level else 'normal')
-                plus_btn.pack(side=tk.LEFT, padx=(0, 2))
+                    tk.Label(level_frame, text="MAX", font=("Arial", 7, "bold"), background="#FFFFFF", 
+                            foreground="#999999", anchor=tk.CENTER).pack()
                 
                 # Store references for updates
                 self.upgrade_level_labels[(tier, idx)] = (level_label, minus_btn, plus_btn, max_level)
         
-        # Configure grid columns
-        self.upgrades_container.columnconfigure(0, weight=1)
-        self.upgrades_container.columnconfigure(1, weight=1)
+        # Update total points display
+        self._update_total_points()
     
     def _on_prestige_change(self):
         """Update upgrade inputs when prestige changes"""
         self._build_upgrade_level_inputs()
+    
+    def _update_total_points(self):
+        """Update the total points display"""
+        total = 0
+        for tier in range(1, 5):
+            for idx in range(len(self.current_upgrade_levels[tier])):
+                total += self.current_upgrade_levels[tier][idx]
+        
+        if hasattr(self, 'total_points_label'):
+            self.total_points_label.config(text=f"Total: {total}")
+    
+    def _calculate_wave_probability_info(self, result, prestige: int) -> str:
+        """Calculate probability information for reaching waves and prestige requirements"""
+        from .simulation import run_full_simulation
+        from .constants import get_prestige_wave_requirement
+        
+        # Run more simulations for better probability estimate
+        player = result.player_stats
+        enemy = result.enemy_stats
+        estimated_wave = result.expected_wave
+        
+        # Run 200 simulations for probability calculation
+        sim_results, avg_wave, avg_time = run_full_simulation(player, enemy, runs=200)
+        
+        # Calculate probability of reaching estimated wave
+        waves_reached = [r[0] + (1 - r[1] * 0.2) for r in sim_results]  # Convert to decimal wave
+        times = [r[2] for r in sim_results]  # Extract times
+        reached_count = sum(1 for w in waves_reached if w >= estimated_wave)
+        probability = (reached_count / len(sim_results)) * 100
+        
+        # Calculate time statistics
+        min_time = min(times)
+        max_time = max(times)
+        
+        # Calculate probability for next few prestiges
+        prestige_info = []
+        for p in range(prestige + 1, min(prestige + 4, 20)):
+            prestige_wave = get_prestige_wave_requirement(p)
+            if prestige_wave > estimated_wave * 1.5:  # Skip if way too high
+                break
+            reached_prestige = sum(1 for w in waves_reached if w >= prestige_wave)
+            prestige_prob = (reached_prestige / len(sim_results)) * 100
+            prestige_info.append(f"Prestige {p} (Wave {prestige_wave}): {prestige_prob:.1f}%")
+        
+        # Build tooltip text following design guidelines (headers end with ':')
+        tooltip_text = f"Wave Reach Probability:\n"
+        tooltip_text += f"  • Reach Wave {estimated_wave:.1f}: {probability:.1f}%\n"
+        tooltip_text += f"  • Average Wave: {avg_wave:.1f}\n"
+        tooltip_text += f"  • Best Run: {max(waves_reached):.1f}\n"
+        tooltip_text += f"  • Worst Run: {min(waves_reached):.1f}\n\n"
+        
+        tooltip_text += f"Run Duration:\n"
+        tooltip_text += f"  • Average Time: {avg_time:.1f}s\n"
+        tooltip_text += f"  • Fastest Run: {min_time:.1f}s\n"
+        tooltip_text += f"  • Slowest Run: {max_time:.1f}s\n\n"
+        
+        tooltip_text += f"Prestige Unlock Requirements:\n"
+        tooltip_text += f"  • Current Prestige: {prestige}\n"
+        tooltip_text += f"  • Next Prestige ({prestige + 1}): Wave {get_prestige_wave_requirement(prestige + 1)}\n"
+        
+        if prestige_info:
+            tooltip_text += f"\nPrestige Reach Probability:\n"
+            for info in prestige_info:
+                tooltip_text += f"  • {info}\n"
+        
+        tooltip_text += f"\nNote:\n"
+        tooltip_text += f"  • Probabilities based on 200 simulation runs\n"
+        tooltip_text += f"  • Actual results may vary due to RNG (crits, blocks)"
+        
+        return tooltip_text
     
     def _increment_upgrade(self, tier: int, idx: int):
         """Increment upgrade level"""
@@ -413,6 +591,10 @@ class BudgetOptimizerPanel:
             # This ensures all buttons are properly enabled/disabled
             self._build_upgrade_level_inputs()
             self.save_state()  # Auto-save on change
+            # Update player stats live
+            self._update_player_stats_live()
+            # Update expected results live
+            self._update_expected_results_live()
     
     def _decrement_upgrade(self, tier: int, idx: int):
         """Decrement upgrade level"""
@@ -424,6 +606,96 @@ class BudgetOptimizerPanel:
             # Rebuild to update all max levels (cap upgrades might have changed other max levels)
             self._build_upgrade_level_inputs()
             self.save_state()  # Auto-save on change
+            # Update player stats live
+            self._update_player_stats_live()
+            # Update expected results live
+            self._update_expected_results_live()
+    
+    def _reset_upgrades(self):
+        """Reset all upgrades to 0"""
+        # Reset all upgrade levels
+        for tier in range(1, 5):
+            for idx in range(len(self.current_upgrade_levels[tier])):
+                self.current_upgrade_levels[tier][idx] = 0
+        
+        # Reset gem levels
+        self.current_gem_levels = [0, 0, 0, 0]
+        
+        # Rebuild UI
+        self._build_upgrade_level_inputs()
+        
+        # Save state
+        self.save_state()
+        
+        # Update player stats live
+        self._update_player_stats_live()
+        
+        # Update expected results live
+        self._update_expected_results_live()
+    
+    def _update_player_stats_live(self):
+        """Update player stats display based on current upgrade levels (live update)"""
+        from .simulation import apply_upgrades
+        from .stats import PlayerStats, EnemyStats
+        
+        # Calculate player stats from current upgrades
+        player, enemy = apply_upgrades(
+            self.current_upgrade_levels,
+            PlayerStats(),
+            EnemyStats(),
+            self.budget_prestige_var.get(),
+            self.current_gem_levels
+        )
+        
+        # Calculate eHP at a reference wave (wave 20 for example)
+        from .simulation import calculate_effective_hp
+        reference_wave = 20
+        ehp_at_wave = calculate_effective_hp(player, enemy, reference_wave)
+        
+        # Create a simple result-like object for display
+        class SimpleResult:
+            def __init__(self, player_stats):
+                self.player_stats = player_stats
+        
+        result = SimpleResult(player)
+        
+        # Update display
+        self.update_player_stats_display(result, reference_wave, ehp_at_wave)
+    
+    def _update_expected_results_live(self):
+        """Update expected results display based on current upgrade levels (live update)"""
+        from .simulation import apply_upgrades, run_full_simulation
+        from .stats import PlayerStats, EnemyStats
+        
+        # Clear existing expected results
+        for widget in self.expected_results_container.winfo_children():
+            widget.destroy()
+        
+        # Calculate player stats from current upgrades
+        player, enemy = apply_upgrades(
+            self.current_upgrade_levels,
+            PlayerStats(),
+            EnemyStats(),
+            self.budget_prestige_var.get(),
+            self.current_gem_levels
+        )
+        
+        # Run simulation to get expected wave and time
+        # Use fewer runs for faster live updates
+        sim_results, avg_wave, avg_time = run_full_simulation(player, enemy, runs=50)
+        
+        # Display expected results
+        wave_label = tk.Label(self.expected_results_container, 
+                             text=f"Max Wave: {avg_wave:.1f}", 
+                             font=("Arial", 9, "bold"), background="#E8F5E9",
+                             foreground="#1976D2", wraplength=200, justify=tk.LEFT)
+        wave_label.pack(anchor="w", pady=1)
+        
+        time_label = tk.Label(self.expected_results_container, 
+                             text=f"Time/Run: {avg_time:.1f}s", 
+                             font=("Arial", 9), background="#E8F5E9", 
+                             wraplength=200, justify=tk.LEFT)
+        time_label.pack(anchor="w", pady=1)
     
     def _update_upgrade_display(self, tier: int, idx: int):
         """Update upgrade level display (not used anymore, we rebuild instead)"""
@@ -554,6 +826,9 @@ class BudgetOptimizerPanel:
     def save_state(self):
         """Save current state to file (upgrade levels and prestige, NOT currencies)"""
         try:
+            # Ensure save directory exists
+            SAVE_DIR.mkdir(parents=True, exist_ok=True)
+            
             state = {
                 'prestige': self.budget_prestige_var.get(),
                 'upgrade_levels': {
@@ -563,44 +838,73 @@ class BudgetOptimizerPanel:
                 'gem_levels': self.current_gem_levels.copy()
             }
             
-            with open(SAVE_FILE, 'w') as f:
+            # Write to temporary file first, then rename (atomic write)
+            temp_file = SAVE_FILE.with_suffix('.tmp')
+            with open(temp_file, 'w') as f:
                 json.dump(state, f, indent=2)
+            
+            # Atomic rename
+            temp_file.replace(SAVE_FILE)
+            
         except Exception as e:
+            import traceback
             print(f"Warning: Could not save state: {e}")
+            traceback.print_exc()
     
     def load_state(self):
         """Load saved state from file"""
         if not SAVE_FILE.exists():
+            print(f"Save file does not exist: {SAVE_FILE}")
             return
         
         try:
             with open(SAVE_FILE, 'r') as f:
                 state = json.load(f)
             
+            print(f"Loading state from: {SAVE_FILE}")
+            print(f"State keys: {state.keys()}")
+            
             # Load prestige
             if 'prestige' in state:
                 self.budget_prestige_var.set(state['prestige'])
+                print(f"Loaded prestige: {state['prestige']}")
             
             # Load upgrade levels
             if 'upgrade_levels' in state:
+                upgrade_levels = state['upgrade_levels']
+                # JSON stores dict keys as strings, so we need to handle both int and str keys
                 for tier in range(1, 5):
-                    if tier in state['upgrade_levels']:
-                        saved_levels = state['upgrade_levels'][tier]
+                    # Try both int and str key
+                    tier_key = tier
+                    if tier_key not in upgrade_levels:
+                        tier_key = str(tier)
+                    
+                    if tier_key in upgrade_levels:
+                        saved_levels = upgrade_levels[tier_key]
                         # Ensure we have the right length
                         if isinstance(saved_levels, list) and len(saved_levels) == len(self.current_upgrade_levels[tier]):
                             self.current_upgrade_levels[tier] = saved_levels.copy()
+                            total = sum(saved_levels)
+                            print(f"Loaded Tier {tier} upgrades: {saved_levels} (total: {total})")
+                        else:
+                            print(f"Warning: Tier {tier} upgrade levels length mismatch: {len(saved_levels)} != {len(self.current_upgrade_levels[tier])}")
+                    else:
+                        print(f"Warning: Tier {tier} not found in upgrade_levels")
             
             # Load gem levels
             if 'gem_levels' in state:
                 saved_gems = state['gem_levels']
                 if isinstance(saved_gems, list) and len(saved_gems) == len(self.current_gem_levels):
                     self.current_gem_levels = saved_gems.copy()
+                    print(f"Loaded gem levels: {saved_gems}")
             
             # Rebuild UI to reflect loaded state
             self._build_upgrade_level_inputs()
             
         except Exception as e:
+            import traceback
             print(f"Warning: Could not load state: {e}")
+            traceback.print_exc()
     
     def show_initial_instructions(self):
         """Show initial instructions in results area"""
@@ -690,7 +994,7 @@ class BudgetOptimizerPanel:
         for widget in self.results_container.winfo_children():
             widget.destroy()
         
-        # === MATERIAL SUMMARY (compact) ===
+        # === MATERIAL SUMMARY (2x2 grid) ===
         mat_summary_frame = tk.Frame(self.results_container, background="#FFFFFF", relief=tk.RAISED, borderwidth=1)
         mat_summary_frame.pack(fill=tk.X, padx=3, pady=2)
         
@@ -698,28 +1002,49 @@ class BudgetOptimizerPanel:
                 background="#FFFFFF").pack(anchor="w", padx=5, pady=2)
         
         mat_grid = tk.Frame(mat_summary_frame, background="#FFFFFF")
-        mat_grid.pack(fill=tk.X, padx=5, pady=(0, 5))
+        mat_grid.pack(fill=tk.BOTH, expand=True, padx=5, pady=(0, 5))
+        mat_grid.columnconfigure(0, weight=1)
+        mat_grid.columnconfigure(1, weight=1)
+        mat_grid.rowconfigure(0, weight=1)
+        mat_grid.rowconfigure(1, weight=1)
+        
+        # Arrange materials in 2x2 grid: T1 top-left, T2 top-right, T3 bottom-left, T4 bottom-right
+        positions = [
+            (0, 0),  # T1 top-left
+            (0, 1),  # T2 top-right
+            (1, 0),  # T3 bottom-left
+            (1, 1),  # T4 bottom-right
+        ]
         
         for tier in range(1, 5):
+            row, col = positions[tier - 1]
             mat_name = f"Mat {tier}" if tier > 1 else "Coins"
             budget = self.material_budget[tier]
             spent = result.materials_spent[tier]
             remaining = result.materials_remaining[tier]
             
-            tier_frame = tk.Frame(mat_grid, background="#FFFFFF")
-            tier_frame.pack(side=tk.LEFT, padx=5, expand=True, fill=tk.X)
+            tier_frame = tk.Frame(mat_grid, background="#FFFFFF", relief=tk.RAISED, borderwidth=1)
+            tier_frame.grid(row=row, column=col, sticky="nsew", padx=3, pady=3)
             
             # Icon if available
             if tier in self.currency_icons:
                 icon_label = tk.Label(tier_frame, image=self.currency_icons[tier],
                                      background="#FFFFFF")
-                icon_label.pack(side=tk.LEFT, padx=(0, 3))
+                icon_label.pack(side=tk.LEFT, padx=(5, 3))
             
-            tk.Label(tier_frame, text=f"{mat_name}:", font=("Arial", 8),
-                    background="#FFFFFF").pack(side=tk.LEFT)
-            tk.Label(tier_frame, text=f"{int(spent):,}/{int(budget):,}", 
-                    font=("Arial", 8, "bold"), background="#FFFFFF",
-                    foreground="#4CAF50" if spent > 0 else "#999999").pack(side=tk.LEFT, padx=(3, 0))
+            text_frame = tk.Frame(tier_frame, background="#FFFFFF")
+            text_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5, pady=5)
+            
+            tk.Label(text_frame, text=f"{mat_name}:", font=("Arial", 9, "bold"),
+                    background="#FFFFFF", anchor="w", wraplength=100).pack(anchor="w")
+            tk.Label(text_frame, text=f"{int(spent):,}/{int(budget):,}", 
+                    font=("Arial", 9, "bold"), background="#FFFFFF",
+                    foreground="#4CAF50" if spent > 0 else "#999999",
+                    anchor="w", wraplength=100).pack(anchor="w")
+            if remaining > 0:
+                tk.Label(text_frame, text=f"Remaining: {int(remaining):,}", 
+                        font=("Arial", 8), background="#FFFFFF",
+                        foreground="#666666", anchor="w", wraplength=100).pack(anchor="w")
         
         # === APPLY UPGRADES BUTTON (prominent) ===
         apply_btn_frame = tk.Frame(self.results_container, background="#E8F5E9", relief=tk.RAISED, borderwidth=2)
@@ -735,24 +1060,37 @@ class BudgetOptimizerPanel:
         tk.Label(apply_btn_frame, 
                 text="Automatically apply recommended upgrades to your current levels",
                 font=("Arial", 8, "italic"), background="#E8F5E9",
-                foreground="#666666").pack(pady=(0, 5))
+                foreground="#666666", wraplength=300, justify=tk.CENTER).pack(pady=(0, 5))
         
         # === EXPECTED RESULTS (compact) ===
         results_summary_frame = tk.Frame(self.results_container, background="#FFFFFF", relief=tk.RAISED, borderwidth=1)
         results_summary_frame.pack(fill=tk.X, padx=3, pady=2)
         
-        tk.Label(results_summary_frame, text="Expected Results", font=("Arial", 9, "bold"),
-                background="#FFFFFF").pack(anchor="w", padx=5, pady=2)
+        # Header with tooltip
+        header_frame = tk.Frame(results_summary_frame, background="#FFFFFF")
+        header_frame.pack(fill=tk.X, padx=5, pady=2)
+        
+        tk.Label(header_frame, text="Expected Results", font=("Arial", 9, "bold"),
+                background="#FFFFFF").pack(side=tk.LEFT)
+        
+        # Calculate probability and create tooltip
+        prob_info = self._calculate_wave_probability_info(result, prestige)
+        help_label = tk.Label(header_frame, text="❓", font=("Arial", 10), 
+                             background="#FFFFFF", foreground="gray", cursor="hand2")
+        help_label.pack(side=tk.LEFT, padx=(5, 0))
+        create_tooltip(help_label, prob_info)
         
         results_inner = tk.Frame(results_summary_frame, background="#FFFFFF")
         results_inner.pack(fill=tk.X, padx=5, pady=(0, 5))
         
-        # Wave Pusher Mode: Show max wave
-        tk.Label(results_inner, text=f"Max Wave: {result.expected_wave:.1f} | ", 
-                font=("Arial", 8, "bold"), background="#FFFFFF",
-                foreground="#1976D2").pack(side=tk.LEFT)
-        tk.Label(results_inner, text=f"Time/Run: {result.expected_time:.1f}s", 
-                font=("Arial", 8), background="#FFFFFF").pack(side=tk.LEFT)
+        # Wave Pusher Mode: Show max wave (with word wrap)
+        wave_label = tk.Label(results_inner, text=f"Max Wave: {result.expected_wave:.1f}", 
+                font=("Arial", 9, "bold"), background="#FFFFFF",
+                foreground="#1976D2", wraplength=200, justify=tk.LEFT)
+        wave_label.pack(anchor="w", pady=2)
+        time_label = tk.Label(results_inner, text=f"Time/Run: {result.expected_time:.1f}s", 
+                font=("Arial", 9), background="#FFFFFF", wraplength=200, justify=tk.LEFT)
+        time_label.pack(anchor="w", pady=2)
         
         # === UPGRADE CARDS (Game-style) ===
         upgrades_frame = tk.Frame(self.results_container, background="#E8F5E9")
@@ -826,12 +1164,11 @@ class BudgetOptimizerPanel:
                 text_frame = tk.Frame(card_content, background="#FFFFFF")
                 text_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
                 
-                # Name (truncate if too long)
-                display_name = name[:15] + "..." if len(name) > 15 else name
-                tk.Label(text_frame, text=display_name, font=("Arial", 7, "bold"),
-                        background="#FFFFFF", anchor="w", wraplength=80).pack(fill=tk.X)
-                tk.Label(text_frame, text=f"Lv.{level}", font=("Arial", 7),
-                        background="#FFFFFF", foreground="#666666", anchor="w").pack(fill=tk.X)
+                # Name (with word wrap)
+                tk.Label(text_frame, text=name, font=("Arial", 8, "bold"),
+                        background="#FFFFFF", anchor="w", wraplength=120, justify=tk.LEFT).pack(fill=tk.X, pady=1)
+                tk.Label(text_frame, text=f"Lv.{level}", font=("Arial", 8),
+                        background="#FFFFFF", foreground="#666666", anchor="w", wraplength=120).pack(fill=tk.X)
         
         # === BREAKPOINT SUMMARY (compact) ===
         if result.breakpoints:
@@ -843,5 +1180,5 @@ class BudgetOptimizerPanel:
             
             best_bp = result.breakpoints[0]
             bp_text = f"Wave {best_bp['wave']}: +{best_bp['atk_increase']} ATK → {best_bp['target_hits']}-hit kills"
-            tk.Label(bp_frame, text=bp_text, font=("Arial", 7),
-                    background="#FFFFFF").pack(anchor="w", padx=5, pady=(0, 3))
+            tk.Label(bp_frame, text=bp_text, font=("Arial", 8),
+                    background="#FFFFFF", wraplength=300, justify=tk.LEFT).pack(anchor="w", padx=5, pady=(0, 3))
