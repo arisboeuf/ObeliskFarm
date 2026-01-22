@@ -559,14 +559,9 @@ class ArchaeologySimulatorWindow:
                 crit_val = state.get('crit_calc_enabled', False)
                 self.crit_calc_enabled.set(bool(crit_val))  # Ensure boolean value
             
-            # Update stage combo
-            stage_map_reverse = {
-                1: "1-2", 3: "3-4", 5: "5", 6: "6-9", 10: "10-11",
-                12: "12-14", 15: "15-19", 20: "20-24", 25: "25-29",
-                30: "30-49", 50: "50-75", 76: "75+"
-            }
+            # Update stage entry (now uses exact stage number)
             if hasattr(self, 'stage_var'):
-                self.stage_var.set(stage_map_reverse.get(self.current_stage, "1-2"))
+                self.stage_var.set(str(self.current_stage))
             
             # Update forecast level
             if hasattr(self, 'forecast_levels_1'):
@@ -1724,18 +1719,41 @@ class ArchaeologySimulatorWindow:
         tk.Label(controls_frame, text="Goal Stage:", font=("Arial", 10), 
                 background="#E3F2FD").pack(side=tk.LEFT, padx=(0, 3))
         
-        self.stage_var = tk.StringVar(value="1-2")
-        self.stage_combo = ttk.Combobox(
-            controls_frame, 
+        # Stage selector with +/- buttons (exact stage number instead of buckets)
+        stage_frame = tk.Frame(controls_frame, background="#E3F2FD")
+        stage_frame.pack(side=tk.LEFT, padx=(0, 3))
+        
+        # Minus button
+        stage_minus_btn = tk.Button(stage_frame, text="-", width=2, font=("Arial", 8, "bold"),
+                                    command=self._decrease_goal_stage, background="#E3F2FD")
+        stage_minus_btn.pack(side=tk.LEFT, padx=(0, 1))
+        
+        # Stage entry - use tk.Entry instead of ttk.Entry for better color control
+        self.stage_var = tk.StringVar(value="1")
+        self.stage_entry = tk.Entry(
+            stage_frame,
             textvariable=self.stage_var,
-            values=STAGE_RANGES,
-            state="readonly",
-            width=7
+            width=5,
+            font=("Arial", 9, "bold"),
+            justify=tk.CENTER,
+            background="#FFFFFF",
+            foreground="#000000",
+            relief=tk.SUNKEN,
+            borderwidth=1
         )
-        self.stage_combo.pack(side=tk.LEFT, padx=(0, 3))
-        self.stage_combo.bind("<<ComboboxSelected>>", self._on_stage_changed)
-        # Set initial value explicitly to ensure it's displayed
-        self.stage_combo.set("1-2")
+        self.stage_entry.pack(side=tk.LEFT, padx=(0, 1))
+        self.stage_var.trace_add('write', self._on_stage_changed)
+        
+        # Plus button
+        stage_plus_btn = tk.Button(stage_frame, text="+", width=2, font=("Arial", 8, "bold"),
+                                   command=self._increase_goal_stage, background="#E3F2FD")
+        stage_plus_btn.pack(side=tk.LEFT)
+        
+        # Initialize current_stage from stage_var
+        try:
+            self.current_stage = int(self.stage_var.get())
+        except ValueError:
+            self.current_stage = 1
         
         # Help icon for stage selection
         stage_help_label = tk.Label(controls_frame, text="?", font=("Arial", 9, "bold"), 
@@ -1745,25 +1763,23 @@ class ArchaeologySimulatorWindow:
         
         # Enrage toggle checkbox
         self.enrage_enabled = tk.BooleanVar(value=True)
-        enrage_checkbox = ttk.Checkbutton(
+        enrage_checkbox = tk.Checkbutton(
             controls_frame,
             text="Enrage",
             variable=self.enrage_enabled,
             command=self.update_display,
-            onvalue=True,
-            offvalue=False
+            background="#E3F2FD"
         )
         enrage_checkbox.pack(side=tk.LEFT, padx=(0, 5))
         
         # Flurry toggle checkbox
         self.flurry_enabled = tk.BooleanVar(value=True)
-        flurry_checkbox = ttk.Checkbutton(
+        flurry_checkbox = tk.Checkbutton(
             controls_frame,
             text="Flurry",
             variable=self.flurry_enabled,
             command=self.update_display,
-            onvalue=True,
-            offvalue=False
+            background="#E3F2FD"
         )
         flurry_checkbox.pack(side=tk.LEFT, padx=(0, 5))
         
@@ -1776,13 +1792,20 @@ class ArchaeologySimulatorWindow:
         inner_crit_mc.pack()
         
         self.crit_calc_enabled = tk.BooleanVar(value=False)  # Default: deterministic
-        crit_checkbox = ttk.Checkbutton(
+        def on_crit_changed():
+            """Handle crit checkbox change - update display and force planner recalculation"""
+            self.update_display()
+            # Explicitly force planner updates to ensure they recalculate with new crit setting
+            # The forecast functions need to recalculate optimal distributions when crit changes
+            if hasattr(self, 'budget_dist_label'):
+                self.update_budget_display()
+        
+        crit_checkbox = tk.Checkbutton(
             inner_crit_mc,
             text="Crit",
             variable=self.crit_calc_enabled,
-            command=self.update_display,
-            onvalue=True,
-            offvalue=False
+            command=on_crit_changed,
+            background="#FFF8DC"
         )
         crit_checkbox.pack(side=tk.LEFT, padx=(0, 3))
         
@@ -2037,11 +2060,16 @@ class ArchaeologySimulatorWindow:
         unlocked_minus_btn.pack(side=tk.LEFT, padx=(0, 1))
         
         self.unlocked_stage_var = tk.StringVar(value="1")
-        self.unlocked_stage_entry = ttk.Entry(
+        self.unlocked_stage_entry = tk.Entry(
             unlocked_frame,
             textvariable=self.unlocked_stage_var,
             width=5,
-            font=("Arial", 9)
+            font=("Arial", 9, "bold"),
+            justify=tk.CENTER,
+            background="#FFFFFF",
+            foreground="#000000",
+            relief=tk.SUNKEN,
+            borderwidth=1
         )
         self.unlocked_stage_entry.pack(side=tk.LEFT, padx=(0, 1))
         self.unlocked_stage_var.trace_add('write', self._on_unlocked_stage_changed)
@@ -2464,19 +2492,32 @@ class ArchaeologySimulatorWindow:
         if upgrade_key not in self.fragment_upgrade_levels:
             self.fragment_upgrade_levels[upgrade_key] = 0
         
+        # -5 button
+        minus5_btn = tk.Button(row_frame, text="-5", width=3, font=("Arial", 7, "bold"),
+                               command=lambda u=upgrade_key: self._remove_fragment_upgrade(u, 5))
+        minus5_btn.pack(side=tk.LEFT, padx=(0, 1))
+        
+        # -1 button
         minus_btn = tk.Button(row_frame, text="-", width=2, font=("Arial", 8, "bold"),
-                             command=lambda u=upgrade_key: self._remove_fragment_upgrade(u))
+                             command=lambda u=upgrade_key: self._remove_fragment_upgrade(u, 1))
         minus_btn.pack(side=tk.LEFT, padx=(0, 1))
         
+        # +1 button
         plus_btn = tk.Button(row_frame, text="+", width=2, font=("Arial", 8, "bold"),
-                            command=lambda u=upgrade_key: self._add_fragment_upgrade(u))
-        plus_btn.pack(side=tk.LEFT, padx=(0, 3))
+                            command=lambda u=upgrade_key: self._add_fragment_upgrade(u, 1))
+        plus_btn.pack(side=tk.LEFT, padx=(0, 1))
         
-        # Level counter with max level (e.g. "5/25")
+        # +5 button
+        plus5_btn = tk.Button(row_frame, text="+5", width=3, font=("Arial", 7, "bold"),
+                              command=lambda u=upgrade_key: self._add_fragment_upgrade(u, 5))
+        plus5_btn.pack(side=tk.LEFT, padx=(0, 3))
+        
+        # Level counter with max level (e.g. "5/25") - larger and more visible
         current_level = self.fragment_upgrade_levels.get(upgrade_key, 0)
         max_level = upgrade_info.get('max_level', 25)
         level_label = tk.Label(row_frame, text=f"{current_level}/{max_level}", background="#E8F5E9", 
-                              font=("Arial", 8), foreground=color, width=5, anchor=tk.CENTER)
+                              font=("Arial", 9, "bold"), foreground=color, width=6, anchor=tk.CENTER,
+                              relief=tk.SUNKEN, borderwidth=1)
         level_label.pack(side=tk.LEFT, padx=(0, 3))
         self.upgrade_level_labels[upgrade_key] = level_label
         
@@ -2510,16 +2551,19 @@ class ArchaeologySimulatorWindow:
         eff_label.pack(side=tk.RIGHT, padx=(2, 0))
         self.upgrade_efficiency_labels[upgrade_key] = eff_label
         
-        self.upgrade_buttons[upgrade_key] = (minus_btn, plus_btn)
+        self.upgrade_buttons[upgrade_key] = (minus5_btn, minus_btn, plus_btn, plus5_btn)
     
-    def _add_fragment_upgrade(self, upgrade_key):
-        """Add a level to a fragment upgrade"""
+    def _add_fragment_upgrade(self, upgrade_key, amount=1):
+        """Add levels to a fragment upgrade"""
         if upgrade_key not in self.fragment_upgrade_levels:
             self.fragment_upgrade_levels[upgrade_key] = 0
         
         max_level = self.FRAGMENT_UPGRADES[upgrade_key].get('max_level', 25)
-        if self.fragment_upgrade_levels[upgrade_key] < max_level:
-            self.fragment_upgrade_levels[upgrade_key] += 1
+        current_level = self.fragment_upgrade_levels[upgrade_key]
+        new_level = min(current_level + amount, max_level)
+        
+        if new_level > current_level:
+            self.fragment_upgrade_levels[upgrade_key] = new_level
             # Update the label directly with level/max format
             if upgrade_key in self.upgrade_level_labels:
                 self.upgrade_level_labels[upgrade_key].config(
@@ -2527,14 +2571,17 @@ class ArchaeologySimulatorWindow:
             self.update_display()
             self.save_state()  # Save immediately after upgrade change
     
-    def _remove_fragment_upgrade(self, upgrade_key):
-        """Remove a level from a fragment upgrade"""
+    def _remove_fragment_upgrade(self, upgrade_key, amount=1):
+        """Remove levels from a fragment upgrade"""
         if upgrade_key not in self.fragment_upgrade_levels:
             self.fragment_upgrade_levels[upgrade_key] = 0
         
         max_level = self.FRAGMENT_UPGRADES[upgrade_key].get('max_level', 25)
-        if self.fragment_upgrade_levels[upgrade_key] > 0:
-            self.fragment_upgrade_levels[upgrade_key] -= 1
+        current_level = self.fragment_upgrade_levels[upgrade_key]
+        new_level = max(0, current_level - amount)
+        
+        if new_level < current_level:
+            self.fragment_upgrade_levels[upgrade_key] = new_level
             # Update the label directly with level/max format
             if upgrade_key in self.upgrade_level_labels:
                 self.upgrade_level_labels[upgrade_key].config(
@@ -4978,7 +5025,7 @@ class ArchaeologySimulatorWindow:
         # Update level up timer
         self.update_levelup_timer(stats)
         
-        # Update skill forecast
+        # Update skill forecast (this will also update budget planners)
         self.update_forecast_display()
     
     def update_levelup_timer(self, stats):
@@ -5363,27 +5410,50 @@ class ArchaeologySimulatorWindow:
     
     def reset_and_update(self):
         self.reset_to_level1()
-        self.stage_var.set("1-2")
+        self.stage_var.set("1")
         self.update_display()
         self.save_state()
     
-    def _on_stage_changed(self, event=None):
-        stage_str = self.stage_var.get()
-        stage_map = {
-            "1-2": 1, "3-4": 3, "5": 5, "6-9": 6, "10-11": 10,
-            "12-14": 12, "15-19": 15, "20-24": 20, "25-29": 25,
-            "30-49": 30, "50-75": 50, "75+": 76,
-        }
-        self.current_stage = stage_map.get(stage_str, 1)
+    def _on_stage_changed(self, *args):
+        """Handle goal stage change - update current_stage and refresh display"""
+        try:
+            stage_value = int(self.stage_var.get())
+            if stage_value < 1:
+                stage_value = 1
+            self.current_stage = stage_value
+            self.stage_var.set(str(stage_value))  # Ensure it's set correctly
+        except ValueError:
+            # Invalid input, reset to current stage
+            self.stage_var.set(str(self.current_stage))
+            return
         
-        # Auto-adjust unlocked stage to at least match the selected stage's minimum
-        # If you're playing stage 3-4, you must have at least stage 3 unlocked
+        # Auto-adjust unlocked stage to at least match the selected stage
         current_unlocked = self.get_unlocked_stage()
         if current_unlocked < self.current_stage:
             self.unlocked_stage_var.set(str(self.current_stage))
             # Note: This will trigger _on_unlocked_stage_changed which rebuilds upgrades
         
+        # Update display to refresh Stage Statistics
         self.update_display()
+    
+    def _increase_goal_stage(self):
+        """Increase goal stage by 1"""
+        try:
+            current = int(self.stage_var.get())
+            self.stage_var.set(str(current + 1))
+        except ValueError:
+            self.stage_var.set(str(self.current_stage + 1))
+    
+    def _decrease_goal_stage(self):
+        """Decrease goal stage by 1 (minimum 1)"""
+        try:
+            current = int(self.stage_var.get())
+            if current > 1:
+                self.stage_var.set(str(current - 1))
+            else:
+                self.stage_var.set("1")
+        except ValueError:
+            self.stage_var.set("1")
     
     def _show_loading_dialog(self, message="Running Monte Carlo simulation..."):
         """Show a modal loading dialog that blocks interaction with main window"""
