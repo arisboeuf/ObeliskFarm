@@ -5,7 +5,7 @@ This module provides the GUI window for archaeology skill point optimization.
 """
 
 import tkinter as tk
-from tkinter import ttk
+from tkinter import ttk, messagebox
 from pathlib import Path
 import json
 import math
@@ -14,7 +14,7 @@ from PIL import Image, ImageTk
 from .block_spawn_rates import get_block_mix_for_stage, get_stage_range_label, STAGE_RANGES, get_normalized_spawn_rates
 from .block_stats import get_block_at_floor, get_block_mix_for_floor, BlockData, BLOCK_TYPES
 from .upgrade_costs import get_upgrade_cost, get_total_cost, get_max_level
-from .monte_carlo_crit import run_crit_analysis, MonteCarloCritSimulator
+from .monte_carlo_crit import run_crit_analysis, MonteCarloCritSimulator, debug_single_run
 
 import sys
 import os
@@ -920,12 +920,16 @@ class ArchaeologySimulatorWindow:
             return max_stamina / weighted_hits
         return 0
     
-    def calculate_floors_per_run(self, stats, starting_floor: int, blocks_per_floor: int = 15):
+    def calculate_floors_per_run(self, stats, starting_floor: int, blocks_per_floor: float = None):
         """
         Calculate floors per run, accounting for:
         - Stamina Mod: Each block has a chance to give +6.5 stamina (avg of 3-10)
         - Flurry ability: 5 charges × 5 stamina every 120 seconds (if enabled)
         """
+        # Use average blocks per floor (11.5) if not specified
+        if blocks_per_floor is None:
+            blocks_per_floor = self.BLOCKS_PER_FLOOR
+        
         max_stamina = stats['max_stamina']
         stamina_remaining = max_stamina
         floors_cleared = 0
@@ -1687,9 +1691,16 @@ class ArchaeologySimulatorWindow:
         flurry_checkbox.pack(side=tk.LEFT, padx=(0, 5))
         
         # Crit toggle checkbox - deterministic vs crit-based calculations
+        # Highlighted frame for Crit and MC
+        crit_mc_frame = tk.Frame(controls_frame, background="#FFD700", relief=tk.RAISED, borderwidth=2)
+        crit_mc_frame.pack(side=tk.LEFT, padx=(0, 10))
+        
+        inner_crit_mc = tk.Frame(crit_mc_frame, background="#FFF8DC", padx=3, pady=2)
+        inner_crit_mc.pack()
+        
         self.crit_calc_enabled = tk.BooleanVar(value=False)  # Default: deterministic
         crit_checkbox = ttk.Checkbutton(
-            controls_frame,
+            inner_crit_mc,
             text="Crit",
             variable=self.crit_calc_enabled,
             command=self.update_display
@@ -1697,18 +1708,25 @@ class ArchaeologySimulatorWindow:
         crit_checkbox.pack(side=tk.LEFT, padx=(0, 3))
         
         # Help icon for crit toggle
-        crit_help_label = tk.Label(controls_frame, text="?", font=("Arial", 9, "bold"), 
-                                  cursor="hand2", foreground="#1976D2", background="#E3F2FD")
+        crit_help_label = tk.Label(inner_crit_mc, text="?", font=("Arial", 9, "bold"), 
+                                  cursor="hand2", foreground="#1976D2", background="#FFF8DC")
         crit_help_label.pack(side=tk.LEFT, padx=(0, 5))
         self._create_crit_toggle_help_tooltip(crit_help_label)
         
-        # Monte Carlo analysis button
-        mc_button = ttk.Button(
-            controls_frame,
-            text="MC Crit Analysis",
-            command=self.run_monte_carlo_analysis
+        # MC Stage Pusher button
+        mc_stage_pusher_button = tk.Button(
+            inner_crit_mc,
+            text="MC Stage Pusher",
+            command=self.run_mc_stage_pusher,
+            font=("Arial", 9),
+            bg="#9C27B0",
+            fg="#FFFFFF",
+            activebackground="#BA68C8",
+            activeforeground="#FFFFFF",
+            relief=tk.RAISED,
+            borderwidth=2
         )
-        mc_button.pack(side=tk.LEFT, padx=(5, 10))
+        mc_stage_pusher_button.pack(side=tk.LEFT, padx=(5, 0))
         
         # Center: Level display
         self.level_label = tk.Label(header_frame, text="Level: 1", font=("Arial", 12, "bold"),
@@ -2934,21 +2952,18 @@ class ArchaeologySimulatorWindow:
             
             # Explanation
             lines = [
-                "OFF (Deterministic):",
-                "  Breakpoints are calculated based on",
-                "  pure damage without critical hits.",
-                "  Best for early game when crit chance",
-                "  is low and unreliable.",
+                "Use Monte Carlo (MC) simulation to determine",
+                "whether to enable Crit or not!",
                 "",
-                "ON (Crit-based):",
-                "  Breakpoints include expected crit damage.",
-                "  Average hits account for your crit chance",
-                "  and crit damage multiplier.",
-                "  Better for late game with high crit stats.",
+                "The MC tool compares your build with and",
+                "without crit mechanics, using optimal skill",
+                "distributions for each mode.",
                 "",
-                "Recommendation:",
-                "  Start with OFF. Switch to ON once your",
-                "  crit chance is above ~20-30%.",
+                "Use 'MC Stage Pusher' to run Monte Carlo",
+                "simulations and see stage distribution.",
+                "",
+                "OFF = Deterministic (no crit averaging)",
+                "ON  = Crit-based (includes crit in calculations)",
             ]
             
             for line in lines:
@@ -4765,533 +4780,6 @@ class ArchaeologySimulatorWindow:
             
             y += bar_height + bar_spacing
     
-    def run_monte_carlo_analysis(self):
-        """Run Monte Carlo simulation with Matrix-style UI"""
-        import threading
-        
-        # Create Matrix-style window
-        mc_window = tk.Toplevel(self.window)
-        mc_window.title("Monte Carlo Simulation")
-        mc_window.geometry("900x700")
-        mc_window.transient(self.window)
-        mc_window.configure(bg="#000000")
-        
-        # Matrix green color
-        matrix_green = "#00FF41"
-        dark_green = "#00CC33"
-        
-        # Main container - use grid for better vertical layout
-        main_frame = tk.Frame(mc_window, bg="#000000")
-        main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-        main_frame.grid_rowconfigure(2, weight=1)  # Results area expands
-        main_frame.grid_columnconfigure(0, weight=1)
-        
-        # Title
-        title_label = tk.Label(main_frame, text="MONTE CARLO SIMULATION", 
-                              font=("Courier", 14, "bold"), 
-                              bg="#000000", fg=matrix_green)
-        title_label.grid(row=0, column=0, pady=(0, 10), sticky=tk.W)
-        
-        # Top controls frame (selection + points)
-        top_controls = tk.Frame(main_frame, bg="#000000")
-        top_controls.grid(row=1, column=0, sticky=tk.W+tk.E, pady=(0, 10))
-        top_controls.grid_columnconfigure(1, weight=1)
-        
-        # Selection frame (left side)
-        selection_frame = tk.Frame(top_controls, bg="#000000")
-        selection_frame.grid(row=0, column=0, sticky=tk.W, padx=(0, 20))
-        
-        tk.Label(selection_frame, text="SIMULATION TYPE:", 
-                font=("Courier", 9, "bold"), bg="#000000", fg=matrix_green).pack(anchor=tk.W)
-        
-        sim_type_var = tk.StringVar(value="stage_rushing")
-        
-        # Radio buttons for simulation type - horizontal layout
-        rb_frame = tk.Frame(selection_frame, bg="#000000")
-        rb_frame.pack(fill=tk.X, pady=3)
-        
-        tk.Radiobutton(rb_frame, text="Stage Rushing", variable=sim_type_var, value="stage_rushing",
-                      font=("Courier", 8), bg="#000000", fg=matrix_green, 
-                      selectcolor="#000000", activebackground="#000000", 
-                      activeforeground=dark_green).pack(side=tk.LEFT, padx=(0, 10))
-        
-        tk.Radiobutton(rb_frame, text="XP/Hour", variable=sim_type_var, value="xp_per_hour",
-                      font=("Courier", 8), bg="#000000", fg=matrix_green,
-                      selectcolor="#000000", activebackground="#000000",
-                      activeforeground=dark_green).pack(side=tk.LEFT, padx=(0, 10))
-        
-        tk.Radiobutton(rb_frame, text="Fragments/Hour", variable=sim_type_var, value="frags_per_hour",
-                      font=("Courier", 8), bg="#000000", fg=matrix_green,
-                      selectcolor="#000000", activebackground="#000000",
-                      activeforeground=dark_green).pack(side=tk.LEFT)
-        
-        # Points info (right side)
-        points_frame = tk.Frame(top_controls, bg="#000000")
-        points_frame.grid(row=0, column=1, sticky=tk.E)
-        
-        tk.Label(points_frame, text="PLANNER POINTS:", 
-                font=("Courier", 9, "bold"), bg="#000000", fg=matrix_green).pack(anchor=tk.E)
-        
-        points_info_label = tk.Label(points_frame, text="", 
-                                    font=("Courier", 9), bg="#000000", fg=dark_green)
-        points_info_label.pack(anchor=tk.E)
-        
-        def update_points_info():
-            if hasattr(self, 'shared_planner_points'):
-                points = self.shared_planner_points.get()
-                points_info_label.config(text=f"{points}")
-            else:
-                points_info_label.config(text="20 (default)")
-        
-        update_points_info()
-        
-        # Results area - use grid
-        results_frame = tk.Frame(main_frame, bg="#000000", relief=tk.SOLID, borderwidth=1)
-        results_frame.grid(row=2, column=0, sticky=tk.N+tk.S+tk.E+tk.W, pady=(0, 10))
-        
-        # Results text with Matrix style - optimized height
-        results_text = tk.Text(results_frame, wrap=tk.WORD, height=20, width=90,
-                              font=("Courier", 8), bg="#000000", fg=matrix_green,
-                              insertbackground=matrix_green, borderwidth=0,
-                              highlightthickness=1, highlightbackground=matrix_green)
-        results_text.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
-        
-        # Bottom frame (status + buttons)
-        bottom_frame = tk.Frame(main_frame, bg="#000000")
-        bottom_frame.grid(row=3, column=0, sticky=tk.W+tk.E, pady=(0, 0))
-        bottom_frame.grid_columnconfigure(0, weight=1)
-        
-        # Status and hours label
-        status_frame = tk.Frame(bottom_frame, bg="#000000")
-        status_frame.grid(row=0, column=0, sticky=tk.W+tk.E, pady=(0, 5))
-        
-        status_label = tk.Label(status_frame, text="READY", 
-                               font=("Courier", 9, "bold"), bg="#000000", fg=matrix_green)
-        status_label.pack(side=tk.LEFT)
-        
-        hours_label = tk.Label(status_frame, text="", 
-                              font=("Courier", 9), bg="#000000", fg=dark_green)
-        hours_label.pack(side=tk.RIGHT)
-        
-        # Buttons
-        button_frame = tk.Frame(bottom_frame, bg="#000000")
-        button_frame.grid(row=1, column=0, sticky=tk.W+tk.E)
-        
-        def start_simulation():
-            """Start the simulation"""
-            sim_type = sim_type_var.get()
-            
-            # Disable start button
-            start_btn.config(state=tk.DISABLED)
-            results_text.delete(1.0, tk.END)
-            status_label.config(text="INITIALIZING...")
-            hours_label.config(text="")
-            
-            def run_sim():
-                try:
-                    import time
-                    start_time = time.time()
-                    
-                    # Get planner points (shared across all planners)
-                    num_points = self.shared_planner_points.get() if hasattr(self, 'shared_planner_points') else 20
-                    
-                    # Save original crit toggle state
-                    original_crit_enabled = getattr(self, 'crit_calc_enabled', None)
-                    original_crit_state = original_crit_enabled.get() if original_crit_enabled else False
-                    
-                    # Calculate planner distribution FOR WITH CRIT (crit enabled)
-                    if original_crit_enabled:
-                        original_crit_enabled.set(True)
-                    if sim_type == "stage_rushing":
-                        forecast_with_crit = self.calculate_forecast(num_points)
-                        planner_dist_with_crit = forecast_with_crit['distribution']
-                    elif sim_type == "xp_per_hour":
-                        forecast_with_crit = self.calculate_xp_forecast(num_points)
-                        planner_dist_with_crit = forecast_with_crit['distribution']
-                    else:  # frags_per_hour
-                        budget = num_points
-                        target_frag = self.frag_target_var.get() if hasattr(self, 'frag_target_var') else 'common'
-                        frag_result_with_crit = self.calculate_frag_forecast(budget, target_frag)
-                        planner_dist_with_crit = frag_result_with_crit['distribution']
-                    
-                    # Calculate planner distribution FOR WITHOUT CRIT (crit disabled)
-                    if original_crit_enabled:
-                        original_crit_enabled.set(False)
-                    if sim_type == "stage_rushing":
-                        forecast_without_crit = self.calculate_forecast(num_points)
-                        planner_dist_without_crit = forecast_without_crit['distribution']
-                    elif sim_type == "xp_per_hour":
-                        forecast_without_crit = self.calculate_xp_forecast(num_points)
-                        planner_dist_without_crit = forecast_without_crit['distribution']
-                    else:  # frags_per_hour
-                        budget = num_points
-                        target_frag = self.frag_target_var.get() if hasattr(self, 'frag_target_var') else 'common'
-                        frag_result_without_crit = self.calculate_frag_forecast(budget, target_frag)
-                        planner_dist_without_crit = frag_result_without_crit['distribution']
-                    
-                    # Restore original crit state
-                    if original_crit_enabled:
-                        original_crit_enabled.set(original_crit_state)
-                    
-                    # Apply planner distributions temporarily to get stats
-                    original_points = self.skill_points.copy()
-                    
-                    # Get stats WITH CRIT distribution
-                    for skill, points in planner_dist_with_crit.items():
-                        self.skill_points[skill] += points
-                    planner_stats_with_crit = self.get_total_stats()
-                    self.skill_points = original_points.copy()
-                    
-                    # Get stats WITHOUT CRIT distribution
-                    for skill, points in planner_dist_without_crit.items():
-                        self.skill_points[skill] += points
-                    planner_stats_without_crit = self.get_total_stats()
-                    
-                    # Restore original
-                    self.skill_points = original_points
-                    
-                    # Prepare for Monte Carlo
-                    enrage_enabled = getattr(self, 'enrage_enabled', None)
-                    enrage_enabled = enrage_enabled.get() if enrage_enabled else False
-                    
-                    flurry_enabled = getattr(self, 'flurry_enabled', None)
-                    flurry_enabled = flurry_enabled.get() if flurry_enabled else False
-                    
-                    # Prepare stats for WITH CRIT simulation
-                    mc_stats_with_crit = {
-                        'total_damage': planner_stats_with_crit['total_damage'],
-                        'armor_pen': planner_stats_with_crit['armor_pen'],
-                        'max_stamina': planner_stats_with_crit['max_stamina'],
-                        'crit_chance': planner_stats_with_crit['crit_chance'],
-                        'crit_damage': planner_stats_with_crit['crit_damage'],
-                        'one_hit_chance': planner_stats_with_crit['one_hit_chance'],
-                        'stamina_mod_chance': planner_stats_with_crit.get('stamina_mod_chance', 0),
-                        'stamina_mod_gain': planner_stats_with_crit.get('stamina_mod_gain', 6.5),
-                        'xp_mult': planner_stats_with_crit.get('xp_mult', 1.0),
-                        'fragment_mult': planner_stats_with_crit.get('fragment_mult', 1.0),
-                    }
-                    
-                    # Prepare stats for WITHOUT CRIT simulation
-                    mc_stats_without_crit = {
-                        'total_damage': planner_stats_without_crit['total_damage'],
-                        'armor_pen': planner_stats_without_crit['armor_pen'],
-                        'max_stamina': planner_stats_without_crit['max_stamina'],
-                        'crit_chance': planner_stats_without_crit['crit_chance'],
-                        'crit_damage': planner_stats_without_crit['crit_damage'],
-                        'one_hit_chance': planner_stats_without_crit['one_hit_chance'],
-                        'stamina_mod_chance': planner_stats_without_crit.get('stamina_mod_chance', 0),
-                        'stamina_mod_gain': planner_stats_without_crit.get('stamina_mod_gain', 6.5),
-                        'xp_mult': planner_stats_without_crit.get('xp_mult', 1.0),
-                        'fragment_mult': planner_stats_without_crit.get('fragment_mult', 1.0),
-                    }
-                    
-                    starting_floor = self.current_stage
-                    num_simulations = 1000
-                    
-                    # Run simulation WITH CRIT and WITHOUT CRIT
-                    status_label.config(text=f"RUNNING {num_simulations} SIMULATIONS (WITH CRIT)...")
-                    mc_window.update()
-                    
-                    from .monte_carlo_crit import MonteCarloCritSimulator
-                    simulator = MonteCarloCritSimulator(seed=None)
-                    
-                    results_with_crit = []
-                    results_without_crit = []
-                    
-                    for i in range(num_simulations):
-                        if (i + 1) % 200 == 0:
-                            status_label.config(text=f"PROGRESS: {i + 1}/{num_simulations} (WITH CRIT)...")
-                            mc_window.update()
-                        
-                        # Simulate one hour WITH CRIT (using WITH CRIT distribution)
-                        run_duration = self.calculate_run_duration(planner_stats_with_crit, starting_floor)
-                        runs_per_hour = int(3600 / run_duration) if run_duration > 0 else 60
-                        runs_per_hour = max(1, min(runs_per_hour, 100))
-                        
-                        total_xp_crit = 0
-                        total_frags_crit = {'common': 0, 'rare': 0, 'epic': 0, 'legendary': 0, 'mythic': 0}
-                        max_stage_reached_crit = starting_floor
-                        
-                        for run in range(runs_per_hour):
-                            floors = simulator.simulate_run(
-                                mc_stats_with_crit, starting_floor, use_crit=True,
-                                enrage_enabled=enrage_enabled, flurry_enabled=flurry_enabled
-                            )
-                            
-                            if sim_type == "xp_per_hour":
-                                xp_per_run = self.calculate_xp_per_run(planner_stats_with_crit, starting_floor)
-                                expected_floors = self.calculate_floors_per_run(planner_stats_with_crit, starting_floor)
-                                if expected_floors > 0:
-                                    xp_scale = floors / expected_floors
-                                    total_xp_crit += xp_per_run * xp_scale
-                            
-                            if sim_type == "frags_per_hour":
-                                frags_per_run = self.calculate_fragments_per_run(planner_stats_with_crit, starting_floor)
-                                expected_floors = self.calculate_floors_per_run(planner_stats_with_crit, starting_floor)
-                                if expected_floors > 0:
-                                    frag_scale = floors / expected_floors
-                                    for frag_type in total_frags_crit:
-                                        total_frags_crit[frag_type] += frags_per_run.get(frag_type, 0) * frag_scale
-                            
-                            current_stage_after_run = starting_floor + int(floors)
-                            max_stage_reached_crit = max(max_stage_reached_crit, current_stage_after_run)
-                        
-                        # Simulate one hour WITHOUT CRIT (using WITHOUT CRIT distribution)
-                        if (i + 1) % 200 == 0:
-                            status_label.config(text=f"PROGRESS: {i + 1}/{num_simulations} (WITHOUT CRIT)...")
-                            mc_window.update()
-                        
-                        run_duration = self.calculate_run_duration(planner_stats_without_crit, starting_floor)
-                        runs_per_hour = int(3600 / run_duration) if run_duration > 0 else 60
-                        runs_per_hour = max(1, min(runs_per_hour, 100))
-                        
-                        total_xp_no_crit = 0
-                        total_frags_no_crit = {'common': 0, 'rare': 0, 'epic': 0, 'legendary': 0, 'mythic': 0}
-                        max_stage_reached_no_crit = starting_floor
-                        
-                        for run in range(runs_per_hour):
-                            floors = simulator.simulate_run(
-                                mc_stats_without_crit, starting_floor, use_crit=False,
-                                enrage_enabled=enrage_enabled, flurry_enabled=flurry_enabled
-                            )
-                            
-                            if sim_type == "xp_per_hour":
-                                xp_per_run = self.calculate_xp_per_run(planner_stats_without_crit, starting_floor)
-                                expected_floors = self.calculate_floors_per_run(planner_stats_without_crit, starting_floor)
-                                if expected_floors > 0:
-                                    xp_scale = floors / expected_floors
-                                    total_xp_no_crit += xp_per_run * xp_scale
-                            
-                            if sim_type == "frags_per_hour":
-                                frags_per_run = self.calculate_fragments_per_run(planner_stats_without_crit, starting_floor)
-                                expected_floors = self.calculate_floors_per_run(planner_stats_without_crit, starting_floor)
-                                if expected_floors > 0:
-                                    frag_scale = floors / expected_floors
-                                    for frag_type in total_frags_no_crit:
-                                        total_frags_no_crit[frag_type] += frags_per_run.get(frag_type, 0) * frag_scale
-                            
-                            current_stage_after_run = starting_floor + int(floors)
-                            max_stage_reached_no_crit = max(max_stage_reached_no_crit, current_stage_after_run)
-                        
-                        # Store results
-                        if sim_type == "stage_rushing":
-                            results_with_crit.append(max_stage_reached_crit)
-                            results_without_crit.append(max_stage_reached_no_crit)
-                        elif sim_type == "xp_per_hour":
-                            results_with_crit.append(total_xp_crit)
-                            results_without_crit.append(total_xp_no_crit)
-                        else:
-                            target_frag = self.frag_target_var.get() if hasattr(self, 'frag_target_var') else 'common'
-                            results_with_crit.append(total_frags_crit.get(target_frag, 0))
-                            results_without_crit.append(total_frags_no_crit.get(target_frag, 0))
-                    
-                    # Calculate statistics for both
-                    results = results_with_crit
-                    results_no_crit = results_without_crit
-                    
-                    # Calculate statistics
-                    import statistics
-                    mean_val = statistics.mean(results)
-                    median_val = statistics.median(results)
-                    std_dev = statistics.stdev(results) if len(results) > 1 else 0
-                    min_val = min(results)
-                    max_val = max(results)
-                    sorted_results = sorted(results)
-                    p5 = sorted_results[int(len(results) * 0.05)]
-                    p95 = sorted_results[int(len(results) * 0.95)]
-                    
-                    # For stage_rushing: Count how often max stage was reached
-                    max_stage_count_crit = 0
-                    max_stage_count_no_crit = 0
-                    if sim_type == "stage_rushing":
-                        max_stage_count_crit = results.count(max_val)
-                        max_stage_count_no_crit = results_no_crit.count(max(results_no_crit))
-                    
-                    # Calculate statistics for WITHOUT CRIT
-                    mean_no_crit = statistics.mean(results_no_crit)
-                    median_no_crit = statistics.median(results_no_crit)
-                    std_dev_no_crit = statistics.stdev(results_no_crit) if len(results_no_crit) > 1 else 0
-                    min_no_crit = min(results_no_crit)
-                    max_no_crit = max(results_no_crit)
-                    sorted_no_crit = sorted(results_no_crit)
-                    p5_no_crit = sorted_no_crit[int(len(results_no_crit) * 0.05)]
-                    p95_no_crit = sorted_no_crit[int(len(results_no_crit) * 0.95)]
-                    
-                    # Display results
-                    elapsed_time = time.time() - start_time
-                    simulated_hours = num_simulations
-                    
-                    results_text.insert(tk.END, f"╔═══════════════════════════════════════════════════════════╗\n")
-                    results_text.insert(tk.END, f"║  MONTE CARLO: CRIT vs NO-CRIT                             ║\n")
-                    results_text.insert(tk.END, f"╚═══════════════════════════════════════════════════════════╝\n\n")
-                    
-                    abbrev = {'strength': 'STR', 'agility': 'AGI', 'intellect': 'INT', 'perception': 'PER', 'luck': 'LUK'}
-                    results_text.insert(tk.END, f"TYPE: {sim_type.upper().replace('_', ' ')} | POINTS: {num_points}\n")
-                    results_text.insert(tk.END, f"WITH CRIT:    {self.format_distribution(planner_dist_with_crit)}\n")
-                    results_text.insert(tk.END, f"WITHOUT CRIT: {self.format_distribution(planner_dist_without_crit)}\n\n")
-                    
-                    # WITH CRIT results
-                    results_text.insert(tk.END, f"───────────────────────────────────────────────────────────\n")
-                    results_text.insert(tk.END, f"WITH CRIT ({self.format_distribution(planner_dist_with_crit)}):\n")
-                    
-                    if sim_type == "stage_rushing":
-                        results_text.insert(tk.END, f"  Mean: {mean_val:.2f} | Med: {median_val:.2f} | Range: [{min_val:.0f}, {max_val:.0f}]\n")
-                        results_text.insert(tk.END, f"  Max Stage {max_val:.0f}: {max_stage_count_crit}x ({max_stage_count_crit/len(results)*100:.1f}%) | StdDev: {std_dev:.2f}\n")
-                    elif sim_type == "xp_per_hour":
-                        results_text.insert(tk.END, f"  Mean: {mean_val:.1f} | Med: {median_val:.1f} | Range: [{min_val:.1f}, {max_val:.1f}]\n")
-                        results_text.insert(tk.END, f"  5-95%: [{p5:.1f}, {p95:.1f}] | StdDev: {std_dev:.2f}\n")
-                    else:
-                        results_text.insert(tk.END, f"  Mean: {mean_val:.2f} | Med: {median_val:.2f} | Range: [{min_val:.2f}, {max_val:.2f}]\n")
-                        results_text.insert(tk.END, f"  5-95%: [{p5:.2f}, {p95:.2f}] | StdDev: {std_dev:.2f}\n")
-                    
-                    # WITHOUT CRIT results
-                    results_text.insert(tk.END, f"───────────────────────────────────────────────────────────\n")
-                    results_text.insert(tk.END, f"WITHOUT CRIT ({self.format_distribution(planner_dist_without_crit)}):\n")
-                    
-                    if sim_type == "stage_rushing":
-                        results_text.insert(tk.END, f"  Mean: {mean_no_crit:.2f} | Med: {median_no_crit:.2f} | Range: [{min_no_crit:.0f}, {max_no_crit:.0f}]\n")
-                        results_text.insert(tk.END, f"  Max Stage {max_no_crit:.0f}: {max_stage_count_no_crit}x ({max_stage_count_no_crit/len(results_no_crit)*100:.1f}%) | StdDev: {std_dev_no_crit:.2f}\n")
-                    elif sim_type == "xp_per_hour":
-                        results_text.insert(tk.END, f"  Mean: {mean_no_crit:.1f} | Med: {median_no_crit:.1f} | Range: [{min_no_crit:.1f}, {max_no_crit:.1f}]\n")
-                        results_text.insert(tk.END, f"  5-95%: [{p5_no_crit:.1f}, {p95_no_crit:.1f}] | StdDev: {std_dev_no_crit:.2f}\n")
-                    else:
-                        results_text.insert(tk.END, f"  Mean: {mean_no_crit:.2f} | Med: {median_no_crit:.2f} | Range: [{min_no_crit:.2f}, {max_no_crit:.2f}]\n")
-                        results_text.insert(tk.END, f"  5-95%: [{p5_no_crit:.2f}, {p95_no_crit:.2f}] | StdDev: {std_dev_no_crit:.2f}\n")
-                    
-                    # Calculate difference first (needed for statistical test)
-                    diff = mean_val - mean_no_crit
-                    diff_pct = (diff / mean_no_crit * 100) if mean_no_crit > 0 else 0
-                    
-                    # Statistical test: t-test for independent samples
-                    from scipy import stats as scipy_stats
-                    try:
-                        # Perform t-test
-                        t_stat, p_value = scipy_stats.ttest_ind(results, results_no_crit)
-                        
-                        # Calculate effect size (Cohen's d)
-                        pooled_std = ((std_dev ** 2 + std_dev_no_crit ** 2) / 2) ** 0.5
-                        cohens_d = diff / pooled_std if pooled_std > 0 else 0
-                        
-                        # Interpretation
-                        if p_value < 0.001:
-                            significance = "*** HIGHLY SIGNIFICANT ***"
-                        elif p_value < 0.01:
-                            significance = "** VERY SIGNIFICANT **"
-                        elif p_value < 0.05:
-                            significance = "* SIGNIFICANT *"
-                        else:
-                            significance = "NOT SIGNIFICANT"
-                        
-                        if abs(cohens_d) < 0.2:
-                            effect_size = "negligible"
-                        elif abs(cohens_d) < 0.5:
-                            effect_size = "small"
-                        elif abs(cohens_d) < 0.8:
-                            effect_size = "medium"
-                        else:
-                            effect_size = "large"
-                    except ImportError:
-                        # Fallback if scipy not available - use simple t-test approximation
-                        pooled_std = ((std_dev ** 2 + std_dev_no_crit ** 2) / 2) ** 0.5
-                        n = len(results)
-                        se = pooled_std * (2 / n) ** 0.5  # Standard error
-                        if se > 0:
-                            t_stat = diff / se
-                            # Approximate p-value from t-statistic (two-tailed)
-                            # For large n (>30), t approximates normal distribution
-                            if abs(t_stat) > 3.29:
-                                p_value = 0.001
-                            elif abs(t_stat) > 2.58:
-                                p_value = 0.01
-                            elif abs(t_stat) > 1.96:
-                                p_value = 0.05
-                            else:
-                                p_value = 0.10
-                            
-                            cohens_d = diff / pooled_std if pooled_std > 0 else 0
-                            
-                            if p_value < 0.001:
-                                significance = "*** HIGHLY SIGNIFICANT ***"
-                            elif p_value < 0.01:
-                                significance = "** VERY SIGNIFICANT **"
-                            elif p_value < 0.05:
-                                significance = "* SIGNIFICANT *"
-                            else:
-                                significance = "NOT SIGNIFICANT"
-                            
-                            if abs(cohens_d) < 0.2:
-                                effect_size = "negligible"
-                            elif abs(cohens_d) < 0.5:
-                                effect_size = "small"
-                            elif abs(cohens_d) < 0.8:
-                                effect_size = "medium"
-                            else:
-                                effect_size = "large"
-                        else:
-                            t_stat = 0
-                            p_value = 1.0
-                            cohens_d = 0
-                            significance = "CANNOT COMPUTE"
-                            effect_size = "unknown"
-                    
-                    # Comparison (diff already calculated above)
-                    results_text.insert(tk.END, f"\n───────────────────────────────────────────────────────────\n")
-                    results_text.insert(tk.END, f"COMPARISON:\n")
-                    
-                    if sim_type == "stage_rushing":
-                        diff_str = f"{diff:+.2f} stages ({diff_pct:+.2f}%)"
-                    elif sim_type == "xp_per_hour":
-                        diff_str = f"{diff:+.1f} XP/h ({diff_pct:+.2f}%)"
-                    else:
-                        diff_str = f"{diff:+.2f} frags/h ({diff_pct:+.2f}%)"
-                    
-                    results_text.insert(tk.END, f"  Difference: {diff_str}\n")
-                    results_text.insert(tk.END, f"  t-test: t={t_stat:.3f}, p={p_value:.4f} → {significance}\n")
-                    results_text.insert(tk.END, f"  Effect: {effect_size} (d={cohens_d:.3f})\n")
-                    
-                    # Interpretation
-                    if p_value < 0.05:
-                        if diff > 0:
-                            results_text.insert(tk.END, f"\n>>> WITH CRIT IS STATISTICALLY BETTER <<<\n")
-                        elif diff < 0:
-                            results_text.insert(tk.END, f"\n>>> WITHOUT CRIT IS STATISTICALLY BETTER <<<\n")
-                    else:
-                        results_text.insert(tk.END, f"\n>>> NO STATISTICALLY SIGNIFICANT DIFFERENCE <<<\n")
-                    
-                    results_text.insert(tk.END, f"\nSimulated: {simulated_hours}h | Time: {elapsed_time:.1f}s\n")
-                    
-                    hours_label.config(text=f"SIMULATED: {simulated_hours} HOURS")
-                    status_label.config(text="COMPLETE")
-                    start_btn.config(state=tk.NORMAL)
-                    
-                except Exception as e:
-                    import traceback
-                    error_msg = f"ERROR:\n{str(e)}\n\n{traceback.format_exc()}"
-                    results_text.insert(tk.END, error_msg)
-                    status_label.config(text="ERROR")
-                    start_btn.config(state=tk.NORMAL)
-            
-            thread = threading.Thread(target=run_sim, daemon=True)
-            thread.start()
-        
-        start_btn = tk.Button(button_frame, text="START SIMULATION", 
-                             command=start_simulation,
-                             font=("Courier", 10, "bold"),
-                             bg="#000000", fg=matrix_green,
-                             activebackground="#001100", activeforeground=dark_green,
-                             relief=tk.RAISED, borderwidth=2,
-                             highlightbackground=matrix_green)
-        start_btn.pack(side=tk.LEFT, padx=5)
-        
-        close_btn = tk.Button(button_frame, text="CLOSE", 
-                             command=mc_window.destroy,
-                             font=("Courier", 10, "bold"),
-                             bg="#000000", fg=matrix_green,
-                             activebackground="#001100", activeforeground=dark_green,
-                             relief=tk.RAISED, borderwidth=2,
-                             highlightbackground=matrix_green)
-        close_btn.pack(side=tk.LEFT, padx=5)
-    
     def update_display(self):
         stats = self.get_total_stats()
         
@@ -5820,3 +5308,209 @@ class ArchaeologySimulatorWindow:
             # Note: This will trigger _on_unlocked_stage_changed which rebuilds upgrades
         
         self.update_display()
+    
+    def run_mc_stage_pusher(self):
+        """Run 1000 Monte Carlo simulations and show histogram with stage distribution
+        
+        Uses the recommended skill setup from Stage Pusher planner (without crit).
+        Shows histogram with skill distribution above it.
+        """
+        import threading
+        
+        def run_in_thread():
+            # Always start at Floor 1 (unbiased)
+            starting_floor = 1
+            
+            # Get planner points (shared across all planners)
+            num_points = self.shared_planner_points.get() if hasattr(self, 'shared_planner_points') else 20
+            
+            # Save original skill points and crit state
+            original_points = self.skill_points.copy()
+            original_crit_state = self.crit_calc_enabled.get() if hasattr(self, 'crit_calc_enabled') else False
+            
+            # Get planner distribution WITHOUT crit (crit disabled)
+            if hasattr(self, 'crit_calc_enabled'):
+                self.crit_calc_enabled.set(False)
+            forecast = self.calculate_forecast(num_points)
+            planner_dist = forecast['distribution']
+            
+            # Get skill points for display (current + planner distribution)
+            skill_points_display = {}
+            for skill in ['strength', 'agility', 'intellect', 'perception', 'luck']:
+                current = self.skill_points.get(skill, 0)
+                added = planner_dist.get(skill, 0)
+                skill_points_display[skill] = current + added
+            
+            # Apply planner distribution temporarily to get stats
+            for skill, points in planner_dist.items():
+                self.skill_points[skill] += points
+            
+            stats = self.get_total_stats()
+            
+            # Restore original skill points
+            self.skill_points = original_points
+            
+            # Restore crit state
+            if hasattr(self, 'crit_calc_enabled'):
+                self.crit_calc_enabled.set(original_crit_state)
+            
+            enrage_enabled = self.enrage_enabled.get() if hasattr(self, 'enrage_enabled') else True
+            flurry_enabled = self.flurry_enabled.get() if hasattr(self, 'flurry_enabled') else True
+            block_cards = self.block_cards if hasattr(self, 'block_cards') else None
+            
+            # Run 1000 simulations
+            from .monte_carlo_crit import MonteCarloCritSimulator
+            simulator = MonteCarloCritSimulator()
+            
+            stage_counts = {}  # stage -> count of simulations that reached this as max stage
+            
+            print(f"\nRunning 1000 MC simulations (Stage Pusher, no crit)...")
+            for i in range(1000):
+                if (i + 1) % 100 == 0:
+                    print(f"  Progress: {i + 1}/1000")
+                
+                # Run simulation with return_metrics to get max_stage_reached
+                result = simulator.simulate_run(
+                    stats, starting_floor, use_crit=False, 
+                    enrage_enabled=enrage_enabled, flurry_enabled=flurry_enabled,
+                    block_cards=block_cards, return_metrics=True
+                )
+                
+                max_stage = int(result['max_stage_reached'])
+                
+                # Count how many simulations reached each stage as their maximum
+                if max_stage not in stage_counts:
+                    stage_counts[max_stage] = 0
+                stage_counts[max_stage] += 1
+            
+            # Create window with histogram
+            self.window.after(0, lambda: self._show_stage_pusher_results(stage_counts, skill_points_display, num_points))
+        
+        # Run in separate thread to avoid blocking UI
+        thread = threading.Thread(target=run_in_thread, daemon=True)
+        thread.start()
+    
+    def _show_stage_pusher_results(self, stage_counts, skill_points_display, num_points):
+        """Show histogram window with stage distribution and skill setup"""
+        try:
+            import matplotlib
+            matplotlib.use('TkAgg')
+            from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+            from matplotlib.figure import Figure
+            import numpy as np
+            MATPLOTLIB_AVAILABLE = True
+        except ImportError:
+            MATPLOTLIB_AVAILABLE = False
+            tk.messagebox.showerror("Error", "Matplotlib is required for histogram display.")
+            return
+        
+        # Create window in normal GUI style (not Matrix)
+        result_window = tk.Toplevel(self.window)
+        result_window.title("MC Stage Pusher Results")
+        result_window.geometry("900x600")
+        result_window.transient(self.window)
+        
+        # Main container
+        main_frame = ttk.Frame(result_window, padding="10")
+        main_frame.pack(fill=tk.BOTH, expand=True)
+        main_frame.columnconfigure(0, weight=1)
+        main_frame.rowconfigure(2, weight=1)
+        
+        # Title
+        title_label = ttk.Label(main_frame, text="MC Stage Pusher Results (1000 simulations, no crit)", 
+                               font=("Arial", 12, "bold"))
+        title_label.grid(row=0, column=0, pady=(0, 10), sticky=tk.W)
+        
+        # Skill distribution display (above histogram)
+        skill_frame = ttk.LabelFrame(main_frame, text="Skill Distribution", padding="5")
+        skill_frame.grid(row=1, column=0, sticky=(tk.W, tk.E), pady=(0, 10))
+        
+        skill_text_parts = []
+        for skill in ['strength', 'agility', 'intellect', 'perception', 'luck']:
+            points = skill_points_display.get(skill, 0)
+            skill_short = skill[:3].upper()
+            skill_text_parts.append(f"{skill_short}: {points}")
+        
+        skill_label = ttk.Label(skill_frame, text=" | ".join(skill_text_parts), font=("Arial", 10))
+        skill_label.pack()
+        
+        # Histogram frame
+        hist_frame = ttk.LabelFrame(main_frame, text="Stage Distribution", padding="5")
+        hist_frame.grid(row=2, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        hist_frame.columnconfigure(0, weight=1)
+        hist_frame.rowconfigure(0, weight=1)
+        
+        # Create histogram
+        if stage_counts:
+            # Get all stages and create bins
+            all_stages = sorted(stage_counts.keys())
+            if not all_stages:
+                all_stages = [1]
+            
+            # Create bins (centered on integers)
+            bins = np.arange(min(all_stages) - 0.5, max(all_stages) + 1.5, 1)
+            
+            # Get counts for each stage
+            counts = []
+            bin_centers = []
+            for stage in range(int(min(all_stages)), int(max(all_stages)) + 1):
+                count = stage_counts.get(stage, 0)
+                counts.append(count)
+                bin_centers.append(stage)
+            
+            # Create figure with normal GUI style (light background, compact)
+            fig = Figure(figsize=(6, 3), facecolor='white')
+            ax = fig.add_subplot(111, facecolor='white')
+            
+            # Create bar chart (histogram-style)
+            bars = ax.bar(bin_centers, counts, width=0.8, 
+                         color='#4CAF50', edgecolor='#2E7D32', 
+                         linewidth=1.5, alpha=0.8)
+            
+            # Add labels on top of bars with count and percentage
+            total = sum(counts)
+            for bar, count in zip(bars, counts):
+                if count > 0:
+                    height = bar.get_height()
+                    pct = (count / total * 100) if total > 0 else 0
+                    # Position label above bar
+                    label_y = height + max(counts) * 0.02 if counts else 0
+                    ax.text(bar.get_x() + bar.get_width()/2., label_y,
+                           f'{count}\n({pct:.1f}%)',
+                           ha='center', va='bottom', color='#2E7D32',
+                           fontsize=9, fontweight='bold')
+            
+            ax.set_xlabel('Stage Reached', fontsize=11, fontweight='bold')
+            ax.set_ylabel('Count', fontsize=11, fontweight='bold')
+            ax.set_title('Stage Distribution (1000 simulations)', fontsize=12, 
+                        fontweight='bold', pad=15)
+            
+            # Normal GUI style colors
+            ax.tick_params(colors='black', labelsize=9)
+            for spine in ax.spines.values():
+                spine.set_color('#CCCCCC')
+            ax.grid(True, color='#E0E0E0', alpha=0.5, linestyle='--', linewidth=0.5)
+            ax.set_xticks(bin_centers)
+            ax.set_xticklabels([f'{int(x)}' for x in bin_centers])
+            
+            # Set y-axis to start at 0
+            ax.set_ylim(bottom=0)
+            
+            # Layout
+            fig.tight_layout()
+            
+            # Create canvas
+            canvas = FigureCanvasTkAgg(fig, hist_frame)
+            canvas.draw()
+            canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+        else:
+            # No data
+            ttk.Label(hist_frame, text="No simulation data available", 
+                     foreground="gray").pack(pady=20)
+        
+        # Close button
+        button_frame = ttk.Frame(main_frame)
+        button_frame.grid(row=3, column=0, pady=(10, 0))
+        
+        close_btn = ttk.Button(button_frame, text="Close", command=result_window.destroy)
+        close_btn.pack()

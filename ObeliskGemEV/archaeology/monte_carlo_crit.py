@@ -45,7 +45,9 @@ class MonteCarloCritSimulator:
     FLURRY_COOLDOWN = 120
     FLURRY_STAMINA_BONUS = 5
     MOD_STAMINA_BONUS_AVG = 6.5
-    BLOCKS_PER_FLOOR = 15
+    # Blocks per floor varies 8–15 in-game; use random per floor for MC variance
+    BLOCKS_PER_FLOOR_MIN = 8
+    BLOCKS_PER_FLOOR_MAX = 15
     
     def __init__(self, seed: Optional[int] = None):
         """Initialize simulator with optional random seed"""
@@ -100,7 +102,7 @@ class MonteCarloCritSimulator:
     
     def simulate_block_kill(self, stats: Dict, block_hp: int, block_armor: int,
                            block_type: Optional[str] = None, use_crit: bool = True,
-                           enrage_state: Optional[Dict] = None) -> Tuple[int, Dict]:
+                           enrage_state: Optional[Dict] = None, block_cards: Optional[Dict] = None) -> Tuple[int, Dict]:
         """
         Simulate killing a single block, returning the number of hits needed and updated enrage state.
         
@@ -108,12 +110,18 @@ class MonteCarloCritSimulator:
         
         Args:
             enrage_state: Dict with 'charges_remaining' and 'cooldown' keys, or None if not tracking
+            block_cards: Dict mapping block_type to card level (0=none, 1=card, 2=gilded)
         
         Returns:
             (hits_needed, updated_enrage_state)
         """
-        # Apply card HP reduction if needed (placeholder - would need card data)
-        # block_hp = self.get_block_hp_with_card(block_hp, block_type)
+        # Apply card HP reduction if needed
+        if block_cards and block_type:
+            card_level = block_cards.get(block_type, 0)
+            if card_level == 1:
+                block_hp = int(block_hp * 0.90)  # Card: -10% HP
+            elif card_level == 2:
+                block_hp = int(block_hp * 0.80)  # Gilded: -20% HP
         
         if enrage_state is None:
             enrage_state = {'charges_remaining': 0, 'cooldown': 0}
@@ -146,16 +154,26 @@ class MonteCarloCritSimulator:
     
     def simulate_run(self, stats: Dict, starting_floor: int, 
                     use_crit: bool = True, enrage_enabled: bool = False,
-                    flurry_enabled: bool = False) -> float:
+                    flurry_enabled: bool = False, block_cards: Optional[Dict] = None,
+                    debug: bool = False, return_metrics: bool = False) -> float:
         """
         Simulate a complete run, returning floors cleared.
         
         Uses actual random crits/one-hits and mods rather than expected values.
+        
+        Args:
+            debug: If True, print detailed debug information for each floor
+            return_metrics: If True, return dict with metrics instead of just floors_cleared
+        
+        Returns:
+            float: Number of floors cleared (0.0 if no floors cleared, 1.0+ if floors cleared)
+            OR dict with metrics if return_metrics=True
         """
         max_stamina = stats['max_stamina']
         stamina_remaining = max_stamina
         floors_cleared = 0
         current_floor = starting_floor
+        max_stage_reached = starting_floor  # Track the maximum stage reached during the run
         
         # Stamina mod tracking
         stamina_mod_chance = stats.get('stamina_mod_chance', 0)
@@ -171,14 +189,42 @@ class MonteCarloCritSimulator:
         # Enrage tracking (shared across all blocks in the run)
         enrage_state = {'charges_remaining': 0, 'cooldown': 0} if enrage_enabled else None
         
-        for _ in range(1000):  # Max floors safety
+        if debug:
+            # Extract key stats for display
+            total_damage = stats.get('total_damage', 0)
+            armor_pen = stats.get('armor_pen', 0)
+            crit_chance = stats.get('crit_chance', 0) * 100
+            crit_damage = stats.get('crit_damage', 1.5)
+            skill_points = stats.get('skill_points', {})
+            
+            print("\n" + "=" * 100)
+            print(f"MONTE CARLO RUN DEBUG")
+            print("=" * 100)
+            print(f"Starting Floor: {starting_floor} | Max Stamina: {max_stamina:.1f}")
+            print(f"Damage: {total_damage} | Armor Pen: {armor_pen} | Crit: {crit_chance:.1f}% ({crit_damage:.2f}x)")
+            if skill_points:
+                skill_str = ", ".join([f"{k.upper()[:3]}:{v}" for k, v in skill_points.items() if v > 0])
+                if skill_str:
+                    print(f"Skills: {skill_str}")
+            print("=" * 100)
+            print(f"{'Floor':<8} {'Stam Start':<12} {'Blocks':<8} {'Block Types':<30} {'Stam Used':<12} {'Stam Mod':<10} {'Stam End':<12} {'Cleared':<8}")
+            print("-" * 100)
+        
+        for floor_iter in range(1000):  # Max floors safety
             spawn_rates = get_normalized_spawn_rates(current_floor)
             block_mix = get_block_mix_for_floor(current_floor)
             
-            # Simulate each block on this floor
-            # Spawn blocks randomly based on spawn rates
+            # Blocks per floor varies 8–15 in-game; random per floor for variance
+            num_blocks_this_floor = random.randint(
+                self.BLOCKS_PER_FLOOR_MIN, self.BLOCKS_PER_FLOOR_MAX
+            )
             stamina_for_floor = 0
-            for _ in range(self.BLOCKS_PER_FLOOR):
+            blocks_killed = 0
+            stamina_before_floor = stamina_remaining
+            stamina_mods_this_floor = 0
+            block_types_spawned = {}  # Track block types spawned this floor
+            
+            for _ in range(num_blocks_this_floor):
                 # Randomly select block type based on spawn rates
                 rand = random.random()
                 cumulative = 0.0
@@ -192,35 +238,73 @@ class MonteCarloCritSimulator:
                 if selected_type:
                     block_data = block_mix.get(selected_type)
                     if block_data:
-                        # Simulate killing this block (pass enrage state)
+                        # Track block type
+                        if selected_type not in block_types_spawned:
+                            block_types_spawned[selected_type] = 0
+                        block_types_spawned[selected_type] += 1
+                        
+                        # Simulate killing this block (pass enrage state and cards)
                         hits, enrage_state = self.simulate_block_kill(
                             stats, block_data.health, block_data.armor, 
-                            selected_type, use_crit, enrage_state
+                            selected_type, use_crit, enrage_state, block_cards
                         )
                         stamina_for_floor += hits
+                        blocks_killed += 1
                         
-                        # Check for stamina mod
+                        # Check for stamina mod (adds stamina immediately during the floor)
                         if random.random() < stamina_mod_chance:
                             stamina_gain = random.uniform(3, 10)  # Actual range
                             stamina_remaining = min(max_stamina, stamina_remaining + stamina_gain)
+                            stamina_mods_this_floor += stamina_gain
             
             # Check flurry (approximate: 1 hit = 1 second)
+            flurry_triggered = False
             if flurry_enabled:
                 flurry_cooldown -= stamina_for_floor
                 if flurry_cooldown <= 0:
                     stamina_remaining = min(max_stamina, stamina_remaining + flurry_stamina_bonus)
                     flurry_cooldown = self.FLURRY_COOLDOWN
+                    flurry_triggered = True
+                    stamina_mods_this_floor += flurry_stamina_bonus
+            
+            # Format block types for display
+            block_types_str = ", ".join([f"{bt}:{count}" for bt, count in sorted(block_types_spawned.items())])
+            if len(block_types_str) > 28:
+                block_types_str = block_types_str[:25] + "..."
             
             # Check if we can clear this floor
+            stamina_after_floor = stamina_remaining - stamina_for_floor if stamina_remaining >= stamina_for_floor else stamina_remaining
+            cleared = stamina_remaining >= stamina_for_floor
+            
+            if debug:
+                flurry_str = f"+{flurry_stamina_bonus}" if flurry_triggered else ""
+                mod_str = f"+{stamina_mods_this_floor:.1f}" if stamina_mods_this_floor > 0 else ""
+                print(f"{current_floor:<8} {stamina_before_floor:<12.1f} {num_blocks_this_floor:<8} {block_types_str:<30} "
+                      f"{stamina_for_floor:<12.1f} {mod_str:<10} {stamina_after_floor:<12.1f} {'✓' if cleared else '✗':<8}")
+            
             if stamina_remaining >= stamina_for_floor:
                 stamina_remaining -= stamina_for_floor
                 floors_cleared += 1
                 current_floor += 1
+                max_stage_reached = current_floor  # Update max stage when we clear a floor
             else:
-                # Partial floor
+                # Partial floor - we didn't fully clear this floor, so we stay at current_floor
+                # max_stage_reached remains at the last fully cleared floor
                 if stamina_for_floor > 0:
                     floors_cleared += stamina_remaining / stamina_for_floor
                 break
+        
+        if debug:
+            print("-" * 100)
+            print(f"Run completed: {floors_cleared:.2f} floors cleared (started at {starting_floor}, reached {max_stage_reached})")
+            print("=" * 100 + "\n")
+        
+        if return_metrics:
+            return {
+                'floors_cleared': floors_cleared,
+                'max_stage_reached': max_stage_reached,
+                'starting_floor': starting_floor,
+            }
         
         return floors_cleared
     
@@ -362,6 +446,42 @@ def run_crit_analysis(stats: Dict, starting_floor: int,
     return stats_with_crit, stats_without_crit
 
 
+def debug_single_run(stats: Dict, starting_floor: int,
+                     use_crit: bool = True,
+                     enrage_enabled: bool = False,
+                     flurry_enabled: bool = False,
+                     block_cards: Optional[Dict] = None,
+                     skill_points: Optional[Dict] = None,
+                     seed: Optional[int] = None):
+    """
+    Run a single Monte Carlo simulation with detailed debug output.
+    
+    Shows stamina development per floor and which blocks spawned.
+    
+    Args:
+        stats: Character stats dictionary (from simulator)
+        starting_floor: Starting floor for simulation
+        use_crit: Whether to use crit calculations
+        enrage_enabled: Whether Enrage ability is enabled
+        flurry_enabled: Whether Flurry ability is enabled
+        block_cards: Dict mapping block_type to card level (0=none, 1=card, 2=gilded)
+        skill_points: Dict with skill point distribution (for display)
+        seed: Random seed for reproducibility
+    """
+    # Add skill_points to stats dict for debug display
+    if skill_points:
+        stats_with_skills = stats.copy()
+        stats_with_skills['skill_points'] = skill_points
+    else:
+        stats_with_skills = stats
+    
+    simulator = MonteCarloCritSimulator(seed=seed)
+    floors_cleared = simulator.simulate_run(
+        stats_with_skills, starting_floor, use_crit, enrage_enabled, flurry_enabled, block_cards, debug=True
+    )
+    return floors_cleared
+
+
 if __name__ == "__main__":
     # Example usage
     example_stats = {
@@ -374,6 +494,10 @@ if __name__ == "__main__":
         'stamina_mod_chance': 0.05,  # 5%
         'stamina_mod_gain': 6.5,
     }
+    
+    # Uncomment to run debug single run:
+    # print("Debug Single Run Example")
+    # debug_single_run(example_stats, starting_floor=1, use_crit=True, enrage_enabled=False, flurry_enabled=False)
     
     print("Example Monte Carlo Crit Analysis")
     print("=" * 80)
