@@ -59,6 +59,13 @@ from archaeology import ArchaeologySimulatorWindow
 from lootbug import LootbugWindow
 from event import EventSimulatorWindow
 from stargazing import StargazingWindow
+try:
+    from stargazing2_0 import Stargazing2Window
+    STARGAZING2_AVAILABLE = True
+except ImportError as e:
+    print(f"Warning: Could not import Stargazing2Window: {e}")
+    Stargazing2Window = None
+    STARGAZING2_AVAILABLE = False
 from ui_utils import create_tooltip as _create_tooltip, calculate_tooltip_position
 
 # Import version/config info
@@ -75,8 +82,9 @@ class MainMenuWindow:
     def __init__(self, root):
         self.root = root
         self.root.title("ObeliskGemEV - Select Module")
-        self.root.geometry("600x500")
-        self.root.resizable(False, False)
+        self.root.geometry("600x650")
+        self.root.resizable(True, True)
+        self.root.minsize(600, 500)
         
         # Center window on screen
         self.root.update_idletasks()
@@ -97,8 +105,33 @@ class MainMenuWindow:
         except:
             pass
         
-        # Main container
-        main_frame = ttk.Frame(self.root, padding="20")
+        # Main container with scrollbar
+        main_container = ttk.Frame(self.root)
+        main_container.pack(fill=tk.BOTH, expand=True)
+        
+        # Canvas for scrolling
+        canvas = tk.Canvas(main_container, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(main_container, orient="vertical", command=canvas.yview)
+        scrollable_frame = ttk.Frame(canvas)
+        
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # Mousewheel scrolling
+        def on_mousewheel(event):
+            canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+        canvas.bind_all("<MouseWheel>", on_mousewheel)
+        
+        # Main frame inside scrollable frame
+        main_frame = ttk.Frame(scrollable_frame, padding="20")
         main_frame.pack(fill=tk.BOTH, expand=True)
         
         # Title
@@ -114,59 +147,47 @@ class MainMenuWindow:
             text="Select a module to open:",
             font=("Arial", 12)
         )
-        subtitle_label.pack(pady=(0, 30))
+        subtitle_label.pack(pady=(0, 20))
         
-        # Buttons frame
+        # Buttons frame with grid layout (2 columns)
         buttons_frame = ttk.Frame(main_frame)
-        buttons_frame.pack(fill=tk.BOTH, expand=True)
+        buttons_frame.pack(fill=tk.BOTH, expand=True, padx=20)
+        buttons_frame.columnconfigure(0, weight=1, uniform="button")
+        buttons_frame.columnconfigure(1, weight=1, uniform="button")
         
         # Load icons for buttons
         self._load_menu_icons()
         
-        # Gem EV Button
-        gem_ev_button = self._create_icon_button(
-            buttons_frame,
-            icon=self.menu_icons.get('gem'),
-            text="Gem EV Calculator",
-            command=self.open_gem_ev
-        )
-        gem_ev_button.pack(pady=10)
+        # Define buttons in order
+        buttons = [
+            ('gem', 'Gem EV Calculator', self.open_gem_ev),
+            ('archaeology', 'Archaeology Simulator', self.open_archaeology),
+            ('event', 'Event Simulator', self.open_event),
+            ('stargazing', 'Stargazing Optimizer', self.open_stargazing),
+        ]
         
-        # Archaeology Button
-        arch_button = self._create_icon_button(
-            buttons_frame,
-            icon=self.menu_icons.get('archaeology'),
-            text="Archaeology Simulator",
-            command=self.open_archaeology
-        )
-        arch_button.pack(pady=10)
+        # Add Stargazing 2.0 if available
+        if STARGAZING2_AVAILABLE:
+            buttons.append(('stargazing', 'Stargazing 2.0 Calculator', self.open_stargazing2))
         
-        # Event Button
-        event_button = self._create_icon_button(
-            buttons_frame,
-            icon=self.menu_icons.get('event'),
-            text="Event Simulator",
-            command=self.open_event
-        )
-        event_button.pack(pady=10)
+        buttons.append(('lootbug', 'Option Analyzer', self.open_lootbug))
         
-        # Stargazing Button
-        stargazing_button = self._create_icon_button(
-            buttons_frame,
-            icon=self.menu_icons.get('stargazing'),
-            text="Stargazing Optimizer",
-            command=self.open_stargazing
-        )
-        stargazing_button.pack(pady=10)
-        
-        # Lootbug Button
-        lootbug_button = self._create_icon_button(
-            buttons_frame,
-            icon=self.menu_icons.get('lootbug'),
-            text="Option Analyzer",
-            command=self.open_lootbug
-        )
-        lootbug_button.pack(pady=10)
+        # Create buttons in grid (2 columns)
+        row = 0
+        col = 0
+        for icon_key, text, command in buttons:
+            button = self._create_icon_button(
+                buttons_frame,
+                icon=self.menu_icons.get(icon_key),
+                text=text,
+                command=command
+            )
+            button.grid(row=row, column=col, padx=10, pady=10, sticky="nsew")
+            
+            col += 1
+            if col >= 2:
+                col = 0
+                row += 1
         
         # Store reference to prevent garbage collection
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -195,17 +216,19 @@ class MainMenuWindow:
                 self.menu_icons[key] = None
     
     def _create_icon_button(self, parent, icon, text, command):
-        """Create a button with icon and text"""
-        # Create a frame for the button content with nice styling
+        """Create a button with icon and text in tile format"""
+        # Create a frame for the button content with nice styling (tile format)
         button_frame = tk.Frame(
             parent,
             relief=tk.RAISED,
             borderwidth=2,
             bg="#E3F2FD",
             highlightbackground="#1976D2",
-            highlightthickness=1
+            highlightthickness=1,
+            width=250,
+            height=120
         )
-        button_frame.pack(fill=tk.X, padx=30, pady=8)
+        button_frame.pack_propagate(False)  # Keep fixed size
         
         def on_enter(e):
             button_frame.config(bg="#BBDEFB", relief=tk.SUNKEN)
@@ -230,15 +253,16 @@ class MainMenuWindow:
         button_frame.bind("<Leave>", on_leave)
         button_frame.config(cursor="hand2")
         
-        # Icon and text container
-        content_frame = tk.Frame(button_frame, padx=20, pady=12, bg="#E3F2FD")
-        content_frame.pack(fill=tk.X)
+        # Icon and text container (centered for tile format)
+        content_frame = tk.Frame(button_frame, bg="#E3F2FD")
+        content_frame.pack(fill=tk.BOTH, expand=True)
+        content_frame.place(relx=0.5, rely=0.5, anchor=tk.CENTER)
         content_frame.bind("<Button-1>", on_click)
         content_frame.bind("<Enter>", on_enter)
         content_frame.bind("<Leave>", on_leave)
         content_frame.config(cursor="hand2")
         
-        # Icon
+        # Icon (centered above text)
         if icon:
             icon_label = tk.Label(
                 content_frame,
@@ -246,7 +270,7 @@ class MainMenuWindow:
                 cursor="hand2",
                 bg="#E3F2FD"
             )
-            icon_label.pack(side=tk.LEFT, padx=(0, 15))
+            icon_label.pack(pady=(0, 8))
             icon_label.bind("<Button-1>", on_click)
             icon_label.bind("<Enter>", on_enter)
             icon_label.bind("<Leave>", on_leave)
@@ -263,26 +287,28 @@ class MainMenuWindow:
             emoji_label = tk.Label(
                 content_frame,
                 text=emoji,
-                font=("Arial", 18),
+                font=("Arial", 24),
                 cursor="hand2",
                 bg="#E3F2FD"
             )
-            emoji_label.pack(side=tk.LEFT, padx=(0, 15))
+            emoji_label.pack(pady=(0, 8))
             emoji_label.bind("<Button-1>", on_click)
             emoji_label.bind("<Enter>", on_enter)
             emoji_label.bind("<Leave>", on_leave)
         
-        # Text
+        # Text (centered below icon)
         text_label = tk.Label(
             content_frame,
             text=text,
-            font=("Arial", 12, "bold"),
+            font=("Arial", 10, "bold"),
             cursor="hand2",
-            anchor="w",
+            anchor="center",
             bg="#E3F2FD",
-            fg="#1976D2"
+            fg="#1976D2",
+            wraplength=200,
+            justify=tk.CENTER
         )
-        text_label.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        text_label.pack()
         text_label.bind("<Button-1>", on_click)
         text_label.bind("<Enter>", on_enter)
         text_label.bind("<Leave>", on_leave)
@@ -402,7 +428,23 @@ class MainMenuWindow:
     
     def open_stargazing(self):
         """Open Stargazing Optimizer - opens in new window, closes menu"""
-        self._open_toplevel_module(StargazingWindow)
+        # Force reload of stargazing module to ensure latest version
+        import importlib
+        import stargazing
+        importlib.reload(stargazing)
+        from stargazing import StargazingWindow as ReloadedStargazingWindow
+        self._open_toplevel_module(ReloadedStargazingWindow)
+    
+    def open_stargazing2(self):
+        """Open Stargazing 2.0 Calculator - opens in new window, closes menu"""
+        if not STARGAZING2_AVAILABLE or Stargazing2Window is None:
+            messagebox.showerror(
+                "Error",
+                "Stargazing 2.0 Calculator is not available.\n"
+                "Please check that the module is properly installed."
+            )
+            return
+        self._open_toplevel_module(Stargazing2Window)
     
     def open_lootbug(self):
         """Open Option Analyzer - opens in new window, closes menu"""
@@ -1119,12 +1161,34 @@ class ObeliskGemEVGUI:
     def open_stargazing(self):
         """Opens the Stargazing Optimizer window"""
         try:
+            # Force reload of stargazing module to ensure latest version
+            import importlib
+            import stargazing
+            importlib.reload(stargazing)
+            from stargazing import StargazingWindow as ReloadedStargazingWindow
             # Open the Stargazing window
-            StargazingWindow(self.root)
+            ReloadedStargazingWindow(self.root)
         except Exception as e:
             messagebox.showerror(
                 "Error",
                 f"Error opening Stargazing Optimizer:\n{str(e)}"
+            )
+    
+    def open_stargazing2(self):
+        """Opens the Stargazing 2.0 Calculator window"""
+        if not STARGAZING2_AVAILABLE or Stargazing2Window is None:
+            messagebox.showerror(
+                "Error",
+                "Stargazing 2.0 Calculator is not available.\n"
+                "Please check that the module is properly installed."
+            )
+            return
+        try:
+            Stargazing2Window(self.root)
+        except Exception as e:
+            messagebox.showerror(
+                "Error",
+                f"Error opening Stargazing 2.0 Calculator:\n{str(e)}"
             )
 
     def open_option_analyzer(self):

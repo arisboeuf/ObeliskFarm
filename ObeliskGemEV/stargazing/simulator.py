@@ -51,6 +51,9 @@ COLOR_RESULTS = "#FFF3E0"    # Light Orange for Results
 class StargazingWindow:
     """Window for Stargazing optimization and tracking"""
     
+    # Version marker to force reload
+    _version = "2.0"
+    
     def __init__(self, parent):
         self.parent = parent
         
@@ -232,6 +235,50 @@ class StargazingWindow:
     
     def save_state(self):
         """Save current state to file"""
+        # Update manual_stats from current UI values before saving
+        if hasattr(self, 'stat_vars'):
+            for key, var in self.stat_vars.items():
+                val = var.get().strip()
+                if val:
+                    try:
+                        self.manual_stats[key] = float(val)
+                    except ValueError:
+                        pass  # Keep old value if invalid
+        
+        # Update floor/time values from UI
+        if hasattr(self, 'floors_var'):
+            try:
+                floors_str = self.floors_var.get().strip()
+                if floors_str:
+                    self.floors_cleared = int(float(floors_str))
+            except ValueError:
+                pass
+        
+        if hasattr(self, 'time_h_var'):
+            try:
+                h_str = self.time_h_var.get().strip()
+                self.time_hours = int(h_str) if h_str and h_str.isdigit() else self.time_hours
+            except ValueError:
+                pass
+        
+        if hasattr(self, 'time_m_var'):
+            try:
+                m_str = self.time_m_var.get().strip()
+                self.time_minutes = int(m_str) if m_str and m_str.isdigit() else self.time_minutes
+            except ValueError:
+                pass
+        
+        if hasattr(self, 'time_s_var'):
+            try:
+                s_str = self.time_s_var.get().strip()
+                self.time_seconds = int(s_str) if s_str and s_str.isdigit() else self.time_seconds
+            except ValueError:
+                pass
+        
+        # Update CTRL+F Stars from checkbox
+        if hasattr(self, 'ctrl_f_stars_var'):
+            self.ctrl_f_stars_enabled = self.ctrl_f_stars_var.get()
+        
         state = {
             'manual_stats': self.manual_stats,
             'floors_cleared': self.floors_cleared,
@@ -296,6 +343,9 @@ class StargazingWindow:
             
             # Update UI
             self.update_ui_from_state()
+            
+            # Trigger calculation after loading state
+            self.window.after(100, self.update_calculations)
             
         except Exception as e:
             print(f"Warning: Could not load state: {e}")
@@ -373,16 +423,12 @@ class StargazingWindow:
         content_frame.pack(fill=tk.BOTH, expand=True)
         content_frame.columnconfigure(0, weight=1)
         content_frame.columnconfigure(1, weight=1)
-        # content_frame.columnconfigure(2, weight=1)  # Temporarily disabled - middle panel
         content_frame.rowconfigure(0, weight=1)
         
         # Left: Manual Stats Input
         self.create_stats_section(content_frame)
         
-        # Middle: Upgrades & Stars (TEMPORARILY HIDDEN - math implementation needs verification)
-        # self.create_upgrades_section(content_frame)
-        
-        # Right: Results (moved to column 1 since middle is hidden)
+        # Right: Results
         self.create_results_section(content_frame)
     
     def create_stats_section(self, parent):
@@ -486,7 +532,10 @@ class StargazingWindow:
             entry = ttk.Entry(stats_frame, textvariable=var, width=8, font=("Arial", 10))
             entry.grid(row=row, column=2, sticky=tk.W, padx=2)
             # Live calculation on any change
-            var.trace_add('write', lambda *args: self._schedule_update())
+            var.trace_add('write', self._schedule_update)
+            # Also bind key events as backup
+            entry.bind('<KeyRelease>', self._schedule_update)
+            entry.bind('<FocusOut>', self._schedule_update)
             self.stat_entries[key] = entry
             
             # Suffix
@@ -518,7 +567,9 @@ class StargazingWindow:
         floors_entry = ttk.Entry(stats_frame, textvariable=self.floors_var, width=8, font=("Arial", 10))
         floors_entry.grid(row=row, column=2, sticky=tk.W, padx=2)
         # Live calculation on any change
-        self.floors_var.trace_add('write', lambda *args: self._schedule_update())
+        self.floors_var.trace_add('write', self._schedule_update)
+        floors_entry.bind('<KeyRelease>', self._schedule_update)
+        floors_entry.bind('<FocusOut>', self._schedule_update)
         row += 1
         
         # Time input (h m s)
@@ -532,21 +583,27 @@ class StargazingWindow:
         self.time_h_var = tk.StringVar(value=str(self.time_hours))
         h_entry = ttk.Entry(time_entry_frame, textvariable=self.time_h_var, width=3, font=("Arial", 10))
         h_entry.pack(side=tk.LEFT)
-        self.time_h_var.trace_add('write', lambda *args: self._schedule_update())
+        self.time_h_var.trace_add('write', self._schedule_update)
+        h_entry.bind('<KeyRelease>', self._schedule_update)
+        h_entry.bind('<FocusOut>', self._schedule_update)
         tk.Label(time_entry_frame, text="h", background=COLOR_STATS, font=("Arial", 9)).pack(side=tk.LEFT, padx=(1, 5))
         
         # Minutes
         self.time_m_var = tk.StringVar(value=str(self.time_minutes))
         m_entry = ttk.Entry(time_entry_frame, textvariable=self.time_m_var, width=3, font=("Arial", 10))
         m_entry.pack(side=tk.LEFT)
-        self.time_m_var.trace_add('write', lambda *args: self._schedule_update())
+        self.time_m_var.trace_add('write', self._schedule_update)
+        m_entry.bind('<KeyRelease>', self._schedule_update)
+        m_entry.bind('<FocusOut>', self._schedule_update)
         tk.Label(time_entry_frame, text="m", background=COLOR_STATS, font=("Arial", 9)).pack(side=tk.LEFT, padx=(1, 5))
         
         # Seconds
         self.time_s_var = tk.StringVar(value=str(self.time_seconds))
         s_entry = ttk.Entry(time_entry_frame, textvariable=self.time_s_var, width=3, font=("Arial", 10))
         s_entry.pack(side=tk.LEFT)
-        self.time_s_var.trace_add('write', lambda *args: self._schedule_update())
+        self.time_s_var.trace_add('write', self._schedule_update)
+        s_entry.bind('<KeyRelease>', self._schedule_update)
+        s_entry.bind('<FocusOut>', self._schedule_update)
         tk.Label(time_entry_frame, text="s", background=COLOR_STATS, font=("Arial", 9)).pack(side=tk.LEFT, padx=(1, 0))
         row += 1
         
@@ -790,7 +847,7 @@ class StargazingWindow:
         """Create the results display section"""
         
         container = tk.Frame(parent, background=COLOR_RESULTS, relief=tk.RIDGE, borderwidth=2)
-        container.grid(row=0, column=1, sticky="nsew", padx=(3, 0), pady=0)  # Changed from column=2 to column=1 (middle panel hidden)
+        container.grid(row=0, column=1, sticky="nsew", padx=(3, 0), pady=0)
         
         # Header
         header = tk.Frame(container, background=COLOR_RESULTS)
@@ -928,158 +985,188 @@ class StargazingWindow:
         self.stars_owned[key] = self.star_owned_vars[key].get()
         self.update_calculations()
     
-    def _schedule_update(self):
+    def _schedule_update(self, *args):
         """Schedule an update with debouncing to avoid excessive recalculations"""
-        # Cancel any pending update
-        if hasattr(self, '_update_pending') and self._update_pending:
-            self.window.after_cancel(self._update_pending)
+        # Initialize if not exists
+        if not hasattr(self, '_update_pending'):
+            self._update_pending = None
         
-        # Schedule new update after 50ms delay (debounce)
-        self._update_pending = self.window.after(50, self._do_live_update)
+        # Cancel any pending update
+        if self._update_pending is not None:
+            try:
+                self.window.after_cancel(self._update_pending)
+            except:
+                pass
+        
+        # Schedule new update after 200ms delay (debounce)
+        self._update_pending = self.window.after(200, self._do_live_update)
     
     def _do_live_update(self):
         """Perform the actual live update"""
         self._update_pending = None
+        self.update_calculations()
         
-        # Update stats from all inputs
-        try:
-            for key, var in self.stat_vars.items():
-                val = var.get().strip()
-                if val:
-                    self.manual_stats[key] = float(val)
-        except (ValueError, AttributeError):
-            pass
-        
-        # Update floor/time values
-        try:
-            floors_str = self.floors_var.get().strip()
-            if floors_str:
-                self.floors_cleared = int(float(floors_str))
-            
-            h_str = self.time_h_var.get().strip()
-            self.time_hours = int(h_str) if h_str else 0
-            
-            m_str = self.time_m_var.get().strip()
-            self.time_minutes = int(m_str) if m_str else 0
-            
-            s_str = self.time_s_var.get().strip()
-            self.time_seconds = int(s_str) if s_str else 0
-            
-            # Calculate floors per hour
-            self._calculate_floors_per_hour()
-            
-            # Update display
-            if hasattr(self, 'floors_per_hour_label'):
+        # Update floors/hour display
+        if hasattr(self, 'floors_per_hour_label'):
+            try:
                 self.floors_per_hour_label.config(text=f"{self.floor_clears_per_hour:.2f}")
-        except (ValueError, AttributeError):
-            pass
-        
-        self.update_calculations()
-    
-    def on_stat_changed(self):
-        """Handle manual stat changes"""
-        try:
-            for key, var in self.stat_vars.items():
-                val = var.get().strip()
-                if val:
-                    self.manual_stats[key] = float(val)
-        except:
-            pass
-        
-        self.update_calculations()
+            except:
+                pass
     
     def on_ctrl_f_changed(self):
         """Handle CTRL+F Stars checkbox change"""
-        self.ctrl_f_stars_enabled = self.ctrl_f_stars_var.get()
-        self.update_calculations()
-    
-    def on_floor_time_changed(self):
-        """Handle floor/time input changes"""
-        try:
-            floors_str = self.floors_var.get().strip()
-            if floors_str:
-                self.floors_cleared = int(float(floors_str))
-            
-            h_str = self.time_h_var.get().strip()
-            self.time_hours = int(h_str) if h_str else 0
-            
-            m_str = self.time_m_var.get().strip()
-            self.time_minutes = int(m_str) if m_str else 0
-            
-            s_str = self.time_s_var.get().strip()
-            self.time_seconds = int(s_str) if s_str else 0
-            
-            # Calculate floors per hour
-            self._calculate_floors_per_hour()
-            
-            # Update display
-            self.floors_per_hour_label.config(text=f"{self.floor_clears_per_hour:.2f}")
-        except:
-            pass
-        
+        if hasattr(self, 'ctrl_f_stars_var'):
+            self.ctrl_f_stars_enabled = self.ctrl_f_stars_var.get()
         self.update_calculations()
     
     def update_calculations(self):
         """Recalculate and update display"""
+        # Check if result labels exist
+        if not hasattr(self, 'result_labels'):
+            return
+        
+        # Read all values directly from UI entries
+        manual_stats = {}
+        if hasattr(self, 'stat_vars'):
+            for key, var in self.stat_vars.items():
+                try:
+                    val = var.get().strip()
+                    if val:
+                        manual_stats[key] = float(val)
+                    else:
+                        manual_stats[key] = self.manual_stats.get(key, 0)
+                except (ValueError, AttributeError):
+                    manual_stats[key] = self.manual_stats.get(key, 0)
+        
+        # Update floor/time values from UI
+        if hasattr(self, 'floors_var'):
+            try:
+                floors_str = self.floors_var.get().strip()
+                if floors_str:
+                    self.floors_cleared = int(float(floors_str))
+            except (ValueError, AttributeError):
+                pass
+        
+        if hasattr(self, 'time_h_var'):
+            try:
+                h_str = self.time_h_var.get().strip()
+                if h_str and h_str.isdigit():
+                    self.time_hours = int(h_str)
+            except (ValueError, AttributeError):
+                pass
+        
+        if hasattr(self, 'time_m_var'):
+            try:
+                m_str = self.time_m_var.get().strip()
+                if m_str and m_str.isdigit():
+                    self.time_minutes = int(m_str)
+            except (ValueError, AttributeError):
+                pass
+        
+        if hasattr(self, 'time_s_var'):
+            try:
+                s_str = self.time_s_var.get().strip()
+                if s_str and s_str.isdigit():
+                    self.time_seconds = int(s_str)
+            except (ValueError, AttributeError):
+                pass
+        
+        # Calculate floors per hour
+        self._calculate_floors_per_hour()
+        
+        # Update CTRL+F Stars from checkbox
+        if hasattr(self, 'ctrl_f_stars_var'):
+            self.ctrl_f_stars_enabled = self.ctrl_f_stars_var.get()
+        
+        # Update manual_stats with new values
+        self.manual_stats.update(manual_stats)
         
         # Create stats from manual input
-        # Convert percentages to decimals where needed
-        stats = PlayerStargazingStats(
-            star_spawn_rate_mult=self.manual_stats.get('star_spawn_rate_mult', 1.0),
-            auto_catch_chance=self.manual_stats.get('auto_catch_chance', 0) / 100,  # % to decimal
-            double_star_chance=self.manual_stats.get('double_star_chance', 0) / 100,
-            triple_star_chance=self.manual_stats.get('triple_star_chance', 0) / 100,
-            super_star_spawn_rate_mult=self.manual_stats.get('super_star_spawn_rate_mult', 1.0),
-            triple_super_star_chance=self.manual_stats.get('triple_super_star_chance', 0) / 100,
-            super_star_10x_chance=self.manual_stats.get('super_star_10x_chance', 0) / 100,
-            star_supernova_chance=self.manual_stats.get('star_supernova_chance', 0) / 100,
-            star_supernova_mult=self.manual_stats.get('star_supernova_mult', 10.0),
-            star_supergiant_chance=self.manual_stats.get('star_supergiant_chance', 0) / 100,
-            star_supergiant_mult=self.manual_stats.get('star_supergiant_mult', 3.0),
-            super_star_supernova_chance=self.manual_stats.get('super_star_supernova_chance', 0) / 100,
-            super_star_supernova_mult=self.manual_stats.get('super_star_supernova_mult', 10.0),
-            super_star_supergiant_chance=self.manual_stats.get('super_star_supergiant_chance', 0) / 100,
-            super_star_supergiant_mult=self.manual_stats.get('super_star_supergiant_mult', 3.0),
-            super_star_radiant_chance=self.manual_stats.get('super_star_radiant_chance', 0) / 100,
-            all_star_mult=self.manual_stats.get('all_star_mult', 1.0),
-            floor_clears_per_hour=self.floor_clears_per_hour,
-            ctrl_f_stars_enabled=self.ctrl_f_stars_enabled,
-        )
+        try:
+            stats = PlayerStargazingStats(
+                star_spawn_rate_mult=self.manual_stats.get('star_spawn_rate_mult', 1.0),
+                auto_catch_chance=self.manual_stats.get('auto_catch_chance', 0) / 100,  # % to decimal
+                double_star_chance=self.manual_stats.get('double_star_chance', 0) / 100,
+                triple_star_chance=self.manual_stats.get('triple_star_chance', 0) / 100,
+                super_star_spawn_rate_mult=self.manual_stats.get('super_star_spawn_rate_mult', 1.0),
+                triple_super_star_chance=self.manual_stats.get('triple_super_star_chance', 0) / 100,
+                super_star_10x_chance=self.manual_stats.get('super_star_10x_chance', 0) / 100,
+                star_supernova_chance=self.manual_stats.get('star_supernova_chance', 0) / 100,
+                star_supernova_mult=self.manual_stats.get('star_supernova_mult', 10.0),
+                star_supergiant_chance=self.manual_stats.get('star_supergiant_chance', 0) / 100,
+                star_supergiant_mult=self.manual_stats.get('star_supergiant_mult', 3.0),
+                super_star_supernova_chance=self.manual_stats.get('super_star_supernova_chance', 0) / 100,
+                super_star_supernova_mult=self.manual_stats.get('super_star_supernova_mult', 10.0),
+                super_star_supergiant_chance=self.manual_stats.get('super_star_supergiant_chance', 0) / 100,
+                super_star_supergiant_mult=self.manual_stats.get('super_star_supergiant_mult', 3.0),
+                super_star_radiant_chance=self.manual_stats.get('super_star_radiant_chance', 0) / 100,
+                all_star_mult=self.manual_stats.get('all_star_mult', 1.0),
+                floor_clears_per_hour=self.floor_clears_per_hour,
+                ctrl_f_stars_enabled=self.ctrl_f_stars_enabled,
+            )
+            
+            calc = StargazingCalculator(stats)
+            summary = calc.get_summary()
+        except Exception as e:
+            # On error, show error in results
+            import traceback
+            print(f"Error in update_calculations: {e}")
+            traceback.print_exc()
+            for key in self.result_labels:
+                if key not in ['auto_efficiency', 'auto_efficiency_super']:
+                    self.result_labels[key].config(text="Error")
+            return
         
-        calc = StargazingCalculator(stats)
-        summary = calc.get_summary()
+        # Update results
+        try:
+            self.result_labels['star_spawns'].config(text=f"{summary['star_spawn_rate_per_hour']:.2f}")
+            self.result_labels['stars_per_hour'].config(text=f"{summary['stars_per_hour']:.4f}")
+            self.result_labels['auto_stars'].config(text=f"{summary['auto_caught_stars_per_hour']:.4f}")
+            self.result_labels['ss_spawns'].config(text=f"{summary['super_star_spawn_rate_per_hour']:.4f}")
+            self.result_labels['super_stars_per_hour'].config(text=f"{summary['super_stars_per_hour']:.4f}")
+            self.result_labels['auto_super'].config(text=f"{summary['auto_caught_super_stars_per_hour']:.4f}")
+            self.result_labels['star_mult'].config(text=f"{summary['star_multiplier']:.2f}x")
+            self.result_labels['super_mult'].config(text=f"{summary['super_star_multiplier']:.2f}x")
+        except KeyError as e:
+            print(f"KeyError updating results: {e}")
+            print(f"Available keys in summary: {list(summary.keys())}")
+            print(f"Available result_labels: {list(self.result_labels.keys())}")
+        except Exception as e:
+            print(f"Error updating result labels: {e}")
+            import traceback
+            traceback.print_exc()
         
-        # Update results with 4 decimal places for income
-        self.result_labels['star_spawns'].config(text=f"{summary['star_spawn_rate_per_hour']:.2f}")
-        self.result_labels['stars_per_hour'].config(text=f"{summary['stars_per_hour']:.4f}")
-        self.result_labels['auto_stars'].config(text=f"{summary['auto_caught_stars_per_hour']:.4f}")
-        self.result_labels['ss_spawns'].config(text=f"{summary['super_star_spawn_rate_per_hour']:.4f}")
-        self.result_labels['super_stars_per_hour'].config(text=f"{summary['super_stars_per_hour']:.4f}")
-        self.result_labels['auto_super'].config(text=f"{summary['auto_caught_super_stars_per_hour']:.4f}")
-        self.result_labels['star_mult'].config(text=f"{summary['star_multiplier']:.2f}x")
-        self.result_labels['super_mult'].config(text=f"{summary['super_star_multiplier']:.2f}x")
+        # Calculate auto-catch efficiency
+        try:
+            auto_catch_pct = self.manual_stats.get('auto_catch_chance', 0)
+            if auto_catch_pct >= 100:
+                self.result_labels['auto_efficiency'].config(text="100% (= manual)", fg="#2E7D32")
+                self.result_labels['auto_efficiency_super'].config(text="100% (= manual)", fg="#2E7D32")
+            elif auto_catch_pct > 0:
+                slowdown = ((100 - auto_catch_pct) / 100) * 100
+                self.result_labels['auto_efficiency'].config(
+                    text=f"{auto_catch_pct:.1f}% ({slowdown:.1f}% slower)", fg="#E65100")
+                self.result_labels['auto_efficiency_super'].config(
+                    text=f"{auto_catch_pct:.1f}% ({slowdown:.1f}% slower)", fg="#E65100")
+            else:
+                self.result_labels['auto_efficiency'].config(text="0% (no auto-catch)", fg="#C62828")
+                self.result_labels['auto_efficiency_super'].config(text="0% (no auto-catch)", fg="#C62828")
+        except Exception as e:
+            print(f"Error updating auto efficiency: {e}")
         
-        # Calculate auto-catch efficiency (what % of manual tapping you get)
-        auto_catch_pct = self.manual_stats.get('auto_catch_chance', 0)
-        if auto_catch_pct >= 100:
-            self.result_labels['auto_efficiency'].config(text="100% (= manual)", fg="#2E7D32")
-            self.result_labels['auto_efficiency_super'].config(text="100% (= manual)", fg="#2E7D32")
-        elif auto_catch_pct > 0:
-            # Show how much slower auto is vs manual (100%)
-            slowdown = ((100 - auto_catch_pct) / 100) * 100
-            self.result_labels['auto_efficiency'].config(
-                text=f"{auto_catch_pct:.1f}% ({slowdown:.1f}% slower)", fg="#E65100")
-            self.result_labels['auto_efficiency_super'].config(
-                text=f"{auto_catch_pct:.1f}% ({slowdown:.1f}% slower)", fg="#E65100")
-        else:
-            self.result_labels['auto_efficiency'].config(text="0% (no auto-catch)", fg="#C62828")
-            self.result_labels['auto_efficiency_super'].config(text="0% (no auto-catch)", fg="#C62828")
-        
-        # Calculate next upgrade benefits for each upgrade
-        self.update_upgrade_benefits(calc, summary)
+        # Calculate next upgrade benefits for each upgrade (only if upgrade panel exists)
+        if hasattr(self, 'upgrade_benefit_labels'):
+            try:
+                self.update_upgrade_benefits(calc, summary)
+            except Exception as e:
+                print(f"Error updating upgrade benefits: {e}")
     
     def update_upgrade_benefits(self, calc: StargazingCalculator, current_summary: dict):
         """Calculate and display the benefit of +1 for each upgrade"""
+        
+        # Skip if upgrade panel is not created
+        if not hasattr(self, 'upgrade_benefit_labels'):
+            return
         
         current_stars = current_summary['stars_per_hour']
         current_super = current_summary['super_stars_per_hour']

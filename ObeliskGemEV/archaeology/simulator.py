@@ -4717,11 +4717,11 @@ class ArchaeologySimulatorWindow:
         loading_window.grab_set()  # Make it modal
         loading_window.resizable(False, False)
         
-        # Center the window (wider for progress bar)
+        # Center the window (wider for progress bar, taller for multi-line messages)
         loading_window.update_idletasks()
-        x = (loading_window.winfo_screenwidth() // 2) - (400 // 2)
-        y = (loading_window.winfo_screenheight() // 2) - (150 // 2)
-        loading_window.geometry(f"400x150+{x}+{y}")
+        x = (loading_window.winfo_screenwidth() // 2) - (450 // 2)
+        y = (loading_window.winfo_screenheight() // 2) - (200 // 2)
+        loading_window.geometry(f"450x200+{x}+{y}")
         
         # Disable main window
         self.window.attributes('-disabled', True)
@@ -4733,17 +4733,17 @@ class ArchaeologySimulatorWindow:
         main_frame = tk.Frame(loading_window, padx=20, pady=20)
         main_frame.pack(fill=tk.BOTH, expand=True)
         
-        # Message with wrapping
+        # Message with wrapping (support multi-line)
         message_label = tk.Label(main_frame, text=message, font=("Arial", 10), 
-                                wraplength=360, justify=tk.LEFT)
-        message_label.pack(pady=(0, 10), anchor=tk.W)
+                                wraplength=410, justify=tk.LEFT, anchor=tk.W)
+        message_label.pack(pady=(0, 10), anchor=tk.W, fill=tk.X)
         
         # Progress bar frame
         progress_frame = tk.Frame(main_frame)
         progress_frame.pack(fill=tk.X, pady=(0, 5))
         
         # Progress bar (maximum=100 for percentage)
-        progress_bar = ttk.Progressbar(progress_frame, mode='determinate', length=360, maximum=100)
+        progress_bar = ttk.Progressbar(progress_frame, mode='determinate', length=410, maximum=100)
         progress_bar.pack(fill=tk.X)
         
         # Progress percentage label
@@ -5218,6 +5218,7 @@ class ArchaeologySimulatorWindow:
             best_fragments_per_hour = 0.0
             best_xp_per_hour = 0.0
             top_3_candidates = []  # List of (dist_dict, max_stage_int, fragments_per_hour, xp_per_hour)
+            tied_distributions_count = 0  # Track how many distributions reached the best stage
             
             cancel_event = loading_window.loading_refs['cancel_event']
             
@@ -5250,6 +5251,12 @@ class ArchaeologySimulatorWindow:
             
             combination_count = 0
             candidate_scores = []  # List of (dist_tuple, avg_max_stage, stats)
+            
+            # Track highest stage reached across all distributions for live display
+            # Note: This tracks the ACTUAL highest stage reached in simulations (not goal-1)
+            # If a simulation reaches goal+2, that will be counted as the highest stage
+            global_highest_stage = 0.0
+            stage_count_dict = {}  # Track how many times each stage was reached (counts each MC simulation)
             
             # Count actual valid distributions (where STR > 0) before screening
             # This ensures accurate progress tracking
@@ -5291,18 +5298,6 @@ class ArchaeologySimulatorWindow:
                 
                 combination_count += 1
                 
-                # Update progress every 10 combinations for smoother progress
-                if combination_count % 10 == 0:
-                    try:
-                        if self.window.winfo_exists():
-                            self.window.after(0, lambda c=combination_count, t=actual_valid_count: 
-                                             self._safe_update_progress_label(loading_window, 
-                                                                              f"Phase 1: Screening distributions with STR... ({c}/{t})",
-                                                                              current=c, total=t))
-                    except (tk.TclError, RuntimeError):
-                        cancel_event.set()
-                        return
-                
                 # Apply distribution temporarily (on top of original_points)
                 for skill, points in zip(skills, dist_tuple):
                     self.skill_points[skill] = original_points.get(skill, 0) + points
@@ -5327,6 +5322,13 @@ class ArchaeologySimulatorWindow:
                         'xp_per_run': result.get('xp_per_run', 0.0),
                         'run_duration_seconds': result.get('run_duration_seconds', 1.0),
                     })
+                    
+                    # Track highest stage reached (integer stage for counting)
+                    stage_int = int(max_stage)
+                    if stage_int > global_highest_stage:
+                        global_highest_stage = stage_int
+                    # Count how many times each stage was reached
+                    stage_count_dict[stage_int] = stage_count_dict.get(stage_int, 0) + 1
                 
                 avg_max_stage = sum(max_stage_samples) / len(max_stage_samples) if max_stage_samples else 0
                 # Calculate fragments/h and xp/h for screening
@@ -5341,12 +5343,55 @@ class ArchaeologySimulatorWindow:
                 
                 # Revert changes
                 self.skill_points = original_points.copy()
+                
+                # Update progress with live statistics about highest stage reached
+                # Update every 10 combinations or on first combination for smoother updates
+                if combination_count % 10 == 0 or combination_count == 1:
+                    total_sims_so_far = combination_count * screening_sims
+                    
+                    # Show top 3 most frequently reached stages (sorted by stage number, highest first)
+                    sorted_stages = sorted(stage_count_dict.items(), key=lambda x: x[0], reverse=True)
+                    top_stages_info = []
+                    for stage, count in sorted_stages[:3]:
+                        pct = (count / total_sims_so_far * 100) if total_sims_so_far > 0 else 0.0
+                        top_stages_info.append(f"Stage {stage}: {count}x ({pct:.1f}%)")
+                    
+                    # Format stages text with line breaks (one per line)
+                    if top_stages_info:
+                        stages_text = "\n".join(top_stages_info)
+                    else:
+                        stages_text = "No data yet"
+                    
+                    try:
+                        if self.window.winfo_exists():
+                            self.window.after(0, lambda c=combination_count, t=actual_valid_count, 
+                                             stages_txt=stages_text: 
+                                             self._safe_update_progress_label(loading_window, 
+                                                                              f"Phase 1: Screening ({c}/{t})\n"
+                                                                              f"{stages_txt}",
+                                                                              current=c, total=t))
+                    except (tk.TclError, RuntimeError):
+                        pass
             
             if cancel_event.is_set():
                 return
             
             # Sort candidates by performance (best first)
             candidate_scores.sort(key=lambda x: x[1], reverse=True)
+            
+            # Check for ties at the top (same avg_max_stage) - show in progress
+            if candidate_scores:
+                best_screening_stage = candidate_scores[0][1]
+                tied_at_top = sum(1 for c in candidate_scores if abs(c[1] - best_screening_stage) < 0.01)  # Within 0.01 tolerance
+                if tied_at_top > 1:
+                    try:
+                        if self.window.winfo_exists():
+                            self.window.after(0, lambda tied=tied_at_top, stage=best_screening_stage: 
+                                             self._safe_update_progress_label(loading_window, 
+                                                                              f"Phase 1: {tied} distributions reached Stage {stage:.1f}! Refining...",
+                                                                              current=actual_valid_count, total=actual_valid_count))
+                    except (tk.TclError, RuntimeError):
+                        pass
             
             # Phase 2: Refine top candidates with full simulations
             num_refinement = max(1, int(len(candidate_scores) * top_candidates_ratio))
@@ -5421,28 +5466,43 @@ class ArchaeologySimulatorWindow:
                 best_max_stage_int = int(best_avg_max_stage)
                 
                 is_better = False
+                is_tie = False
                 if max_stage_int > best_max_stage_int:
                     is_better = True
+                    tied_distributions_count = 1  # Reset count when new best stage found
                 elif max_stage_int == best_max_stage_int:
+                    is_tie = True
                     # Same max stage - check fragments/h with relative tolerance (15%)
                     if best_fragments_per_hour > 0:
                         relative_diff = abs(fragments_per_hour - best_fragments_per_hour) / best_fragments_per_hour
                         if fragments_per_hour > best_fragments_per_hour and relative_diff > 0.15:
                             # Fragments/h is significantly better (>15% relative difference)
                             is_better = True
+                            tied_distributions_count = 1  # Reset count when better found
                         elif relative_diff <= 0.15:
                             # Fragments/h are within 15% (tie) - use xp/h as tiebreaker
                             if xp_per_hour > best_xp_per_hour:
                                 is_better = True
-                        # else: fragments/h is worse by more than 15%, so not better
+                                tied_distributions_count = 1  # Reset count when better found
+                            else:
+                                # Still a tie - increment counter
+                                tied_distributions_count += 1
+                        else:
+                            # Fragments/h is worse by more than 15%, so not better, but still same stage
+                            tied_distributions_count += 1
                     else:
                         # best_fragments_per_hour is 0, so any positive value is better
                         if fragments_per_hour > 0:
                             is_better = True
+                            tied_distributions_count = 1  # Reset count when better found
                         elif fragments_per_hour == 0:
                             # Both are 0, use xp/h as tiebreaker
                             if xp_per_hour > best_xp_per_hour:
                                 is_better = True
+                                tied_distributions_count = 1  # Reset count when better found
+                            else:
+                                # Still a tie - increment counter
+                                tied_distributions_count += 1
                 
                 if is_better:
                     best_avg_max_stage = avg_max_stage
@@ -5450,6 +5510,27 @@ class ArchaeologySimulatorWindow:
                     best_stats = new_stats.copy()
                     best_fragments_per_hour = fragments_per_hour
                     best_xp_per_hour = xp_per_hour
+                    
+                    # Update progress to show tie information if applicable
+                    if is_tie and tied_distributions_count > 1:
+                        try:
+                            if self.window.winfo_exists():
+                                self.window.after(0, lambda c=refine_idx+1, t=num_refinement, tied=tied_distributions_count, stage=max_stage_int: 
+                                                 self._safe_update_progress_label(loading_window, 
+                                                                                  f"Phase 2: Refining... ({c}/{t}) | {tied} distributions reached Stage {stage}!",
+                                                                                  current=c, total=t))
+                        except (tk.TclError, RuntimeError):
+                            pass
+                elif is_tie:
+                    # Update progress to show tie information
+                    try:
+                        if self.window.winfo_exists():
+                            self.window.after(0, lambda c=refine_idx+1, t=num_refinement, tied=tied_distributions_count, stage=max_stage_int: 
+                                             self._safe_update_progress_label(loading_window, 
+                                                                              f"Phase 2: Refining... ({c}/{t}) | {tied} distributions reached Stage {stage}!",
+                                                                              current=c, total=t))
+                    except (tk.TclError, RuntimeError):
+                        pass
                 
                 # Revert changes
                 self.skill_points = original_points.copy()

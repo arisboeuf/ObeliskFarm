@@ -1,0 +1,27 @@
+{
+  "manual_stats": {
+    "floor_clears_per_hour": 120.0,
+    "star_spawn_rate_mult": 1.0,
+    "auto_catch_chance": 0.0,
+    "double_star_chance": 0.0,
+    "triple_star_chance": 0.0,
+    "super_star_spawn_rate_mult": 1.0,
+    "triple_super_star_chance": 0.0,
+    "super_star_10x_chance": 0.0,
+    "star_supernova_chance": 0.0,
+    "star_supernova_mult": 10.0,
+    "star_supergiant_chance": 0.0,
+    "star_supergiant_mult": 3.0,
+    "star_radiant_chance": 0.0,
+    "star_radiant_mult": 10.0,
+    "super_star_supernova_chance": 0.0,
+    "super_star_supernova_mult": 10.0,
+    "super_star_supergiant_chance": 0.0,
+    "super_star_supergiant_mult": 3.0,
+    "super_star_radiant_chance": 0.0,
+    "super_star_radiant_mult": 10.0,
+    "all_star_mult": 1.0,
+    "novagiant_combo_mult": 1.0
+  },
+  "ctrl_f_stars_enabled": false
+}
