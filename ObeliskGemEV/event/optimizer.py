@@ -425,7 +425,9 @@ def greedy_optimize(
         recommendations.append(f"Estimated Max Wave: {avg_wave:.1f}")
         recommendations.append(f"Estimated Time: {avg_time:.1f}s per run")
     else:
-        recommendations.append(f"Final ATK: {player.atk} (target was {required_atk})")
+        # Calculate required ATK for target wave (estimate based on enemy HP)
+        required_atk = calculate_atk_for_breakpoint(target_wave, 1, enemy_modified)
+        recommendations.append(f"Final ATK: {player.atk} (target wave {target_wave} needs ~{required_atk})")
         recommendations.append(f"Final HP: {player.health}")
         recommendations.append(f"Estimated Wave: {avg_wave:.1f}")
         recommendations.append(f"Estimated Time: {avg_time:.1f}s per run")

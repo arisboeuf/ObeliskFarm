@@ -83,10 +83,10 @@ class BudgetOptimizerPanel:
         self.load_state()
         
         # Update player stats after loading (if upgrades were loaded)
-        self._update_player_stats_live()
+        self._update_player_stats()
         
         # Update expected results after loading
-        self._update_expected_results_live()
+        self._update_expected_results()
     
     def _load_currency_icons(self):
         """Load currency icons from sprites folder"""
@@ -315,15 +315,27 @@ class BudgetOptimizerPanel:
         expected_results_frame = tk.Frame(results_frame, background="#E8F5E9", relief=tk.RAISED, borderwidth=1)
         expected_results_frame.grid(row=0, column=0, sticky="ew", padx=3, pady=(3, 2))
         
-        tk.Label(expected_results_frame, text="Expected Results", font=("Arial", 10, "bold"),
-                background="#E8F5E9").pack(anchor="w", padx=5, pady=(3, 2))
+        # Header with title and refresh button
+        header_frame = tk.Frame(expected_results_frame, background="#E8F5E9")
+        header_frame.pack(fill=tk.X, padx=5, pady=(3, 2))
         
-        # Expected results container (will be updated live)
+        tk.Label(header_frame, text="Expected Results", font=("Arial", 10, "bold"),
+                background="#E8F5E9").pack(side=tk.LEFT)
+        
+        # Refresh button
+        refresh_btn = tk.Button(header_frame, text="🔄", font=("Arial", 12),
+                               command=self._refresh_stats_and_results,
+                               bg="#E8F5E9", fg="#1976D2", relief=tk.FLAT,
+                               cursor="hand2", padx=5, pady=2)
+        refresh_btn.pack(side=tk.RIGHT)
+        create_tooltip(refresh_btn, "Refresh stats and expected results")
+        
+        # Expected results container (will be updated manually)
         self.expected_results_container = tk.Frame(expected_results_frame, background="#E8F5E9")
         self.expected_results_container.pack(fill=tk.X, padx=5, pady=(0, 3))
         
         # Initial expected results display
-        self._update_expected_results_live()
+        self._update_expected_results()
         
         # === SCROLLABLE RESULTS CONTAINER ===
         # Canvas for scrollable content below expected results
@@ -720,10 +732,6 @@ class BudgetOptimizerPanel:
             self._update_upgrade_display(tier, idx, update_total=True)
             
             self.save_state()  # Auto-save on change
-            # Update player stats live
-            self._update_player_stats_live()
-            # Update expected results live
-            self._update_expected_results_live()
     
     def _decrement_upgrade(self, tier: int, idx: int):
         """Decrement upgrade level"""
@@ -758,10 +766,6 @@ class BudgetOptimizerPanel:
             self._update_upgrade_display(tier, idx, update_total=True)
             
             self.save_state()  # Auto-save on change
-            # Update player stats live
-            self._update_player_stats_live()
-            # Update expected results live
-            self._update_expected_results_live()
     
     def _reset_upgrades(self):
         """Reset all upgrades to 0"""
@@ -778,15 +782,14 @@ class BudgetOptimizerPanel:
         
         # Save state
         self.save_state()
-        
-        # Update player stats live
-        self._update_player_stats_live()
-        
-        # Update expected results live
-        self._update_expected_results_live()
     
-    def _update_player_stats_live(self):
-        """Update player stats display based on current upgrade levels (live update)"""
+    def _refresh_stats_and_results(self):
+        """Refresh both player stats and expected results"""
+        self._update_player_stats()
+        self._update_expected_results()
+    
+    def _update_player_stats(self):
+        """Update player stats display based on current upgrade levels"""
         from .simulation import apply_upgrades
         from .stats import PlayerStats, EnemyStats
         
@@ -814,8 +817,8 @@ class BudgetOptimizerPanel:
         # Update display
         self.update_player_stats_display(result, reference_wave, ehp_at_wave)
     
-    def _update_expected_results_live(self):
-        """Update expected results display based on current upgrade levels (live update)"""
+    def _update_expected_results(self):
+        """Update expected results display based on current upgrade levels"""
         from .simulation import apply_upgrades, run_full_simulation
         from .stats import PlayerStats, EnemyStats
         
@@ -833,8 +836,7 @@ class BudgetOptimizerPanel:
         )
         
         # Run simulation to get expected wave and time
-        # Use fewer runs for faster live updates
-        sim_results, avg_wave, avg_time = run_full_simulation(player, enemy, runs=50)
+        sim_results, avg_wave, avg_time = run_full_simulation(player, enemy, runs=100)
         
         # Calculate standard deviations
         import math
@@ -913,10 +915,10 @@ class BudgetOptimizerPanel:
         self.save_state()  # Auto-save
         
         # Update player stats with new upgrade levels
-        self._update_player_stats_live()
+        self._update_player_stats()
         
         # Update expected results with new upgrade levels
-        self._update_expected_results_live()
+        self._update_expected_results()
         
         # Disable button and show confirmation
         if applied_count > 0 and self.apply_button:
@@ -1220,7 +1222,7 @@ class BudgetOptimizerPanel:
         
         # Update player stats with CURRENT upgrades (not recommended ones)
         # This ensures the stats display shows current state, not forecast state
-        self._update_player_stats_live()
+        self._update_player_stats()
         
         # Reset apply button state (new optimization = button can be used again)
         self.apply_button = None
