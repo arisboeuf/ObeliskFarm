@@ -3706,8 +3706,8 @@ class ArchaeologySimulatorWindow:
             tooltip = tk.Toplevel()
             tooltip.wm_overrideredirect(True)
             
-            tooltip_width = 340
-            tooltip_height = 360
+            tooltip_width = 380
+            tooltip_height = 480
             screen_width = tooltip.winfo_screenwidth()
             screen_height = tooltip.winfo_screenheight()
             x, y = calculate_tooltip_position(event, tooltip_width, tooltip_height, screen_width, screen_height)
@@ -3742,6 +3742,16 @@ class ArchaeologySimulatorWindow:
                 "until stamina is depleted, tracking the",
                 "maximum stage reached.",
                 "",
+                "Selection Logic (in order):",
+                "  1. Maximum Stage (integer):",
+                "     - 7.5 and 7.3 both count as Stage 7",
+                "  2. Fragments/h:",
+                "     - If difference > 15%: select best",
+                "     - If difference ≤ 15%: tie-breaker",
+                "  3. XP/h (tie-breaker):",
+                "     - Used when Fragments/h are within",
+                "       15% (considered equal)",
+                "",
                 "Note: The Goal Stage setting above is NOT",
                 "used by this optimizer. MC Stage Optimizer",
                 "always simulates from Stage 1 to find the",
@@ -3749,8 +3759,9 @@ class ArchaeologySimulatorWindow:
                 "",
                 "Results show:",
                 "  - Optimal skill distribution",
-                "  - Performance metrics (XP/h, Fragments/h, Floors/run)",
+                "  - Performance metrics (XP/h, Fragments/h)",
                 "  - Stage distribution histogram",
+                "  - Top candidates comparison (if tied)",
             ]
             
             for line in lines:
@@ -5259,6 +5270,9 @@ class ArchaeologySimulatorWindow:
             best_distribution = {s: 0 for s in skills}
             best_avg_max_stage = 0.0
             best_stats = None
+            best_fragments_per_hour = 0.0
+            best_xp_per_hour = 0.0
+            top_3_candidates = []  # List of (dist_dict, max_stage_int, fragments_per_hour, xp_per_hour)
             
             cancel_event = loading_window.loading_refs['cancel_event']
             
@@ -5343,6 +5357,7 @@ class ArchaeologySimulatorWindow:
                 
                 # Quick screening: Run few MC simulations
                 max_stage_samples = []
+                metrics_samples_screening = []
                 
                 for _ in range(screening_sims):
                     result = simulator.simulate_run(
@@ -5353,11 +5368,22 @@ class ArchaeologySimulatorWindow:
                     
                     max_stage = result['max_stage_reached']
                     max_stage_samples.append(max_stage)
+                    metrics_samples_screening.append({
+                        'total_fragments': result.get('total_fragments', 0.0),
+                        'xp_per_run': result.get('xp_per_run', 0.0),
+                        'run_duration_seconds': result.get('run_duration_seconds', 1.0),
+                    })
                 
                 avg_max_stage = sum(max_stage_samples) / len(max_stage_samples) if max_stage_samples else 0
+                # Calculate fragments/h and xp/h for screening
+                avg_run_duration = sum(m['run_duration_seconds'] for m in metrics_samples_screening) / len(metrics_samples_screening) if metrics_samples_screening else 1.0
+                avg_fragments = sum(m['total_fragments'] for m in metrics_samples_screening) / len(metrics_samples_screening) if metrics_samples_screening else 0.0
+                avg_xp = sum(m['xp_per_run'] for m in metrics_samples_screening) / len(metrics_samples_screening) if metrics_samples_screening else 0.0
+                fragments_per_hour_screening = (avg_fragments * 3600 / avg_run_duration) if avg_run_duration > 0 else 0.0
+                xp_per_hour_screening = (avg_xp * 3600 / avg_run_duration) if avg_run_duration > 0 else 0.0
                 
-                # Store candidate for potential refinement
-                candidate_scores.append((dist_tuple, avg_max_stage, new_stats.copy()))
+                # Store candidate for potential refinement (include fragments/h and xp/h for tie-breaking)
+                candidate_scores.append((dist_tuple, avg_max_stage, new_stats.copy(), fragments_per_hour_screening, xp_per_hour_screening))
                 
                 # Revert changes
                 self.skill_points = original_points.copy()
@@ -5381,7 +5407,7 @@ class ArchaeologySimulatorWindow:
             except (tk.TclError, RuntimeError):
                 pass
             
-            for refine_idx, (dist_tuple, screening_score, stats_copy) in enumerate(top_candidates):
+            for refine_idx, (dist_tuple, screening_score, stats_copy, screening_frags_h, screening_xp_h) in enumerate(top_candidates):
                 if cancel_event.is_set():
                     self.skill_points = original_points.copy()
                     return
@@ -5405,6 +5431,7 @@ class ArchaeologySimulatorWindow:
                 
                 # Run full MC simulations for accurate estimate
                 max_stage_samples = []
+                metrics_samples_refinement = []
                 
                 for _ in range(refinement_sims):
                     result = simulator.simulate_run(
@@ -5415,14 +5442,60 @@ class ArchaeologySimulatorWindow:
                     
                     max_stage = result['max_stage_reached']
                     max_stage_samples.append(max_stage)
+                    metrics_samples_refinement.append({
+                        'total_fragments': result.get('total_fragments', 0.0),
+                        'xp_per_run': result.get('xp_per_run', 0.0),
+                        'run_duration_seconds': result.get('run_duration_seconds', 1.0),
+                    })
                 
                 avg_max_stage = sum(max_stage_samples) / len(max_stage_samples) if max_stage_samples else 0
+                max_stage_int = int(avg_max_stage)  # Integer max stage for comparison
+                
+                # Calculate fragments/h and xp/h
+                avg_run_duration = sum(m['run_duration_seconds'] for m in metrics_samples_refinement) / len(metrics_samples_refinement) if metrics_samples_refinement else 1.0
+                avg_fragments = sum(m['total_fragments'] for m in metrics_samples_refinement) / len(metrics_samples_refinement) if metrics_samples_refinement else 0.0
+                avg_xp = sum(m['xp_per_run'] for m in metrics_samples_refinement) / len(metrics_samples_refinement) if metrics_samples_refinement else 0.0
+                fragments_per_hour = (avg_fragments * 3600 / avg_run_duration) if avg_run_duration > 0 else 0.0
+                xp_per_hour = (avg_xp * 3600 / avg_run_duration) if avg_run_duration > 0 else 0.0
+                
+                # Store in top 3 candidates (for display if there's a tie)
+                dist_dict = {s: p for s, p in zip(skills, dist_tuple)}
+                top_3_candidates.append((dist_dict.copy(), max_stage_int, fragments_per_hour, xp_per_hour))
                 
                 # Update best if this is better
-                if avg_max_stage > best_avg_max_stage:
+                # Compare by integer max stage first, then by fragments/h (with 15% relative tolerance), then by xp/h
+                best_max_stage_int = int(best_avg_max_stage)
+                
+                is_better = False
+                if max_stage_int > best_max_stage_int:
+                    is_better = True
+                elif max_stage_int == best_max_stage_int:
+                    # Same max stage - check fragments/h with relative tolerance (15%)
+                    if best_fragments_per_hour > 0:
+                        relative_diff = abs(fragments_per_hour - best_fragments_per_hour) / best_fragments_per_hour
+                        if fragments_per_hour > best_fragments_per_hour and relative_diff > 0.15:
+                            # Fragments/h is significantly better (>15% relative difference)
+                            is_better = True
+                        elif relative_diff <= 0.15:
+                            # Fragments/h are within 15% (tie) - use xp/h as tiebreaker
+                            if xp_per_hour > best_xp_per_hour:
+                                is_better = True
+                        # else: fragments/h is worse by more than 15%, so not better
+                    else:
+                        # best_fragments_per_hour is 0, so any positive value is better
+                        if fragments_per_hour > 0:
+                            is_better = True
+                        elif fragments_per_hour == 0:
+                            # Both are 0, use xp/h as tiebreaker
+                            if xp_per_hour > best_xp_per_hour:
+                                is_better = True
+                
+                if is_better:
                     best_avg_max_stage = avg_max_stage
-                    best_distribution = {s: p for s, p in zip(skills, dist_tuple)}
+                    best_distribution = dist_dict
                     best_stats = new_stats.copy()
+                    best_fragments_per_hour = fragments_per_hour
+                    best_xp_per_hour = xp_per_hour
                 
                 # Revert changes
                 self.skill_points = original_points.copy()
@@ -5508,13 +5581,17 @@ class ArchaeologySimulatorWindow:
                 skill_points_display[skill] = current + added
                 added_distribution[skill] = added
             
+            # Sort top 3 candidates by max_stage (int) then fragments/h, then xp/h, and keep only top 3
+            top_3_candidates.sort(key=lambda x: (x[1], x[2], x[3]), reverse=True)
+            top_3_candidates = top_3_candidates[:3]
+            
             # Close loading dialog and show results
             try:
                 if self.window.winfo_exists():
                     self.window.after(0, lambda: (
                         self._close_loading_dialog(loading_window),
                         self._show_stage_optimizer_results(
-                            max_stage_samples, skill_points_display, added_distribution, num_points, metrics_samples
+                            max_stage_samples, skill_points_display, added_distribution, num_points, metrics_samples, top_3_candidates
                         )
                     ))
             except (tk.TclError, RuntimeError):
@@ -5525,7 +5602,7 @@ class ArchaeologySimulatorWindow:
         thread = threading.Thread(target=run_in_thread, daemon=True)
         thread.start()
     
-    def _show_stage_optimizer_results(self, max_stage_samples, skill_points_display, added_distribution, num_points, metrics_samples):
+    def _show_stage_optimizer_results(self, max_stage_samples, skill_points_display, added_distribution, num_points, metrics_samples, top_3_candidates=None):
         """Show histogram window with max stage distribution and optimal skill setup"""
         try:
             import matplotlib
@@ -5672,6 +5749,9 @@ Fragments/h: {fragments_per_hour:.2f}"""
         skill_frame = ttk.LabelFrame(main_frame, text="Optimal Skill Distribution (Points Added)", padding="5")
         skill_frame.grid(row=skill_row, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 10))
         
+        # Track if we added top3 frame to adjust hist_row
+        top3_added = False
+        
         skill_text_parts = []
         for skill in ['strength', 'agility', 'intellect', 'perception', 'luck']:
             points = added_distribution.get(skill, 0)
@@ -5689,6 +5769,104 @@ Fragments/h: {fragments_per_hour:.2f}"""
         info_label = ttk.Label(skill_frame, text=info_text, font=("Arial", 8), 
                               foreground="#C73E1D" if total_added != num_points else "#666666")
         info_label.pack(pady=(3, 0))
+        
+        # Top 3 candidates comparison (if there were ties)
+        if top_3_candidates is None:
+            top_3_candidates = []
+        
+        if top_3_candidates and len(top_3_candidates) > 1:
+            # Check if there's actually a tie (same max stage)
+            best_max_stage = top_3_candidates[0][1] if top_3_candidates else 0
+            tied_candidates = [c for c in top_3_candidates if c[1] == best_max_stage]
+            
+            # Further filter: if fragments/h are within 15% relative difference, also consider them tied
+            if len(tied_candidates) > 1:
+                best_frags_h = tied_candidates[0][2] if tied_candidates else 0.0
+                # Check if any candidates have fragments/h within 15% relative difference of the best
+                if best_frags_h > 0:
+                    closely_tied = [c for c in tied_candidates if abs(c[2] - best_frags_h) / best_frags_h <= 0.15]
+                else:
+                    # If best is 0, only consider exact 0 as tied
+                    closely_tied = [c for c in tied_candidates if c[2] == 0.0]
+                if len(closely_tied) > 1:
+                    tied_candidates = closely_tied
+            
+            if len(tied_candidates) > 1:
+                # Determine tie-breaker text
+                best_frags_h = tied_candidates[0][2] if tied_candidates else 0.0
+                if best_frags_h > 0:
+                    frags_within_tolerance = any(abs(c[2] - best_frags_h) / best_frags_h <= 0.15 for c in tied_candidates[1:])
+                else:
+                    frags_within_tolerance = any(c[2] == 0.0 for c in tied_candidates[1:])
+                if frags_within_tolerance:
+                    tie_text = "Top Candidates (Tie-Breaker: XP/h, Fragments/h within 15%)"
+                else:
+                    tie_text = "Top Candidates (Tie-Breaker: Fragments/h)"
+                
+                top3_frame = ttk.LabelFrame(main_frame, text=tie_text, padding="5")
+                top3_frame.grid(row=skill_row + 1, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 10))
+                
+                # Create a small bar chart or list
+                if MATPLOTLIB_AVAILABLE:
+                    fig_top3 = Figure(figsize=(7, 3.5), dpi=100)
+                    ax_top3 = fig_top3.add_subplot(111)
+                    
+                    # Prepare data
+                    labels = []
+                    frags_values = []
+                    xp_values = []
+                    colors = ['#9C27B0', '#BA68C8', '#CE93D8']  # Purple gradient
+                    
+                    for idx, (dist_dict, max_stage_int, frags_h, xp_h) in enumerate(tied_candidates[:3]):
+                        # Create skill label
+                        skill_parts = []
+                        for skill in ['strength', 'agility', 'intellect', 'perception', 'luck']:
+                            points = dist_dict.get(skill, 0)
+                            if points > 0:
+                                skill_parts.append(f"{skill[:3].upper()}:{points}")
+                        skill_label = " | ".join(skill_parts) if skill_parts else "All 0"
+                        labels.append(f"#{idx+1}: {skill_label}")
+                        frags_values.append(frags_h)
+                        xp_values.append(xp_h)
+                    
+                    # Create grouped bar chart (fragments/h and xp/h side by side)
+                    x_pos = np.arange(len(labels))
+                    width = 0.35
+                    
+                    bars1 = ax_top3.barh(x_pos - width/2, frags_values, width, label='Fragments/h', 
+                                        color=colors[:len(labels)], alpha=0.7, edgecolor='#4A148C', linewidth=1)
+                    bars2 = ax_top3.barh(x_pos + width/2, xp_values, width, label='XP/h', 
+                                        color=[c.replace('B0', '80') for c in colors[:len(labels)]], alpha=0.7, edgecolor='#4A148C', linewidth=1)
+                    
+                    # Add value labels on bars
+                    for i, (bar1, bar2, frag_val, xp_val) in enumerate(zip(bars1, bars2, frags_values, xp_values)):
+                        width1 = bar1.get_width()
+                        width2 = bar2.get_width()
+                        ax_top3.text(width1, bar1.get_y() + bar1.get_height()/2, 
+                                   f' {frag_val:.2f}', ha='left', va='center', fontsize=7, fontweight='bold')
+                        ax_top3.text(width2, bar2.get_y() + bar2.get_height()/2, 
+                                   f' {xp_val:.1f}', ha='left', va='center', fontsize=7, fontweight='bold')
+                    
+                    ax_top3.set_yticks(x_pos)
+                    ax_top3.set_yticklabels(labels, fontsize=8)
+                    ax_top3.set_xlabel('Rate (/h)', fontsize=9, fontweight='bold')
+                    ax_top3.set_title(f'Top {len(tied_candidates)} Candidates (Max Stage: {best_max_stage})', 
+                                    fontsize=9, fontweight='bold')
+                    ax_top3.legend(fontsize=8, loc='lower right')
+                    ax_top3.grid(axis='x', alpha=0.3, linestyle='--')
+                    
+                    fig_top3.tight_layout(pad=1.5)
+                    
+                    canvas_top3 = FigureCanvasTkAgg(fig_top3, top3_frame)
+                    canvas_top3.draw()
+                    canvas_top3.get_tk_widget().pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+                    
+                    top3_added = True
+        
+        # Adjust hist_row if top3 was added
+        if top3_added:
+            hist_row += 1
+            button_row += 1
         
         # Histogram frame (single histogram)
         hist_frame = ttk.LabelFrame(main_frame, text="Maximum Stage Reached Distribution", padding="5")
