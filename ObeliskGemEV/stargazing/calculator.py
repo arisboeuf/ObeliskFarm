@@ -72,6 +72,11 @@ class PlayerStargazingStats:
     
     # Floor clears per hour (depends on player's farming setup)
     floor_clears_per_hour: float = 120.0  # Default: 2 floors per minute
+    
+    # CTRL+F Stars skill (multiplies offline gains by 5x)
+    # Without CTRL+F: offline gains = auto_catch * spawn_rate * 0.2 (1 of 5 floors)
+    # With CTRL+F: offline gains = auto_catch * spawn_rate * 1.0 (follows star through all 5 floors)
+    ctrl_f_stars_enabled: bool = False
 
 
 class StargazingCalculator:
@@ -81,9 +86,15 @@ class StargazingCalculator:
     The calculation follows the game mechanics:
     1. Base chance: 1/50 (2%) per floor clear for a star to spawn
     2. Star Spawn Rate Multiplier: Increases the effective spawn chance
-    3. Double/Triple Star Chance: Chance for multiple stars per spawn
-    4. Supernova/Supergiant/Radiant: Multipliers on individual stars
-    5. All Star Multiplier: Final multiplier on all stars
+    3. At each spawn event, either:
+       - A Super Star spawns (exclusive with regular stars)
+       - OR a Regular Star spawns (can be single/double/triple)
+    4. Double/Triple Star Chance: Only applies to regular star spawns
+    5. Supernova/Supergiant/Radiant: Multipliers on individual stars
+    6. All Star Multiplier: Final multiplier on all stars
+    
+    IMPORTANT: Super Star spawns and Double/Triple Star spawns are EXCLUSIVE.
+    If a Super Star spawns, there is no Double/Triple Star, and vice versa.
     """
     
     def __init__(self, stats: PlayerStargazingStats):
@@ -91,20 +102,31 @@ class StargazingCalculator:
     
     def calculate_stars_per_spawn(self) -> float:
         """
-        Calculate expected number of stars per spawn event.
+        Calculate expected number of REGULAR stars per spawn event.
         
         This accounts for:
         - Double star chance (2 stars instead of 1)
         - Triple star chance (3 stars instead of 1)
         
         Note: Double and triple are exclusive - you get 1, 2, or 3 stars.
+        IMPORTANT: This only applies to REGULAR star spawns, NOT super star spawns.
+        Super star spawns are exclusive with double/triple star spawns.
         """
-        # Probability distribution
+        # Probability of super star spawn (exclusive with regular stars)
+        base_super_chance = BASE_SUPER_STAR_SPAWN_CHANCE  # 1/100 = 0.01
+        p_super_star = base_super_chance * self.stats.super_star_spawn_rate_mult
+        
+        # Probability of regular star spawn (when not super star)
+        p_regular_star = 1 - p_super_star
+        
+        # Probability distribution for regular stars (when it's a regular star spawn)
         p_triple = self.stats.triple_star_chance
         p_double = self.stats.double_star_chance * (1 - p_triple)  # Only if not triple
         p_single = 1 - p_triple - p_double
         
-        expected = 1 * p_single + 2 * p_double + 3 * p_triple
+        # Expected regular stars per spawn event
+        # = P(regular spawn) * E[stars | regular spawn]
+        expected = p_regular_star * (1 * p_single + 2 * p_double + 3 * p_triple)
         return expected
     
     def calculate_star_multiplier_per_star(self) -> float:
@@ -184,12 +206,20 @@ class StargazingCalculator:
     
     def calculate_auto_caught_stars_per_hour(self) -> float:
         """
-        Calculate stars automatically caught per hour.
+        Calculate stars automatically caught per hour (offline gains).
         
         Important for offline/AFK farming.
+        
+        Offline gains formula:
+        - Without CTRL+F Stars: auto_catch * spawn_rate * 0.2 (1 of 5 floors)
+        - With CTRL+F Stars: auto_catch * spawn_rate * 1.0 (follows through all 5 floors)
         """
         total_stars = self.calculate_stars_per_hour()
-        return total_stars * self.stats.auto_catch_chance
+        
+        # Offline gains multiplier: 0.2 without CTRL+F, 1.0 with CTRL+F
+        offline_mult = 1.0 if self.stats.ctrl_f_stars_enabled else 0.2
+        
+        return total_stars * self.stats.auto_catch_chance * offline_mult
     
     # =========================================================================
     # SUPER STAR CALCULATIONS
@@ -245,28 +275,22 @@ class StargazingCalculator:
         """
         Calculate the number of super star spawn events per hour.
         
-        Super stars spawn when a regular star spawns, with an additional 1/100 base chance.
-        The Star Spawn Rate Multiplier increases super star spawns too.
+        IMPORTANT: Super Star spawns are EXCLUSIVE with Double/Triple Star spawns.
+        At each spawn event, either:
+        - A Super Star spawns (with possible triple/10x effects)
+        - OR a Regular Star spawns (with possible double/triple effects)
         
-        IMPORTANT: Double/Triple Star spawns mean each individual star in the spawn
-        has a chance to be a Super Star. So if 2 stars spawn (double), there are 
-        2 independent chances for a Super Star.
+        The base chance is 1/100 per star spawn event, modified by Super Star Spawn Rate Multiplier.
         """
         # Number of star spawn events per hour
         star_spawn_events = self.calculate_star_spawn_rate_per_hour()
         
-        # Number of individual stars per spawn event (1-3 from double/triple)
-        stars_per_spawn = self.calculate_stars_per_spawn()
-        
-        # Total individual stars spawning per hour
-        total_stars_spawning = star_spawn_events * stars_per_spawn
-        
-        # Each individual star has a chance to be a Super Star
+        # Chance that a spawn event is a Super Star (exclusive with regular stars)
         base_super_chance = BASE_SUPER_STAR_SPAWN_CHANCE  # 1/100 = 0.01
         modified_super_chance = base_super_chance * self.stats.super_star_spawn_rate_mult
         
-        # Super star spawns = total individual stars * chance per star
-        super_spawns_per_hour = total_stars_spawning * modified_super_chance
+        # Super star spawn events = total spawn events * chance per event
+        super_spawns_per_hour = star_spawn_events * modified_super_chance
         return super_spawns_per_hour
     
     def calculate_super_stars_per_hour(self) -> float:
@@ -281,10 +305,18 @@ class StargazingCalculator:
     
     def calculate_auto_caught_super_stars_per_hour(self) -> float:
         """
-        Calculate super stars automatically caught per hour.
+        Calculate super stars automatically caught per hour (offline gains).
+        
+        Offline gains formula:
+        - Without CTRL+F Stars: auto_catch * spawn_rate * 0.2 (1 of 5 floors)
+        - With CTRL+F Stars: auto_catch * spawn_rate * 1.0 (follows through all 5 floors)
         """
         total_super_stars = self.calculate_super_stars_per_hour()
-        return total_super_stars * self.stats.auto_catch_chance
+        
+        # Offline gains multiplier: 0.2 without CTRL+F, 1.0 with CTRL+F
+        offline_mult = 1.0 if self.stats.ctrl_f_stars_enabled else 0.2
+        
+        return total_super_stars * self.stats.auto_catch_chance * offline_mult
     
     # =========================================================================
     # UPGRADE EFFICIENCY CALCULATIONS

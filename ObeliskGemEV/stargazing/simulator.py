@@ -214,6 +214,9 @@ class StargazingWindow:
         self.time_seconds = 0
         self.floor_clears_per_hour = 120.0
         
+        # CTRL+F Stars skill (multiplies offline gains by 5x)
+        self.ctrl_f_stars_enabled = False
+        
         # Upgrade levels (for calculating next upgrade benefit)
         self.stargazing_upgrades = {key: 0 for key in STARGAZING_UPGRADES.keys()}
         self.super_star_upgrades = {key: 0 for key in SUPER_STAR_UPGRADES.keys()}
@@ -239,6 +242,7 @@ class StargazingWindow:
             'super_star_upgrades': self.super_star_upgrades,
             'stars_owned': self.stars_owned,
             'star_levels': self.star_levels,
+            'ctrl_f_stars_enabled': self.ctrl_f_stars_enabled,
         }
         try:
             SAVE_DIR.mkdir(parents=True, exist_ok=True)
@@ -287,6 +291,9 @@ class StargazingWindow:
                 if key in state.get('star_levels', {}):
                     self.star_levels[key] = state['star_levels'][key]
             
+            # Load CTRL+F Stars skill
+            self.ctrl_f_stars_enabled = state.get('ctrl_f_stars_enabled', False)
+            
             # Update UI
             self.update_ui_from_state()
             
@@ -332,6 +339,10 @@ class StargazingWindow:
         if hasattr(self, 'star_level_labels'):
             for key, label in self.star_level_labels.items():
                 label.config(text=str(self.star_levels.get(key, 1)))
+        
+        # Update CTRL+F Stars checkbox
+        if hasattr(self, 'ctrl_f_stars_var'):
+            self.ctrl_f_stars_var.set(self.ctrl_f_stars_enabled)
     
     def create_widgets(self):
         """Create all GUI widgets"""
@@ -362,16 +373,16 @@ class StargazingWindow:
         content_frame.pack(fill=tk.BOTH, expand=True)
         content_frame.columnconfigure(0, weight=1)
         content_frame.columnconfigure(1, weight=1)
-        content_frame.columnconfigure(2, weight=1)
+        # content_frame.columnconfigure(2, weight=1)  # Temporarily disabled - middle panel
         content_frame.rowconfigure(0, weight=1)
         
         # Left: Manual Stats Input
         self.create_stats_section(content_frame)
         
-        # Middle: Upgrades & Stars
-        self.create_upgrades_section(content_frame)
+        # Middle: Upgrades & Stars (TEMPORARILY HIDDEN - math implementation needs verification)
+        # self.create_upgrades_section(content_frame)
         
-        # Right: Results
+        # Right: Results (moved to column 1 since middle is hidden)
         self.create_results_section(content_frame)
     
     def create_stats_section(self, parent):
@@ -408,6 +419,12 @@ class StargazingWindow:
             canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
         canvas.bind_all("<MouseWheel>", on_mousewheel)
         
+        # Configure grid columns for proper alignment
+        stats_frame.columnconfigure(0, weight=0, minsize=20)  # Icon column
+        stats_frame.columnconfigure(1, weight=1, minsize=140)  # Label column
+        stats_frame.columnconfigure(2, weight=0, minsize=70)    # Entry column
+        stats_frame.columnconfigure(3, weight=0, minsize=20)    # Suffix column
+        
         self.stat_vars = {}
         self.stat_entries = {}
         
@@ -439,43 +456,51 @@ class StargazingWindow:
             ('all_star_mult', 'All Star Multi', 'x', 'all_star_mult', False),
         ]
         
+        row = 0
         for key, label, suffix, sprite_key, is_separator in stats_config:
             if key.startswith('_header'):
-                # Section header
-                ttk.Separator(stats_frame, orient='horizontal').pack(fill=tk.X, pady=(8, 3))
+                # Section header - span all columns
+                ttk.Separator(stats_frame, orient='horizontal').grid(row=row, column=0, columnspan=4, sticky=(tk.W, tk.E), pady=(8, 3), padx=2)
+                row += 1
                 tk.Label(stats_frame, text=label, font=("Arial", 9, "bold"), 
-                         background=COLOR_STATS, fg="#2E7D32").pack(anchor=tk.W)
+                         background=COLOR_STATS, fg="#2E7D32").grid(row=row, column=0, columnspan=4, sticky=tk.W, padx=2)
+                row += 1
                 continue
-            
-            row_frame = tk.Frame(stats_frame, background=COLOR_STATS)
-            row_frame.pack(fill=tk.X, pady=2)
             
             # Icon if available
             if sprite_key and sprite_key in self.sprites:
-                tk.Label(row_frame, image=self.sprites[sprite_key], background=COLOR_STATS).pack(side=tk.LEFT, padx=(0, 3))
+                tk.Label(stats_frame, image=self.sprites[sprite_key], background=COLOR_STATS).grid(
+                    row=row, column=0, sticky=tk.W, padx=(0, 3))
+            else:
+                # Empty space for alignment when no icon
+                tk.Label(stats_frame, text="", background=COLOR_STATS, width=2).grid(
+                    row=row, column=0, sticky=tk.W)
             
             # Label
-            tk.Label(row_frame, text=f"{label}:", background=COLOR_STATS, 
-                     font=("Arial", 9), width=18, anchor=tk.W).pack(side=tk.LEFT)
+            tk.Label(stats_frame, text=f"{label}:", background=COLOR_STATS, 
+                     font=("Arial", 9), anchor=tk.W).grid(row=row, column=1, sticky=(tk.W, tk.E), padx=(0, 5))
             
             # Entry
             var = tk.StringVar(value=str(self.manual_stats.get(key, 0)))
             self.stat_vars[key] = var
-            entry = ttk.Entry(row_frame, textvariable=var, width=8, font=("Arial", 10))
-            entry.pack(side=tk.LEFT, padx=3)
+            entry = ttk.Entry(stats_frame, textvariable=var, width=8, font=("Arial", 10))
+            entry.grid(row=row, column=2, sticky=tk.W, padx=2)
             # Live calculation on any change
             var.trace_add('write', lambda *args: self._schedule_update())
             self.stat_entries[key] = entry
             
             # Suffix
-            tk.Label(row_frame, text=suffix, background=COLOR_STATS, 
-                     font=("Arial", 9), fg="gray").pack(side=tk.LEFT)
+            tk.Label(stats_frame, text=suffix, background=COLOR_STATS, 
+                     font=("Arial", 9), fg="gray").grid(row=row, column=3, sticky=tk.W, padx=(2, 0))
+            
+            row += 1
         
         # Floor clears section
-        ttk.Separator(stats_frame, orient='horizontal').pack(fill=tk.X, pady=(10, 5))
+        ttk.Separator(stats_frame, orient='horizontal').grid(row=row, column=0, columnspan=4, sticky=(tk.W, tk.E), pady=(10, 5), padx=2)
+        row += 1
         
         floor_header = tk.Frame(stats_frame, background=COLOR_STATS)
-        floor_header.pack(fill=tk.X, pady=2)
+        floor_header.grid(row=row, column=0, columnspan=4, sticky=(tk.W, tk.E), pady=2)
         tk.Label(floor_header, text="OFFLINE GAINS INPUT", font=("Arial", 9, "bold"), 
                  background=COLOR_STATS, fg="#1565C0").pack(side=tk.LEFT)
         
@@ -484,53 +509,80 @@ class StargazingWindow:
                               cursor="hand2", foreground="#1565C0", background=COLOR_STATS)
         floor_help.pack(side=tk.LEFT, padx=(5, 0))
         self._create_floor_input_tooltip(floor_help)
+        row += 1
         
         # Floors input
-        floor_frame = tk.Frame(stats_frame, background=COLOR_STATS)
-        floor_frame.pack(fill=tk.X, pady=2)
-        tk.Label(floor_frame, text="Floors cleared:", background=COLOR_STATS, 
-                 font=("Arial", 9), width=14, anchor=tk.W).pack(side=tk.LEFT)
+        tk.Label(stats_frame, text="Floors cleared:", background=COLOR_STATS, 
+                 font=("Arial", 9), anchor=tk.W).grid(row=row, column=1, sticky=(tk.W, tk.E), padx=(0, 5))
         self.floors_var = tk.StringVar(value=str(self.floors_cleared))
-        floors_entry = ttk.Entry(floor_frame, textvariable=self.floors_var, width=8, font=("Arial", 10))
-        floors_entry.pack(side=tk.LEFT, padx=3)
+        floors_entry = ttk.Entry(stats_frame, textvariable=self.floors_var, width=8, font=("Arial", 10))
+        floors_entry.grid(row=row, column=2, sticky=tk.W, padx=2)
         # Live calculation on any change
         self.floors_var.trace_add('write', lambda *args: self._schedule_update())
+        row += 1
         
         # Time input (h m s)
-        time_frame = tk.Frame(stats_frame, background=COLOR_STATS)
-        time_frame.pack(fill=tk.X, pady=2)
-        tk.Label(time_frame, text="Time:", background=COLOR_STATS, 
-                 font=("Arial", 9), width=14, anchor=tk.W).pack(side=tk.LEFT)
+        tk.Label(stats_frame, text="Time:", background=COLOR_STATS, 
+                 font=("Arial", 9), anchor=tk.W).grid(row=row, column=1, sticky=(tk.W, tk.E), padx=(0, 5))
+        
+        time_entry_frame = tk.Frame(stats_frame, background=COLOR_STATS)
+        time_entry_frame.grid(row=row, column=2, sticky=tk.W, padx=2)
         
         # Hours
         self.time_h_var = tk.StringVar(value=str(self.time_hours))
-        h_entry = ttk.Entry(time_frame, textvariable=self.time_h_var, width=3, font=("Arial", 10))
+        h_entry = ttk.Entry(time_entry_frame, textvariable=self.time_h_var, width=3, font=("Arial", 10))
         h_entry.pack(side=tk.LEFT)
         self.time_h_var.trace_add('write', lambda *args: self._schedule_update())
-        tk.Label(time_frame, text="h", background=COLOR_STATS, font=("Arial", 9)).pack(side=tk.LEFT, padx=(1, 5))
+        tk.Label(time_entry_frame, text="h", background=COLOR_STATS, font=("Arial", 9)).pack(side=tk.LEFT, padx=(1, 5))
         
         # Minutes
         self.time_m_var = tk.StringVar(value=str(self.time_minutes))
-        m_entry = ttk.Entry(time_frame, textvariable=self.time_m_var, width=3, font=("Arial", 10))
+        m_entry = ttk.Entry(time_entry_frame, textvariable=self.time_m_var, width=3, font=("Arial", 10))
         m_entry.pack(side=tk.LEFT)
         self.time_m_var.trace_add('write', lambda *args: self._schedule_update())
-        tk.Label(time_frame, text="m", background=COLOR_STATS, font=("Arial", 9)).pack(side=tk.LEFT, padx=(1, 5))
+        tk.Label(time_entry_frame, text="m", background=COLOR_STATS, font=("Arial", 9)).pack(side=tk.LEFT, padx=(1, 5))
         
         # Seconds
         self.time_s_var = tk.StringVar(value=str(self.time_seconds))
-        s_entry = ttk.Entry(time_frame, textvariable=self.time_s_var, width=3, font=("Arial", 10))
+        s_entry = ttk.Entry(time_entry_frame, textvariable=self.time_s_var, width=3, font=("Arial", 10))
         s_entry.pack(side=tk.LEFT)
         self.time_s_var.trace_add('write', lambda *args: self._schedule_update())
-        tk.Label(time_frame, text="s", background=COLOR_STATS, font=("Arial", 9)).pack(side=tk.LEFT, padx=(1, 0))
+        tk.Label(time_entry_frame, text="s", background=COLOR_STATS, font=("Arial", 9)).pack(side=tk.LEFT, padx=(1, 0))
+        row += 1
         
         # Calculated floors/hour display
-        result_frame = tk.Frame(stats_frame, background=COLOR_STATS)
-        result_frame.pack(fill=tk.X, pady=(5, 2))
-        tk.Label(result_frame, text="= Floors/hour:", background=COLOR_STATS, 
-                 font=("Arial", 9, "bold"), width=14, anchor=tk.W).pack(side=tk.LEFT)
-        self.floors_per_hour_label = tk.Label(result_frame, text=f"{self.floor_clears_per_hour:.2f}", 
+        tk.Label(stats_frame, text="= Floors/hour:", background=COLOR_STATS, 
+                 font=("Arial", 9, "bold"), anchor=tk.W).grid(row=row, column=1, sticky=(tk.W, tk.E), padx=(0, 5))
+        self.floors_per_hour_label = tk.Label(stats_frame, text=f"{self.floor_clears_per_hour:.2f}", 
                                                background=COLOR_STATS, font=("Arial", 10, "bold"), fg="#1565C0")
-        self.floors_per_hour_label.pack(side=tk.LEFT, padx=3)
+        self.floors_per_hour_label.grid(row=row, column=2, sticky=tk.W, padx=2)
+        row += 1
+        
+        # CTRL+F Stars skill checkbox
+        ttk.Separator(stats_frame, orient='horizontal').grid(row=row, column=0, columnspan=4, sticky=(tk.W, tk.E), pady=(10, 5), padx=2)
+        row += 1
+        
+        ctrl_f_header = tk.Frame(stats_frame, background=COLOR_STATS)
+        ctrl_f_header.grid(row=row, column=0, columnspan=4, sticky=(tk.W, tk.E), pady=2)
+        tk.Label(ctrl_f_header, text="CTRL+F Stars Skill", font=("Arial", 9, "bold"), 
+                 background=COLOR_STATS, fg="#1565C0").pack(side=tk.LEFT)
+        
+        # Help tooltip for CTRL+F Stars
+        ctrl_f_help = tk.Label(ctrl_f_header, text="?", font=("Arial", 9, "bold"), 
+                              cursor="hand2", foreground="#1565C0", background=COLOR_STATS)
+        ctrl_f_help.pack(side=tk.LEFT, padx=(5, 0))
+        self._create_ctrl_f_help_tooltip(ctrl_f_help)
+        row += 1
+        
+        # Checkbox
+        self.ctrl_f_stars_var = tk.BooleanVar(value=self.ctrl_f_stars_enabled)
+        ctrl_f_checkbox = ttk.Checkbutton(
+            stats_frame,
+            text="CTRL+F Stars enabled (5x offline gains)",
+            variable=self.ctrl_f_stars_var,
+            command=self.on_ctrl_f_changed
+        )
+        ctrl_f_checkbox.grid(row=row, column=1, columnspan=3, sticky=tk.W, padx=2)
     
     def create_upgrades_section(self, parent):
         """Create the upgrades tracking section"""
@@ -738,7 +790,7 @@ class StargazingWindow:
         """Create the results display section"""
         
         container = tk.Frame(parent, background=COLOR_RESULTS, relief=tk.RIDGE, borderwidth=2)
-        container.grid(row=0, column=2, sticky="nsew", padx=(3, 0), pady=0)
+        container.grid(row=0, column=1, sticky="nsew", padx=(3, 0), pady=0)  # Changed from column=2 to column=1 (middle panel hidden)
         
         # Header
         header = tk.Frame(container, background=COLOR_RESULTS)
@@ -936,6 +988,11 @@ class StargazingWindow:
         
         self.update_calculations()
     
+    def on_ctrl_f_changed(self):
+        """Handle CTRL+F Stars checkbox change"""
+        self.ctrl_f_stars_enabled = self.ctrl_f_stars_var.get()
+        self.update_calculations()
+    
     def on_floor_time_changed(self):
         """Handle floor/time input changes"""
         try:
@@ -986,6 +1043,7 @@ class StargazingWindow:
             super_star_radiant_chance=self.manual_stats.get('super_star_radiant_chance', 0) / 100,
             all_star_mult=self.manual_stats.get('all_star_mult', 1.0),
             floor_clears_per_hour=self.floor_clears_per_hour,
+            ctrl_f_stars_enabled=self.ctrl_f_stars_enabled,
         )
         
         calc = StargazingCalculator(stats)
@@ -1149,12 +1207,19 @@ class StargazingWindow:
             "sources (stars, upgrades, items, etc).",
             "",
             "BASE SPAWN RATES:",
-            "  Star: 1/50 (2%) per floor clear",
-            "  Super Star: 1/100 (1%) when Star spawns",
+            "  Star spawn: 1/50 (2%) per floor clear",
+            "  At each spawn: either Super Star OR Regular",
+            "  Super Star: 1/100 (1%) per spawn event",
+            "",
+            "IMPORTANT: Super Star and Double/Triple Star",
+            "spawns are EXCLUSIVE. If Super Star spawns,",
+            "no Double/Triple. If Double/Triple spawns,",
+            "no Super Star.",
             "",
             "Example at 120 floors/h with 1.0x rates:",
-            "  Stars: 120 × 2% = 2.4 spawns/h",
+            "  Spawns: 120 × 2% = 2.4 spawns/h",
             "  Super Stars: 2.4 × 1% = 0.024 spawns/h",
+            "  Regular Stars: 2.4 × 99% = 2.376 spawns/h",
             "",
             "Multiplier values (x): Enter as shown",
             "  Example: 1.16 for 1.16x",
@@ -1168,23 +1233,24 @@ class StargazingWindow:
         """Tooltip explaining Super Star spawn mechanics"""
         lines = [
             "",
-            "Each individual Star that spawns has a chance",
-            "to be a Super Star:",
+            "At each star spawn event, either:",
+            "  • A Super Star spawns (exclusive)",
+            "  • OR a Regular Star spawns (can be single/double/triple)",
             "",
-            "Base chance: 1/100 (1%) per Star",
+            "Base chance: 1/100 (1%) per spawn event",
             "",
             "This is multiplied by your Super Star Spawn",
             "Rate multiplier from upgrades.",
             "",
-            "IMPORTANT: Double/Triple Star spawns increase",
-            "Super Star income! When 2-3 Stars spawn at",
-            "once, each has an independent chance to be",
-            "a Super Star.",
+            "IMPORTANT: Super Star spawns are EXCLUSIVE",
+            "with Double/Triple Star spawns. If a Super",
+            "Star spawns, there is no Double/Triple Star,",
+            "and vice versa.",
             "",
-            "Example: With 50% Double Star chance and",
-            "1.5x Super Star Spawn Rate:",
-            "  E[Stars/spawn] = 1×0.5 + 2×0.5 = 1.5",
-            "  SS chance = 1.5 × 1.5% = 2.25% per spawn",
+            "Example: With 1.5x Super Star Spawn Rate:",
+            "  SS chance = 1% × 1.5 = 1.5% per spawn",
+            "  Regular chance = 98.5% per spawn",
+            "  (Double/Triple only applies to regular)",
         ]
         self._create_tooltip(widget, "Super Star Spawn Mechanics", lines, "#E65100")
     
@@ -1223,3 +1289,22 @@ class StargazingWindow:
             "from upgrades, stars, and other sources.",
         ]
         self._create_tooltip(widget, "Auto-Catch Efficiency", lines, "#6A1B9A")
+    
+    def _create_ctrl_f_help_tooltip(self, widget):
+        """Tooltip explaining CTRL+F Stars skill"""
+        lines = [
+            "",
+            "CTRL+F Stars skill multiplies offline gains",
+            "by 5x for both Stars and Super Stars.",
+            "",
+            "MECHANICS:",
+            "  Each star type spawns on 5 different floors.",
+            "  Without CTRL+F: You catch the star on 1 floor",
+            "    → Offline gains = auto_catch × spawn_rate × 0.2",
+            "",
+            "  With CTRL+F: You follow the star through all 5 floors",
+            "    → Offline gains = auto_catch × spawn_rate × 1.0",
+            "",
+            "This applies to both regular Stars and Super Stars.",
+        ]
+        self._create_tooltip(widget, "CTRL+F Stars Skill", lines, "#1565C0")
