@@ -226,18 +226,6 @@ class MonteCarloCritSimulator:
             crit_damage = stats.get('crit_damage', 1.5)
             skill_points = stats.get('skill_points', {})
             
-            print("\n" + "=" * 100)
-            print(f"MONTE CARLO RUN DEBUG")
-            print("=" * 100)
-            print(f"Starting Floor: {starting_floor} | Max Stamina: {max_stamina:.1f}")
-            print(f"Damage: {total_damage} | Armor Pen: {armor_pen} | Crit: {crit_chance:.1f}% ({crit_damage:.2f}x)")
-            if skill_points:
-                skill_str = ", ".join([f"{k.upper()[:3]}:{v}" for k, v in skill_points.items() if v > 0])
-                if skill_str:
-                    print(f"Skills: {skill_str}")
-            print("=" * 100)
-            print(f"{'Floor':<8} {'Stam Start':<12} {'Blocks':<8} {'Block Types':<30} {'Stam Used':<12} {'Stam Mod':<10} {'Stam End':<12} {'Cleared':<8}")
-            print("-" * 100)
         
         for floor_iter in range(1000):  # Max floors safety
             block_mix = get_block_mix_for_floor(current_floor)
@@ -358,11 +346,6 @@ class MonteCarloCritSimulator:
             stamina_after_floor = stamina_remaining - stamina_for_floor if stamina_remaining >= stamina_for_floor else stamina_remaining
             cleared = stamina_remaining >= stamina_for_floor
             
-            if debug:
-                flurry_str = f"+{flurry_stamina_bonus}" if flurry_triggered else ""
-                mod_str = f"+{stamina_mods_this_floor:.1f}" if stamina_mods_this_floor > 0 else ""
-                print(f"{current_floor:<8} {stamina_before_floor:<12.1f} {blocks_killed:<8} {block_types_str:<30} "
-                      f"{stamina_for_floor:<12.1f} {mod_str:<10} {stamina_after_floor:<12.1f} {'✓' if cleared else '✗':<8}")
             
             if stamina_remaining >= stamina_for_floor:
                 stamina_remaining -= stamina_for_floor
@@ -376,10 +359,6 @@ class MonteCarloCritSimulator:
                     floors_cleared += stamina_remaining / stamina_for_floor
                 break
         
-        if debug:
-            print("-" * 100)
-            print(f"Run completed: {floors_cleared:.2f} floors cleared (started at {starting_floor}, reached {max_stage_reached})")
-            print("=" * 100 + "\n")
         
         if return_metrics:
             # Calculate total fragments
@@ -415,10 +394,7 @@ class MonteCarloCritSimulator:
         results_with_crit = []
         results_without_crit = []
         
-        print(f"Running {num_simulations} simulations...")
         for i in range(num_simulations):
-            if (i + 1) % 100 == 0:
-                print(f"  Progress: {i + 1}/{num_simulations}")
             
             # Simulate with crit
             floors_crit = self.simulate_run(
@@ -462,15 +438,6 @@ class MonteCarloCritSimulator:
     def print_comparison(self, stats_with_crit: SimulationStats,
                         stats_without_crit: SimulationStats):
         """Print a formatted comparison of the two scenarios"""
-        print("\n" + "=" * 80)
-        print("MONTE CARLO CRIT COMPARISON RESULTS")
-        print("=" * 80)
-        
-        print("\nWITH CRIT:")
-        print(f"  {stats_with_crit}")
-        
-        print("\nWITHOUT CRIT:")
-        print(f"  {stats_without_crit}")
         
         # Calculate difference
         mean_diff = stats_with_crit.mean - stats_without_crit.mean
@@ -479,41 +446,6 @@ class MonteCarloCritSimulator:
         median_diff = stats_with_crit.median - stats_without_crit.median
         median_diff_pct = (median_diff / stats_without_crit.median * 100) if stats_without_crit.median > 0 else 0
         
-        print("\nDIFFERENCE (Crit - No Crit):")
-        print(f"  Mean: {mean_diff:+.3f} floors ({mean_diff_pct:+.2f}%)")
-        print(f"  Median: {median_diff:+.3f} floors ({median_diff_pct:+.2f}%)")
-        print(f"  StdDev difference: {stats_with_crit.std_dev - stats_without_crit.std_dev:+.3f}")
-        
-        # Statistical significance (simple t-test approximation)
-        if len(stats_with_crit.samples) > 1 and len(stats_without_crit.samples) > 1:
-            pooled_std = math.sqrt(
-                (stats_with_crit.std_dev ** 2 + stats_without_crit.std_dev ** 2) / 2
-            )
-            if pooled_std > 0:
-                n = len(stats_with_crit.samples)
-                se = pooled_std * math.sqrt(2 / n)
-                if se > 0:
-                    t_stat = mean_diff / se
-                    print(f"  T-statistic: {t_stat:.3f}")
-                    if abs(t_stat) > 1.96:
-                        print("  → Statistically significant difference (p < 0.05)")
-                    else:
-                        print("  → Not statistically significant (p >= 0.05)")
-        
-        print("\n" + "=" * 80)
-        
-        # Recommendation
-        if abs(mean_diff_pct) < 0.1:
-            print("\nRECOMMENDATION: Crit has minimal impact (<0.1% difference).")
-            print("  You can safely use deterministic mode (no crit) for simplicity.")
-        elif abs(mean_diff_pct) < 1.0:
-            print("\nRECOMMENDATION: Crit has small impact (<1% difference).")
-            print("  Deterministic mode is acceptable, but crit mode is more accurate.")
-        else:
-            print("\nRECOMMENDATION: Crit has meaningful impact (>1% difference).")
-            print("  You should use crit mode for accurate calculations.")
-        
-        print("=" * 80 + "\n")
 
 
 def run_crit_analysis(stats: Dict, starting_floor: int,
@@ -593,6 +525,4 @@ if __name__ == "__main__":
     # print("Debug Single Run Example")
     # debug_single_run(example_stats, starting_floor=1, use_crit=True, enrage_enabled=False, flurry_enabled=False)
     
-    print("Example Monte Carlo Crit Analysis")
-    print("=" * 80)
     run_crit_analysis(example_stats, starting_floor=1, num_simulations=1000)

@@ -58,6 +58,7 @@ class BudgetOptimizerPanel:
         # State
         self.material_budget = {1: 0, 2: 0, 3: 0, 4: 0}
         self.material_vars = {}
+        self.material_entries = {}  # Store entry widgets for direct access
         
         # Current upgrade levels (for forecast mode)
         self.current_upgrade_levels = {
@@ -189,8 +190,27 @@ class BudgetOptimizerPanel:
         header_frame = tk.Frame(left_column, background="#4CAF50", relief=tk.RIDGE, borderwidth=2)
         header_frame.pack(fill=tk.X, padx=3, pady=2)
         
-        tk.Label(header_frame, text="Upgrades", font=("Arial", 10, "bold"),
-                background="#4CAF50", foreground="white").pack(pady=3)
+        # Header with title and prestige input
+        header_content = tk.Frame(header_frame, background="#4CAF50")
+        header_content.pack(fill=tk.X, padx=5, pady=3)
+        
+        tk.Label(header_content, text="Upgrades", font=("Arial", 10, "bold"),
+                background="#4CAF50", foreground="white").pack(side=tk.LEFT)
+        
+        # Prestige input in header (right side)
+        prestige_header_frame = tk.Frame(header_content, background="#4CAF50")
+        prestige_header_frame.pack(side=tk.RIGHT)
+        
+        tk.Label(prestige_header_frame, text="Prestige:", font=("Arial", 9, "bold"),
+                background="#4CAF50", foreground="white").pack(side=tk.LEFT, padx=(10, 5))
+        
+        prestige_spin_header = ttk.Spinbox(prestige_header_frame, from_=0, to=20, width=5,
+                                          textvariable=self.budget_prestige_var,
+                                          command=self._on_prestige_change)
+        prestige_spin_header.pack(side=tk.LEFT)
+        prestige_spin_header.bind('<Return>', lambda e: self._on_prestige_change())
+        # Save when prestige changes
+        self.budget_prestige_var.trace('w', lambda *args: self.save_state())
         
         # === CURRENT UPGRADE LEVELS (Forecast Mode) ===
         current_upgrades_frame = tk.Frame(left_column, background="#FFF3E0", relief=tk.RIDGE, borderwidth=2)
@@ -262,10 +282,16 @@ class BudgetOptimizerPanel:
         mat_names = ["Coins", "M2", "M3", "M4"]
         mat_colors = ["#FFC107", "#9C27B0", "#00BCD4", "#E91E63"]
         
-        # Compact grid layout for materials
+        # Configure grid for uniform column widths (only 4 columns now, no prestige)
+        mat_inner.columnconfigure(0, weight=1, uniform="mat_col")
+        mat_inner.columnconfigure(1, weight=1, uniform="mat_col")
+        mat_inner.columnconfigure(2, weight=1, uniform="mat_col")
+        mat_inner.columnconfigure(3, weight=1, uniform="mat_col")
+        
+        # Compact grid layout for materials - uniform size
         for i in range(4):
             col_frame = tk.Frame(mat_inner, background="#E8F5E9")
-            col_frame.grid(row=0, column=i, padx=2)
+            col_frame.grid(row=0, column=i, padx=2, sticky="ew")
             
             tier = i + 1
             if tier in self.currency_icons:
@@ -274,30 +300,20 @@ class BudgetOptimizerPanel:
                 icon_label.pack()
             
             tk.Label(col_frame, text=mat_names[i], font=("Arial", 7, "bold"),
-                    background="#E8F5E9", foreground=mat_colors[i]).pack()
+                    background="#E8F5E9").pack()
             
             var = tk.StringVar(value="0")
-            entry = ttk.Entry(col_frame, textvariable=var, width=8, font=("Arial", 8))
-            entry.pack(pady=2)
+            entry = ttk.Entry(col_frame, textvariable=var, width=10, font=("Arial", 8))
+            entry.pack(pady=2, fill=tk.X)
             entry.bind('<Return>', lambda e: self.calculate_optimal_upgrades())
+            # Also trigger on focus out to ensure values are captured
+            entry.bind('<FocusOut>', lambda e: self._validate_material_entry(tier))
             
+            # Store both the StringVar and the Entry widget reference
             self.material_vars[tier] = var
+            self.material_entries[tier] = entry
         
-        # Prestige input (compact)
-        prestige_frame = tk.Frame(mat_inner, background="#E8F5E9")
-        prestige_frame.grid(row=0, column=4, padx=2)
-        
-        tk.Label(prestige_frame, text="P", font=("Arial", 7, "bold"),
-                background="#E8F5E9").pack()
-        
-        # budget_prestige_var is already initialized at the start of build_ui()
-        prestige_spin = ttk.Spinbox(prestige_frame, from_=0, to=20, width=4,
-                                    textvariable=self.budget_prestige_var,
-                                    command=self._on_prestige_change)
-        prestige_spin.pack(pady=2)
-        prestige_spin.bind('<Return>', lambda e: self._on_prestige_change())
-        # Save when prestige changes
-        self.budget_prestige_var.trace('w', lambda *args: self.save_state())
+        # Prestige input removed from here - now in header
         
         # Calculate button (compact)
         calc_btn = tk.Button(input_frame, text="Forecast", 
@@ -604,6 +620,10 @@ class BudgetOptimizerPanel:
     def _on_prestige_change(self):
         """Update upgrade inputs when prestige changes"""
         self._build_upgrade_level_inputs()
+        # Update player stats to reflect new prestige multiplier
+        self._update_player_stats()
+        # Save state when prestige changes
+        self.save_state()
     
     def _update_total_points(self):
         """Update the total points display"""
@@ -793,12 +813,15 @@ class BudgetOptimizerPanel:
         from .simulation import apply_upgrades
         from .stats import PlayerStats, EnemyStats
         
+        # Get current prestige
+        prestige = self.budget_prestige_var.get()
+        
         # Calculate player stats from current upgrades
         player, enemy = apply_upgrades(
             self.current_upgrade_levels,
             PlayerStats(),
             EnemyStats(),
-            self.budget_prestige_var.get(),
+            prestige,
             self.current_gem_levels
         )
         
@@ -809,12 +832,13 @@ class BudgetOptimizerPanel:
         
         # Create a simple result-like object for display
         class SimpleResult:
-            def __init__(self, player_stats):
+            def __init__(self, player_stats, enemy_stats=None):
                 self.player_stats = player_stats
+                self.enemy_stats = enemy_stats
         
-        result = SimpleResult(player)
+        result = SimpleResult(player, enemy)
         
-        # Update display
+        # Update display (prestige multiplier will be calculated dynamically in update_player_stats_display)
         self.update_player_stats_display(result, reference_wave, ehp_at_wave)
     
     def _update_expected_results(self):
@@ -1163,19 +1187,97 @@ class BudgetOptimizerPanel:
                 background="#FFFFFF", justify=tk.LEFT, anchor="nw",
                 padx=10, pady=10).pack(fill=tk.BOTH, expand=True)
     
+    def _validate_material_entry(self, tier):
+        """Validate and update material entry when focus is lost"""
+        if tier in self.material_vars:
+            var = self.material_vars[tier]
+            val = var.get().strip() if var.get() else ""
+            # Clean the value
+            val = val.replace(",", "").replace(" ", "")
+            if val:
+                try:
+                    float(val)  # Validate it's a number
+                except ValueError:
+                    var.set("0")  # Reset to 0 if invalid
+            else:
+                var.set("0")
+    
     def calculate_optimal_upgrades(self):
         """Calculate optimal upgrades based on material budget"""
-        # Parse material inputs
+        # Parse material inputs - read directly from entry widgets
         try:
+            total_budget = 0
             for i in range(1, 5):
-                val = self.material_vars[i].get().replace(",", "").replace(".", "")
-                self.material_budget[i] = float(val) if val else 0
-        except ValueError:
-            # Show error in results container
-            for widget in self.results_container.winfo_children():
+                # Get value directly from Entry widget (more reliable than StringVar)
+                raw_val = ""
+                if i in self.material_entries:
+                    entry = self.material_entries[i]
+                    raw_val = entry.get() if entry else ""
+                elif i in self.material_vars:
+                    # Fallback to StringVar if entry not available
+                    var = self.material_vars[i]
+                    raw_val = var.get() if var else ""
+                else:
+                    raw_val = ""
+                
+                # Clean the value
+                if raw_val:
+                    val = str(raw_val).strip()
+                    # Remove thousand separators (commas) but keep decimal points
+                    val = val.replace(",", "").replace(" ", "")
+                else:
+                    val = ""
+                
+                # Convert to float (handles both integers and decimals)
+                if val:
+                    try:
+                        self.material_budget[i] = float(val)
+                    except (ValueError, TypeError):
+                        self.material_budget[i] = 0.0
+                else:
+                    self.material_budget[i] = 0.0
+                
+                total_budget += self.material_budget[i]
+            
+            # Check if any budget was entered
+            if total_budget == 0 or total_budget < 0.001:
+                # Show error in expected results container instead
+                for widget in self.expected_results_container.winfo_children():
+                    widget.destroy()
+                error_label = tk.Label(self.expected_results_container, 
+                                      text="Error: Please enter at least some materials", 
+                                      font=("Arial", 9), foreground="red",
+                                      background="#E8F5E9")
+                error_label.pack(pady=20)
+                return
+            
+            # Check if budget is large enough for at least one upgrade
+            from .constants import COSTS, PRESTIGE_UNLOCKED
+            min_cost = float('inf')
+            prestige = self.budget_prestige_var.get()
+            for tier in range(1, 5):
+                for idx in range(len(COSTS[tier])):
+                    if PRESTIGE_UNLOCKED[tier][idx] <= prestige:
+                        base_cost = COSTS[tier][idx]
+                        if base_cost < min_cost:
+                            min_cost = base_cost
+            
+            if total_budget < min_cost:
+                # Show error in expected results container instead
+                for widget in self.expected_results_container.winfo_children():
+                    widget.destroy()
+                error_label = tk.Label(self.expected_results_container, 
+                                      text=f"Error: Budget too small!\nMinimum cost: {int(min_cost)}\nYour budget: {int(total_budget)}", 
+                                      font=("Arial", 9), foreground="red",
+                                      background="#E8F5E9", justify=tk.LEFT)
+                error_label.pack(pady=20)
+                return
+        except (ValueError, TypeError, AttributeError) as e:
+            # Show error in expected results container instead
+            for widget in self.expected_results_container.winfo_children():
                 widget.destroy()
-            error_label = tk.Label(self.results_container, 
-                                  text="Error: Please enter valid numbers for materials", 
+            error_label = tk.Label(self.expected_results_container, 
+                                  text=f"Error: Please enter valid numbers for materials\n{str(e)}", 
                                   font=("Arial", 9), foreground="red",
                                   background="#E8F5E9")
             error_label.pack(pady=20)
@@ -1207,12 +1309,15 @@ class BudgetOptimizerPanel:
                 initial_state=initial_state
             )
         except Exception as e:
-            for widget in self.results_container.winfo_children():
+            import traceback
+            error_msg = f"Error: {str(e)}\n\n{traceback.format_exc()}"
+            # Show error in expected results container instead
+            for widget in self.expected_results_container.winfo_children():
                 widget.destroy()
-            error_label = tk.Label(self.results_container, 
+            error_label = tk.Label(self.expected_results_container, 
                                   text=f"Error: {str(e)}", 
                                   font=("Arial", 9), foreground="red",
-                                  background="#E8F5E9")
+                                  background="#E8F5E9", justify=tk.LEFT, wraplength=300)
             error_label.pack(pady=20)
             return
         
@@ -1283,21 +1388,27 @@ class BudgetOptimizerPanel:
                         font=("Arial", 8), background="#FFFFFF",
                         foreground="#666666", anchor="w", wraplength=100).pack(anchor="w")
         
-        # === APPLY UPGRADES BUTTON (prominent) ===
+        # === APPLY UPGRADES BUTTON (compact) ===
         apply_btn_frame = tk.Frame(self.results_container, background="#E8F5E9", relief=tk.RAISED, borderwidth=2)
-        apply_btn_frame.pack(fill=tk.X, padx=3, pady=3)
+        apply_btn_frame.pack(fill=tk.X, padx=3, pady=2)
         
-        self.apply_button = tk.Button(apply_btn_frame, text="✨ Add Points!", 
-                             font=("Arial", 11, "bold"), bg="#4CAF50", fg="white",
+        # Button and help icon in horizontal layout
+        button_row = tk.Frame(apply_btn_frame, background="#E8F5E9")
+        button_row.pack(pady=3)
+        
+        self.apply_button = tk.Button(button_row, text="✨ Add Points!", 
+                             font=("Arial", 9, "bold"), bg="#4CAF50", fg="white",
                              command=self._apply_recommended_upgrades,
-                             relief=tk.RAISED, borderwidth=2, padx=15, pady=8,
+                             relief=tk.RAISED, borderwidth=2, padx=8, pady=4,
                              cursor="hand2", state=tk.NORMAL)
-        self.apply_button.pack(pady=5)
+        self.apply_button.pack(side=tk.LEFT, padx=(0, 5))
         
-        tk.Label(apply_btn_frame, 
-                text="Automatically apply recommended upgrades to your current levels",
-                font=("Arial", 8, "italic"), background="#E8F5E9",
-                foreground="#666666", wraplength=300, justify=tk.CENTER).pack(pady=(0, 5))
+        # Help icon with tooltip
+        help_label = tk.Label(button_row, text="?", font=("Arial", 10, "bold"),
+                             background="#E8F5E9", foreground="#666666", cursor="hand2",
+                             width=2, height=1, relief=tk.RAISED, borderwidth=1)
+        help_label.pack(side=tk.LEFT)
+        create_tooltip(help_label, "Automatically apply recommended upgrades to your current levels")
         
         # === UPGRADE CARDS (Game-style) ===
         upgrades_frame = tk.Frame(self.results_container, background="#E8F5E9")
@@ -1306,8 +1417,8 @@ class BudgetOptimizerPanel:
         tk.Label(upgrades_frame, text="Recommended Upgrades", font=("Arial", 9, "bold"),
                 background="#E8F5E9").pack(anchor="w", padx=5, pady=2)
         
-        # Scrollable upgrade area (compact height)
-        upgrade_canvas = tk.Canvas(upgrades_frame, highlightthickness=0, height=250)
+        # Scrollable upgrade area (more space now)
+        upgrade_canvas = tk.Canvas(upgrades_frame, highlightthickness=0, height=350)
         upgrade_scrollbar = ttk.Scrollbar(upgrades_frame, orient="vertical", command=upgrade_canvas.yview)
         upgrade_scrollable = tk.Frame(upgrade_canvas)
         
@@ -1324,6 +1435,7 @@ class BudgetOptimizerPanel:
         
         # Create upgrade cards for each tier
         # Only show upgrades that would be ADDED (difference between current and recommended)
+        has_upgrades = False
         for tier in range(1, 5):
             tier_upgrades = []
             for idx, recommended_level in enumerate(result.upgrades.levels[tier]):
@@ -1335,6 +1447,8 @@ class BudgetOptimizerPanel:
             
             if not tier_upgrades:
                 continue
+            
+            has_upgrades = True
             
             # Tier header (compact)
             tier_header = tk.Frame(upgrade_scrollable, background=TIER_COLORS[tier], relief=tk.RAISED, borderwidth=1)
@@ -1381,4 +1495,12 @@ class BudgetOptimizerPanel:
                 # Show "+X" to indicate how many levels would be added
                 tk.Label(text_frame, text=f"+{level}", font=("Arial", 8),
                         background="#FFFFFF", foreground="#4CAF50", anchor="w", wraplength=120).pack(fill=tk.X)
+        
+        # Show message if no upgrades were recommended
+        if not has_upgrades:
+            no_upgrades_label = tk.Label(upgrade_scrollable, 
+                                        text="No upgrades recommended.\n\nPossible reasons:\n• Budget too small for any upgrade\n• All upgrades already at max level\n• No upgrades unlocked at current prestige",
+                                        font=("Arial", 9), background="#E8F5E9",
+                                        foreground="#666666", justify=tk.LEFT)
+            no_upgrades_label.pack(pady=20, padx=10)
         

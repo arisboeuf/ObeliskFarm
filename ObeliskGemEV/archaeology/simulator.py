@@ -693,9 +693,11 @@ class ArchaeologySimulatorWindow:
                     frag_bonuses.get('armor_pen', 0))
         # Apply percent armor pen bonus from fragment upgrades
         armor_pen_base = armor_pen_base * (1 + frag_bonuses.get('armor_pen_percent', 0))
-        # INT gives +3% armor pen multiplier per point (rounds up)
+        # Round base armor pen to integer first (as game does)
+        armor_pen_base = round(armor_pen_base)
+        # INT gives +3% armor pen multiplier per point (applied to rounded base)
         int_armor_pen_mult = 1 + int_pts * self.SKILL_BONUSES['intellect']['armor_pen_mult']
-        armor_pen = math.ceil(armor_pen_base * int_armor_pen_mult)
+        armor_pen = round(armor_pen_base * int_armor_pen_mult)
         
         # Max stamina: base + agility + gem upgrade + fragment upgrades
         max_stamina_per_agi = self.SKILL_BONUSES['agility']['max_stamina'] + frag_bonuses.get('max_stamina_skill', 0)
@@ -712,8 +714,10 @@ class ArchaeologySimulatorWindow:
                       frag_bonuses.get('crit_chance', 0))
         # STR crit damage bonus is a MULTIPLIER on base crit damage, not additive
         str_crit_mult = 1 + str_pts * self.SKILL_BONUSES['strength']['crit_damage']
-        crit_damage = (self.base_crit_damage * str_crit_mult +
-                      frag_bonuses.get('crit_damage', 0))
+        crit_damage_base = self.base_crit_damage * str_crit_mult
+        # Fragment upgrades give crit damage as a MULTIPLIER (e.g., +3% = *1.03)
+        crit_damage_mult = 1 + frag_bonuses.get('crit_damage', 0)
+        crit_damage = crit_damage_base * crit_damage_mult
         one_hit_chance = luck_pts * self.SKILL_BONUSES['luck']['one_hit_chance']
         
         # Super crit and ultra crit from fragment upgrades
@@ -721,14 +725,15 @@ class ArchaeologySimulatorWindow:
         super_crit_damage = frag_bonuses.get('super_crit_damage', 0)
         ultra_crit_chance = frag_bonuses.get('ultra_crit_chance', 0)
         
-        # XP mult: base + intellect + gem upgrade + fragment upgrades
-        xp_bonus_per_int = self.SKILL_BONUSES['intellect']['xp_bonus'] + frag_bonuses.get('xp_bonus_skill', 0)
-        xp_mult = (self.base_xp_mult + 
-                  int_pts * xp_bonus_per_int +
-                  gem_xp * self.GEM_UPGRADE_BONUSES['xp']['xp_bonus'])
+        # XP mult: base + gem upgrade + fragment upgrades (additive)
+        xp_mult_base = (self.base_xp_mult + 
+                       gem_xp * self.GEM_UPGRADE_BONUSES['xp']['xp_bonus'])
         # Apply XP multiplier from fragment upgrades
         if frag_bonuses.get('xp_bonus_mult', 0) > 0:
-            xp_mult *= frag_bonuses.get('xp_bonus_mult', 1.0)
+            xp_mult_base *= frag_bonuses.get('xp_bonus_mult', 1.0)
+        # INT gives +5% XP multiplier per point (multiplicative on base)
+        xp_bonus_per_int = self.SKILL_BONUSES['intellect']['xp_bonus'] + frag_bonuses.get('xp_bonus_skill', 0)
+        xp_mult = xp_mult_base * (1 + int_pts * xp_bonus_per_int)
         
         # Fragment mult: base + perception + gem upgrade + fragment upgrades
         fragment_mult = (self.base_fragment_mult + 
@@ -764,10 +769,10 @@ class ArchaeologySimulatorWindow:
                              gem_stamina * self.GEM_UPGRADE_BONUSES['stamina']['stamina_mod_chance'] +
                              frag_bonuses.get('stamina_mod_chance', 0))
         
-        # Archaeology XP bonus from gem upgrade + fragment upgrades
-        arch_xp_mult = (1.0 + 
-                       gem_arch_xp * self.GEM_UPGRADE_BONUSES['arch_xp']['arch_xp_bonus'] +
-                       frag_bonuses.get('arch_xp_bonus', 0))
+        # Archaeology XP bonus from gem upgrade + fragment upgrades (multiplicative)
+        # Each level gives +2%, so level 6 = 1.0 * 1.02^6 or additive: 1.0 + 6*0.02 = 1.12
+        arch_xp_bonus_total = gem_arch_xp * self.GEM_UPGRADE_BONUSES['arch_xp']['arch_xp_bonus'] + frag_bonuses.get('arch_xp_bonus', 0)
+        arch_xp_mult = 1.0 + arch_xp_bonus_total
         
         # Loot mod multiplier bonus (affects average loot from loot mod)
         loot_mod_multiplier = self.MOD_LOOT_MULTIPLIER_AVG + frag_bonuses.get('loot_mod_multiplier', 0)
@@ -1563,6 +1568,8 @@ class ArchaeologySimulatorWindow:
         
         self.stat_labels = {}
         stat_names = [
+            ("Exp Gain:", "xp_mult"),
+            ("Fragment Gain:", "fragment_mult"),
             ("Damage:", "total_damage"),
             ("Armor Pen:", "armor_pen"),
             ("Stamina:", "max_stamina"),
@@ -1573,10 +1580,10 @@ class ArchaeologySimulatorWindow:
         
         for i, (label_text, key) in enumerate(stat_names):
             tk.Label(stats_grid, text=label_text, background="#E3F2FD", 
-                    font=("Arial", 9), anchor=tk.W).grid(row=i, column=0, sticky=tk.W, pady=1)
+                    font=("Arial", 9), anchor=tk.W).grid(row=i, column=0, sticky=tk.W, pady=0)
             value_label = tk.Label(stats_grid, text="—", background="#E3F2FD", 
                                   font=("Arial", 9, "bold"), anchor=tk.E, width=8)
-            value_label.grid(row=i, column=1, sticky=tk.E, pady=1)
+            value_label.grid(row=i, column=1, sticky=tk.E, pady=0)
             self.stat_labels[key] = value_label
         
         ttk.Separator(col_frame, orient='horizontal').pack(fill=tk.X, pady=5, padx=5)
@@ -1729,31 +1736,6 @@ class ArchaeologySimulatorWindow:
                                   foreground="#9932CC")
             value_label.grid(row=i, column=1, sticky=tk.E, pady=1)
             self.mod_labels[key] = value_label
-        
-        ttk.Separator(col_frame, orient='horizontal').pack(fill=tk.X, pady=5, padx=5)
-        
-        # Multipliers section
-        tk.Label(col_frame, text="Multipliers", font=("Arial", 10, "bold"), 
-                background="#E3F2FD").pack(pady=(0, 3))
-        
-        mult_grid = tk.Frame(col_frame, background="#E3F2FD")
-        mult_grid.pack(fill=tk.X, padx=8, pady=2)
-        
-        self.mult_labels = {}
-        mult_names = [
-            ("XP Mult:", "xp_mult"),
-            ("Frag Mult:", "fragment_mult"),
-            ("Arch XP:", "arch_xp_mult"),
-        ]
-        
-        for i, (label_text, key) in enumerate(mult_names):
-            tk.Label(mult_grid, text=label_text, background="#E3F2FD", 
-                    font=("Arial", 9), anchor=tk.W).grid(row=i, column=0, sticky=tk.W, pady=1)
-            value_label = tk.Label(mult_grid, text="1.00x", background="#E3F2FD", 
-                                  font=("Arial", 9, "bold"), anchor=tk.E, width=7,
-                                  foreground="#2E7D32")
-            value_label.grid(row=i, column=1, sticky=tk.E, pady=1)
-            self.mult_labels[key] = value_label
     
     def create_skills_column(self, parent):
         """Middle column: Skill and upgrade buttons"""
@@ -2225,7 +2207,6 @@ class ArchaeologySimulatorWindow:
                 # Try to load from local sprite file first
                 local_path = get_resource_path(ability_paths[ability_name])
                 if local_path.exists():
-                    print(f"Loading {ability_name} icon from local file: {local_path}")
                     icon_image = Image.open(local_path)
                     # Convert to RGBA if needed for transparency
                     if icon_image.mode != 'RGBA':
@@ -2236,11 +2217,9 @@ class ArchaeologySimulatorWindow:
                     self.ability_icons[ability_name] = photo
                     # Store reference to prevent garbage collection
                     self._ability_icon_refs[ability_name] = photo
-                    print(f"Successfully loaded {ability_name} icon from local file")
                 else:
                     # Fallback to URL if local file doesn't exist
                     url = ability_urls[ability_name]
-                    print(f"Local file not found, loading {ability_name} icon from {url}...")
                     with urllib.request.urlopen(url, timeout=10) as response:
                         icon_data = response.read()
                     icon_image = Image.open(BytesIO(icon_data))
@@ -2253,10 +2232,9 @@ class ArchaeologySimulatorWindow:
                     self.ability_icons[ability_name] = photo
                     # Store reference to prevent garbage collection
                     self._ability_icon_refs[ability_name] = photo
-                    print(f"Successfully loaded {ability_name} icon from URL")
-            except Exception as e:
+            except Exception:
                 # Fallback: create a simple colored square if both local and URL loading fail
-                print(f"Warning: Could not load {ability_name} icon (local or URL): {e}")
+                pass
                 fallback_image = Image.new('RGBA', (32, 32), color=(200, 200, 200, 255))
                 photo = ImageTk.PhotoImage(fallback_image, master=self.window)
                 self.ability_icons[ability_name] = photo
@@ -3342,7 +3320,7 @@ class ArchaeologySimulatorWindow:
                 'bonuses': [
                     ('+5% XP Multiplier', 'Applied to all XP gained from blocks'),
                     ('+0.3% Exp Mod Chance', 'Per block: 3×-5× XP (avg 4×) when triggered'),
-                    ('+3% Armor Pen', 'Multiplies total armor pen (rounds up)'),
+                    ('+3% Armor Pen', 'Multiplies total armor pen'),
                 ],
                 'example': 'At 10 INT: +50% XP, +3% exp mod, 1.30× armor pen',
                 'tip': 'Best for: Leveling + armor pen scaling. Helps floors/run via pen!',
@@ -3641,8 +3619,6 @@ class ArchaeologySimulatorWindow:
                     if isinstance(child, tk.Label):
                         child.config(background="#F3E5F5")
     
-    # Removed _adjust_frag_budget and _adjust_xp_budget - now using _adjust_shared_planner_points
-    
     def _create_frag_planner_help_tooltip(self, widget):
         """Creates a tooltip explaining the Fragment Farm Planner feature"""
         def on_enter(event):
@@ -3818,66 +3794,6 @@ class ArchaeologySimulatorWindow:
                 "fewer floors per run.",
                 "",
                 "XP/h = Floors/Run x XP/Floor x XP Mults",
-                "",
-                "Legend: S=Str, A=Agi, I=Int, P=Per, L=Luck",
-            ]
-            
-            for line in lines:
-                tk.Label(content_frame, text=line, font=("Arial", 9), 
-                        background="#FFFFFF", anchor=tk.W).pack(anchor=tk.W)
-            
-            widget.tooltip = tooltip
-        
-        def on_leave(event):
-            if hasattr(widget, 'tooltip'):
-                widget.tooltip.destroy()
-                del widget.tooltip
-        
-        widget.bind("<Enter>", on_enter)
-        widget.bind("<Leave>", on_leave)
-    
-    # Removed _adjust_budget - now using _adjust_shared_planner_points
-    
-    def _create_budget_help_tooltip_removed(self, widget):
-        """Creates a tooltip explaining the Stage Rusher Planner feature"""
-        def on_enter(event):
-            tooltip = tk.Toplevel()
-            tooltip.wm_overrideredirect(True)
-            
-            tooltip_width = 320
-            tooltip_height = 320
-            screen_width = tooltip.winfo_screenwidth()
-            screen_height = tooltip.winfo_screenheight()
-            x, y = calculate_tooltip_position(event, tooltip_width, tooltip_height, screen_width, screen_height)
-            tooltip.wm_geometry(f"+{x}+{y}")
-            
-            outer_frame = tk.Frame(tooltip, background="#7B1FA2", relief=tk.FLAT)
-            outer_frame.pack(padx=2, pady=2)
-            
-            inner_frame = tk.Frame(outer_frame, background="#FFFFFF")
-            inner_frame.pack(padx=1, pady=1)
-            
-            content_frame = tk.Frame(inner_frame, background="#FFFFFF", padx=10, pady=8)
-            content_frame.pack()
-            
-            tk.Label(content_frame, text="Stage Rusher Planner", 
-                    font=("Arial", 10, "bold"), foreground="#7B1FA2", 
-                    background="#FFFFFF").pack(anchor=tk.W)
-            
-            lines = [
-                "",
-                "Plan how to spend a fixed pool of points.",
-                "",
-                "Unlike Forecast (which adds to current stats),",
-                "Stage Rusher Planner helps when you have unspent",
-                "points and want to distribute them optimally.",
-                "",
-                "Use case: You saved up 20 skill points and",
-                "want to know the best way to spend them all.",
-                "",
-                "Since you're spending them all at once,",
-                "the order doesn't matter - only the final",
-                "distribution counts.",
                 "",
                 "Legend: S=Str, A=Agi, I=Int, P=Per, L=Luck",
             ]
@@ -4476,9 +4392,11 @@ class ArchaeologySimulatorWindow:
         self.stat_labels['total_damage'].config(text=f"{stats['total_damage']:.1f}")
         self.stat_labels['armor_pen'].config(text=f"{stats['armor_pen']:.0f}")
         self.stat_labels['max_stamina'].config(text=f"{stats['max_stamina']:.0f}")
-        self.stat_labels['crit_chance'].config(text=f"{stats['crit_chance']*100:.1f}%")
+        self.stat_labels['crit_chance'].config(text=f"{stats['crit_chance']*100:.2f}%")
         self.stat_labels['crit_damage'].config(text=f"{stats['crit_damage']:.2f}x")
         self.stat_labels['one_hit_chance'].config(text=f"{stats['one_hit_chance']*100:.2f}%")
+        self.stat_labels['xp_mult'].config(text=f"{stats['xp_mult']:.2f}x")
+        self.stat_labels['fragment_mult'].config(text=f"{stats['fragment_mult']:.2f}x")
         
         # Update allocations
         for skill, label in self.alloc_labels.items():
@@ -4501,12 +4419,6 @@ class ArchaeologySimulatorWindow:
             self.mod_labels['loot_mod_chance'].config(text=f"{stats['loot_mod_chance']*100:.2f}%")
             self.mod_labels['speed_mod_chance'].config(text=f"{stats['speed_mod_chance']*100:.2f}%")
             self.mod_labels['stamina_mod_chance'].config(text=f"{stats['stamina_mod_chance']*100:.2f}%")
-        
-        # Update multipliers
-        if hasattr(self, 'mult_labels'):
-            self.mult_labels['xp_mult'].config(text=f"{stats['xp_mult']:.2f}x")
-            self.mult_labels['fragment_mult'].config(text=f"{stats['fragment_mult']:.2f}x")
-            self.mult_labels['arch_xp_mult'].config(text=f"{stats['arch_xp_mult']:.2f}x")
         
         # Update gem upgrade levels
         if hasattr(self, 'gem_upgrade_labels'):
@@ -4541,8 +4453,6 @@ class ArchaeologySimulatorWindow:
             else:
                 self.arch_xp_cost_label.config(text="(MAX)", foreground="#C73E1D")
         
-        # Efficiency calculations removed - use MC simulations instead
-        
         # Calculate fragment upgrade efficiencies (3 types: Stage Rush, XP, Fragments)
         if hasattr(self, 'upgrade_efficiency_labels'):
             for upgrade_key in self.upgrade_efficiency_labels:
@@ -4576,8 +4486,6 @@ class ArchaeologySimulatorWindow:
                         _, frag_efficiency = self.calculate_fragment_upgrade_fragment_efficiency(upgrade_key)
                         self.upgrade_frag_efficiency_labels[upgrade_key].config(
                             text=f"{frag_efficiency:.3f}", foreground="#9932CC")
-        
-        # Live Statistics removed - use MC simulations instead
         
         # Update cards display (middle column)
         self.update_cards_display()
@@ -5621,8 +5529,8 @@ class ArchaeologySimulatorWindow:
         result_window.title("MC Stage Optimizer Results")
         result_window.transient(self.window)
         
-        # Set normal window size (not maximized)
-        result_window.geometry("900x700")
+        # Set window to fullscreen (maximized)
+        result_window.state('zoomed')  # Maximize on Windows
         result_window.resizable(True, True)
         
         # Main container
@@ -5808,7 +5716,7 @@ Fragments/h: {fragments_per_hour:.2f}"""
                 
                 # Create a small bar chart or list
                 if MATPLOTLIB_AVAILABLE:
-                    fig_top3 = Figure(figsize=(7, 3.5), dpi=100)
+                    fig_top3 = Figure(figsize=(5, 2.5), dpi=100)
                     ax_top3 = fig_top3.add_subplot(111)
                     
                     # Prepare data
@@ -5876,7 +5784,7 @@ Fragments/h: {fragments_per_hour:.2f}"""
         
         if MATPLOTLIB_AVAILABLE and max_stage_samples:
             # Smaller figure size that fits nicely in the window (not too large)
-            fig = Figure(figsize=(7, 4), dpi=100)
+            fig = Figure(figsize=(5, 2.5), dpi=100)
             ax = fig.add_subplot(111)
             
             # Determine number of bins based on stage range (use integer bins)
@@ -5953,8 +5861,8 @@ Fragments/h: {fragments_per_hour:.2f}"""
         result_window.title(f"MC Fragment Farmer Results ({target_frag.upper()})")
         result_window.transient(self.window)
         
-        # Set normal window size (not maximized)
-        result_window.geometry("900x700")
+        # Set window to fullscreen (maximized)
+        result_window.state('zoomed')  # Maximize on Windows
         result_window.resizable(True, True)
         
         # Main container
@@ -6101,7 +6009,7 @@ Fragments/h: {fragments_per_hour:.2f}"""
         
         if MATPLOTLIB_AVAILABLE and frag_per_hour_samples:
             # Smaller figure size that fits nicely in the window (not too large)
-            fig = Figure(figsize=(7, 4), dpi=100)
+            fig = Figure(figsize=(5, 2.5), dpi=100)
             ax = fig.add_subplot(111)
             
             # Create histogram
