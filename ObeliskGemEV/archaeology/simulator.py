@@ -660,6 +660,33 @@ class ArchaeologySimulatorWindow:
         return max(1, self.current_stage - 1)
     
     def get_total_stats(self):
+        """
+        Calculate total character stats from skills, upgrades, and fragments.
+        
+        MULTIPLICATOR REGELN (Archaeology):
+        ===================================
+        
+        MULTIPLIKATIV (Multiplikator auf Basis):
+        - INT Armor Pen: Basis wird zuerst gerundet, dann mit (1 + INT * 0.03) multipliziert
+        - STR Crit Damage: Basis Crit Damage * (1 + STR * 0.03)
+        - Fragment Crit Damage: Crit Damage Base * (1 + Fragment Upgrade %)
+        - INT XP Gain: (Base + Gem + Fragment Upgrades) * (1 + INT * 0.05)
+        - Fragment XP Multiplier: Wenn vorhanden, multipliziert XP Base
+        
+        ADDITIV (Werte werden addiert):
+        - Flat Damage: Base + STR * 1 + Upgrades
+        - Percent Damage: STR * 0.01 + Upgrades (dann multipliziert mit Flat)
+        - Armor Pen Base: Base + PER * 2 + Upgrades (vor INT Multiplikator)
+        - Max Stamina: Base + AGI * 5 + Upgrades
+        - Crit Chance: Base + AGI * 0.01 + LUC * 0.02 + Upgrades
+        - Fragment Gain: Base + PER * 0.04 + Gem + Upgrades
+        - Mod Chances: Alle additiv
+        
+        WICHTIG:
+        - Armor Pen wird ZUERST gerundet, DANN mit INT multipliziert
+        - Crit Damage Fragment Upgrades sind MULTIPLIKATIV (nicht additiv!)
+        - INT XP Gain multipliziert die gesamte XP Base (inkl. Upgrades)
+        """
         str_pts = self.skill_points['strength']
         agi_pts = self.skill_points['agility']
         int_pts = self.skill_points['intellect']
@@ -783,6 +810,10 @@ class ArchaeologySimulatorWindow:
         # Stamina mod gain bonus
         stamina_mod_gain = self.MOD_STAMINA_BONUS_AVG + frag_bonuses.get('stamina_mod_gain', 0)
         
+        # Enrage bonuses from fragment upgrades (additive to base enrage bonuses)
+        enrage_damage_bonus = self.ENRAGE_DAMAGE_BONUS + frag_bonuses.get('enrage_damage', 0)
+        enrage_crit_damage_bonus = self.ENRAGE_CRIT_DAMAGE_BONUS + frag_bonuses.get('enrage_crit_damage', 0)
+        
         return {
             'flat_damage': flat_damage,
             'total_damage': total_damage,
@@ -807,6 +838,9 @@ class ArchaeologySimulatorWindow:
             'stamina_mod_gain': stamina_mod_gain,
             # Archaeology XP multiplier (applies to leveling)
             'arch_xp_mult': arch_xp_mult,
+            # Enrage bonuses (with fragment upgrades)
+            'enrage_damage_bonus': enrage_damage_bonus,
+            'enrage_crit_damage_bonus': enrage_crit_damage_bonus,
         }
     
     def _get_fragment_upgrade_bonuses(self):
@@ -946,14 +980,17 @@ class ArchaeologySimulatorWindow:
             enrage_proportion = self.ENRAGE_CHARGES / self.ENRAGE_COOLDOWN
             normal_proportion = 1.0 - enrage_proportion
             
-            # Enrage effective damage: base damage * 1.20 (floored), then subtract armor
+            # Enrage effective damage: base damage * (1 + enrage_damage_bonus) (floored), then subtract armor
             # Damage is always integer - enrage bonus is floored before armor calculation
-            enrage_total_damage = int(stats['total_damage'] * (1 + self.ENRAGE_DAMAGE_BONUS))
+            # Enrage damage bonus includes fragment upgrades (additive)
+            enrage_damage_bonus = stats.get('enrage_damage_bonus', self.ENRAGE_DAMAGE_BONUS)
+            enrage_total_damage = int(stats['total_damage'] * (1 + enrage_damage_bonus))
             effective_armor = max(0, block_armor - stats['armor_pen'])
             effective_dmg_enrage = max(1, enrage_total_damage - effective_armor)
             
-            # Enrage crit damage: normal crit damage + 1.0
-            enrage_crit_damage = crit_damage + self.ENRAGE_CRIT_DAMAGE_BONUS
+            # Enrage crit damage: normal crit damage + enrage_crit_damage_bonus (includes fragment upgrades)
+            enrage_crit_damage_bonus = stats.get('enrage_crit_damage_bonus', self.ENRAGE_CRIT_DAMAGE_BONUS)
+            enrage_crit_damage = crit_damage + enrage_crit_damage_bonus
             
             # Average damage per hit for normal hits (with crits)
             avg_dmg_normal = effective_dmg_base * (1 + crit_chance * (crit_damage - 1))
@@ -4856,8 +4893,8 @@ class ArchaeologySimulatorWindow:
             # Two-phase optimization approach:
             # Phase 1: Quick screening with few sims to identify promising candidates
             # Phase 2: Detailed testing of top candidates with full sims
-            screening_sims = 20  # Fast screening with 20 sims
-            refinement_sims = 200  # Full accuracy with 200 sims for top candidates
+            screening_sims = 200  # Fast screening with 200 sims
+            refinement_sims = 500  # Full accuracy with 500 sims for top candidates
             top_candidates_ratio = 0.05  # Keep top 5% for refinement
             
             combination_count = 0
@@ -5207,28 +5244,37 @@ class ArchaeologySimulatorWindow:
             # Two-phase optimization approach:
             # Phase 1: Quick screening with few sims to identify promising candidates
             # Phase 2: Detailed testing of top candidates with full sims
-            screening_sims = 20  # Fast screening with 20 sims
-            refinement_sims = 200  # Full accuracy with 200 sims for top candidates
+            screening_sims = 200  # Fast screening with 200 sims
+            refinement_sims = 500  # Full accuracy with 500 sims for top candidates
             top_candidates_ratio = 0.05  # Keep top 5% for refinement
             
             combination_count = 0
             candidate_scores = []  # List of (dist_tuple, avg_max_stage, stats)
             
-            # Calculate total combinations (approximate, since we filter STR > 0)
-            # We'll count as we go and update total dynamically
-            estimated_total = 1
-            for i in range(4):
-                estimated_total = estimated_total * (num_points + 1 + i) // (i + 1)
-            # Rough estimate: about 80% have STR > 0 (first skill is STR)
-            estimated_valid = int(estimated_total * 0.8)
+            # Count actual valid distributions (where STR > 0) before screening
+            # This ensures accurate progress tracking
+            try:
+                if self.window.winfo_exists():
+                    self.window.after(0, lambda: 
+                                     self._safe_update_progress_label(loading_window, 
+                                                                      "Phase 1: Counting distributions...",
+                                                                      current=0, total=100))
+            except (tk.TclError, RuntimeError):
+                pass
+            
+            actual_valid_count = 0
+            for dist_tuple in generate_distributions(num_points, len(skills)):
+                total_str = original_points.get('strength', 0) + dist_tuple[0]
+                if total_str > 0:
+                    actual_valid_count += 1
             
             # Phase 1: Quick screening of all distributions (only those with STR > 0)
             try:
                 if self.window.winfo_exists():
                     self.window.after(0, lambda: 
                                      self._safe_update_progress_label(loading_window, 
-                                                                      f"Phase 1: Screening distributions with STR... (0/{estimated_valid})",
-                                                                      current=0, total=estimated_valid))
+                                                                      f"Phase 1: Screening distributions with STR... (0/{actual_valid_count})",
+                                                                      current=0, total=actual_valid_count))
             except (tk.TclError, RuntimeError):
                 pass
             
@@ -5249,7 +5295,7 @@ class ArchaeologySimulatorWindow:
                 if combination_count % 10 == 0:
                     try:
                         if self.window.winfo_exists():
-                            self.window.after(0, lambda c=combination_count, t=estimated_valid: 
+                            self.window.after(0, lambda c=combination_count, t=actual_valid_count: 
                                              self._safe_update_progress_label(loading_window, 
                                                                               f"Phase 1: Screening distributions with STR... ({c}/{t})",
                                                                               current=c, total=t))

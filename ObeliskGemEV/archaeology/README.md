@@ -50,9 +50,32 @@ Each Archaeology level grants 1 skill point to allocate:
 |-------|-------------------|
 | **Strength** | +1 Flat Damage, +1% Damage, +3% Crit Damage |
 | **Agility** | +5 Max Stamina, +1% Crit Chance, +0.20% Speed Mod Chance |
-| **Intellect** | +5% XP Bonus, +0.30% Exp Mod Chance |
+| **Intellect** | +5% XP Bonus, +0.30% Exp Mod Chance, +3% Armor Pen Multiplier |
 | **Perception** | +4% Fragment Gain, +0.30% Loot Mod Chance, +2 Armor Penetration |
 | **Luck** | +2% Crit Chance, +0.20% All Mod Chances, +0.04% One-Hit Chance |
+
+### Multiplikator-Regeln (Wichtig!)
+
+**MULTIPLIKATIV (Multiplikator auf Basis):**
+- **INT Armor Pen**: Basis wird zuerst gerundet, dann mit `(1 + INT * 0.03)` multipliziert
+- **STR Crit Damage**: Basis Crit Damage `* (1 + STR * 0.03)`
+- **Fragment Crit Damage**: Crit Damage Base `* (1 + Fragment Upgrade %)` (z.B. +3% = *1.03)
+- **INT XP Gain**: `(Base + Gem + Fragment Upgrades) * (1 + INT * 0.05)`
+- **Fragment XP Multiplier**: Wenn vorhanden, multipliziert XP Base
+
+**ADDITIV (Werte werden addiert):**
+- Flat Damage: Base + STR * 1 + Upgrades
+- Percent Damage: STR * 0.01 + Upgrades (dann multipliziert mit Flat)
+- Armor Pen Base: Base + PER * 2 + Upgrades (vor INT Multiplikator)
+- Max Stamina: Base + AGI * 5 + Upgrades
+- Crit Chance: Base + AGI * 0.01 + LUC * 0.02 + Upgrades
+- Fragment Gain: Base + PER * 0.04 + Gem + Upgrades
+- Mod Chances: Alle additiv
+
+**WICHTIG:**
+- Armor Pen wird **ZUERST gerundet**, **DANN** mit INT multipliziert
+- Crit Damage Fragment Upgrades sind **MULTIPLIKATIV** (nicht additiv!)
+- INT XP Gain multipliziert die gesamte XP Base (inkl. Upgrades)
 
 ### Upgrades
 

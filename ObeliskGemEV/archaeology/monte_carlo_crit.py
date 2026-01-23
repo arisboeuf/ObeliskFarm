@@ -79,7 +79,9 @@ class MonteCarloCritSimulator:
         """
         # Calculate base damage
         if is_enrage:
-            enrage_total_damage = int(stats['total_damage'] * (1 + self.ENRAGE_DAMAGE_BONUS))
+            # Enrage damage bonus includes fragment upgrades (additive)
+            enrage_damage_bonus = stats.get('enrage_damage_bonus', self.ENRAGE_DAMAGE_BONUS)
+            enrage_total_damage = int(stats['total_damage'] * (1 + enrage_damage_bonus))
             effective_armor = max(0, block_armor - stats['armor_pen'])
             base_damage = max(1, enrage_total_damage - effective_armor)
         else:
@@ -101,7 +103,9 @@ class MonteCarloCritSimulator:
         if is_crit:
             crit_damage_mult = stats.get('crit_damage', 1.5)
             if is_enrage:
-                crit_damage_mult += self.ENRAGE_CRIT_DAMAGE_BONUS
+                # Enrage crit damage bonus includes fragment upgrades (additive)
+                enrage_crit_damage_bonus = stats.get('enrage_crit_damage_bonus', self.ENRAGE_CRIT_DAMAGE_BONUS)
+                crit_damage_mult += enrage_crit_damage_bonus
             # Crit damage is multiplicative
             damage = int(base_damage * crit_damage_mult)
         else:
@@ -276,11 +280,19 @@ class MonteCarloCritSimulator:
                 # Track XP from this block (only if not dirt)
                 if block_type != 'dirt':
                     base_xp = block_data.xp
+                    # Apply card XP bonus if present
+                    card_xp_mult = 1.0
+                    if block_cards and block_type in block_cards:
+                        card_level = block_cards[block_type]
+                        if card_level == 1:
+                            card_xp_mult = 1.10  # Card: +10% XP
+                        elif card_level == 2:
+                            card_xp_mult = 1.20  # Gilded: +20% XP
                     # Check for exp mod
                     exp_mod_active = random.random() < exp_mod_chance
                     exp_mult = exp_mod_multiplier if exp_mod_active else 1.0
-                    # Apply XP multiplier and arch XP multiplier
-                    xp_gain = base_xp * xp_mult * exp_mult * arch_xp_mult
+                    # Apply XP multiplier, card multiplier, and arch XP multiplier
+                    xp_gain = base_xp * xp_mult * card_xp_mult * exp_mult * arch_xp_mult
                     total_xp += xp_gain
                 
                 # Quake: each hit on this block deals 20% damage to all other blocks
