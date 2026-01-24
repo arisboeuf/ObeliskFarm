@@ -5461,7 +5461,9 @@ class ArchaeologySimulatorWindow:
                 percentage = int((current / total) * 100) if total > 0 else 0
                 if 'progress_label' in loading_window.loading_refs:
                     loading_window.loading_refs['progress_label'].config(text=f"{percentage}%")
-                    loading_window.update()
+                    # Use update_idletasks() instead of update() to avoid recursive calls
+                    # update() processes all events and can cause stack overflow
+                    loading_window.update_idletasks()
         except (tk.TclError, RuntimeError):
             # Window was destroyed or main loop not running
             pass
@@ -5489,7 +5491,9 @@ class ArchaeologySimulatorWindow:
                     # Just update text if no progress values
                     refs['progress_label'].config(text=text)
                 
-                loading_window.update()
+                # Use update_idletasks() instead of update() to avoid recursive calls
+                # update() processes all events and can cause stack overflow
+                loading_window.update_idletasks()
         except (tk.TclError, RuntimeError):
             # Window was destroyed or main loop not running
             pass
