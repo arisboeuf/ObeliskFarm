@@ -99,15 +99,15 @@ class ArchaeologySimulatorWindow:
             'crit_chance': 0.01,
             'speed_mod_chance': 0.002,
         },
-        'intellect': {
-            'xp_bonus': 0.05,
-            'exp_mod_chance': 0.003,
-            'armor_pen_mult': 0.03,  # +3% armor pen multiplier per point
-        },
         'perception': {
             'fragment_gain': 0.04,
             'loot_mod_chance': 0.003,
             'armor_pen': 2,
+        },
+        'intellect': {
+            'xp_bonus': 0.05,
+            'exp_mod_chance': 0.003,
+            'armor_pen_mult': 0.03,  # +3% armor pen multiplier per point
         },
         'luck': {
             'crit_chance': 0.02,
@@ -534,7 +534,7 @@ class ArchaeologySimulatorWindow:
             self.level = state.get('level', 1)
             self.current_stage = state.get('current_stage', 1)
             self.skill_points = state.get('skill_points', {
-                'strength': 0, 'agility': 0, 'intellect': 0, 'perception': 0, 'luck': 0,
+                'strength': 0, 'agility': 0, 'perception': 0, 'intellect': 0, 'luck': 0,
             })
             self.gem_upgrades = state.get('gem_upgrades', {
                 'stamina': 0, 'xp': 0, 'fragment': 0, 'arch_xp': 0,
@@ -606,7 +606,7 @@ class ArchaeologySimulatorWindow:
         self.current_stage = 1
         self.unlocked_stage = 1
         self.skill_points = {
-            'strength': 0, 'agility': 0, 'intellect': 0, 'perception': 0, 'luck': 0,
+            'strength': 0, 'agility': 0, 'perception': 0, 'intellect': 0, 'luck': 0,
         }
         self.base_damage = 10
         self.base_armor_pen = 0
@@ -622,7 +622,7 @@ class ArchaeologySimulatorWindow:
         self.current_stage = 1
         self.unlocked_stage = 1
         self.skill_points = {
-            'strength': 0, 'agility': 0, 'intellect': 0, 'perception': 0, 'luck': 0,
+            'strength': 0, 'agility': 0, 'perception': 0, 'intellect': 0, 'luck': 0,
         }
         self.base_damage = 10
         self.base_armor_pen = 0
@@ -1346,7 +1346,7 @@ class ArchaeologySimulatorWindow:
         """Reset all skill points to 0"""
         total_points = sum(self.skill_points.values())
         self.skill_points = {
-            'strength': 0, 'agility': 0, 'intellect': 0, 'perception': 0, 'luck': 0,
+            'strength': 0, 'agility': 0, 'perception': 0, 'intellect': 0, 'luck': 0,
         }
         self.level = max(1, self.level - total_points)
         self.update_display()
@@ -1505,9 +1505,9 @@ class ArchaeologySimulatorWindow:
     
     def format_distribution(self, distribution: dict) -> str:
         """Format a skill distribution as a compact string like '3S 2A 1L'"""
-        abbrev = {'strength': 'S', 'agility': 'A', 'intellect': 'I', 'perception': 'P', 'luck': 'L'}
+        abbrev = {'strength': 'S', 'agility': 'A', 'perception': 'P', 'intellect': 'I', 'luck': 'L'}
         parts = []
-        for skill in ['strength', 'agility', 'intellect', 'perception', 'luck']:
+        for skill in ['strength', 'agility', 'perception', 'intellect', 'luck']:
             if distribution.get(skill, 0) > 0:
                 parts.append(f"{distribution[skill]}{abbrev[skill]}")
         return ' '.join(parts) if parts else '—'
@@ -1632,7 +1632,7 @@ class ArchaeologySimulatorWindow:
         alloc_grid.pack(fill=tk.X, padx=8, pady=2)
         
         self.alloc_labels = {}
-        for i, skill in enumerate(['strength', 'agility', 'intellect', 'perception', 'luck']):
+        for i, skill in enumerate(['strength', 'agility', 'perception', 'intellect', 'luck']):
             tk.Label(alloc_grid, text=f"{skill[:3].upper()}:", background="#E3F2FD",
                     font=("Arial", 9)).grid(row=i, column=0, sticky=tk.W, pady=1)
             value_label = tk.Label(alloc_grid, text="0", background="#E3F2FD", 
@@ -1797,8 +1797,8 @@ class ArchaeologySimulatorWindow:
         skill_info = {
             'strength': "Dmg, Crit Dmg",
             'agility': "Stamina, Crit",
-            'intellect': "XP, Armor Pen%",
             'perception': "Frags, Armor Pen",
+            'intellect': "XP, Armor Pen%",
             'luck': "Crit, One-Hit",
         }
         
@@ -3350,17 +3350,6 @@ class ArchaeologySimulatorWindow:
                 'example': 'At 10 AGI: +50 stamina, +10% crit, +2% speed mod',
                 'tip': 'Best for: Longer runs. Speed Mod is QoL only (no extra floors).',
             },
-            'intellect': {
-                'title': 'Intellect (INT)',
-                'color': '#1976D2',
-                'bonuses': [
-                    ('+5% XP Multiplier', 'Applied to all XP gained from blocks'),
-                    ('+0.3% Exp Mod Chance', 'Per block: 3×-5× XP (avg 4×) when triggered'),
-                    ('+3% Armor Pen', 'Multiplies total armor pen'),
-                ],
-                'example': 'At 10 INT: +50% XP, +3% exp mod, 1.30× armor pen',
-                'tip': 'Best for: Leveling + armor pen scaling. Helps floors/run via pen!',
-            },
             'perception': {
                 'title': 'Perception (PER)',
                 'color': '#9932CC',
@@ -3371,6 +3360,17 @@ class ArchaeologySimulatorWindow:
                 ],
                 'example': 'At 10 PER: +40% frags, +3% loot mod, +20 armor pen',
                 'tip': 'Best for: Fragment farming AND damage vs armored blocks.',
+            },
+            'intellect': {
+                'title': 'Intellect (INT)',
+                'color': '#1976D2',
+                'bonuses': [
+                    ('+5% XP Multiplier', 'Applied to all XP gained from blocks'),
+                    ('+0.3% Exp Mod Chance', 'Per block: 3×-5× XP (avg 4×) when triggered'),
+                    ('+3% Armor Pen', 'Multiplies total armor pen'),
+                ],
+                'example': 'At 10 INT: +50% XP, +3% exp mod, 1.30× armor pen',
+                'tip': 'Best for: Leveling + armor pen scaling. Helps floors/run via pen!',
             },
             'luck': {
                 'title': 'Luck (LUK)',
@@ -3615,6 +3615,19 @@ class ArchaeologySimulatorWindow:
         stage_help_label.pack(side=tk.LEFT, padx=(5, 0))
         self._create_stage_help_tooltip(stage_help_label)
         
+        # Screening N (used by MC Fragment Farmer and MC Stage Optimizer)
+        screening_n_row = tk.Frame(mc_stage_optimizer_row, background="#E1BEE7")
+        screening_n_row.pack(fill=tk.X, pady=(0, 3))
+        tk.Label(screening_n_row, text="Screening N:", font=("Arial", 9), background="#E1BEE7").pack(side=tk.LEFT, padx=(0, 3))
+        self.mc_screening_n_spinbox = tk.Spinbox(screening_n_row, from_=50, to=500, width=5, font=("Arial", 9))
+        self.mc_screening_n_spinbox.delete(0, tk.END)
+        self.mc_screening_n_spinbox.insert(0, "200")
+        self.mc_screening_n_spinbox.pack(side=tk.LEFT)
+        screening_n_help = tk.Label(screening_n_row, text="?", font=("Arial", 9, "bold"),
+                                    cursor="hand2", foreground="#4A148C", background="#E1BEE7")
+        screening_n_help.pack(side=tk.LEFT, padx=(5, 0))
+        self._create_screening_n_tooltip(screening_n_help)
+        
         # MC Stage Optimizer button
         mc_stage_optimizer_button = tk.Button(
             mc_stage_optimizer_row,
@@ -3760,6 +3773,44 @@ class ArchaeologySimulatorWindow:
                 widget.tooltip.destroy()
                 del widget.tooltip
         
+        widget.bind("<Enter>", on_enter)
+        widget.bind("<Leave>", on_leave)
+    
+    def _create_screening_n_tooltip(self, widget):
+        """Creates a tooltip explaining the Screening N setting"""
+        def on_enter(event):
+            tooltip = tk.Toplevel()
+            tooltip.wm_overrideredirect(True)
+            tooltip_width = 320
+            tooltip_height = 160
+            screen_width = tooltip.winfo_screenwidth()
+            screen_height = tooltip.winfo_screenheight()
+            x, y = calculate_tooltip_position(event, tooltip_width, tooltip_height, screen_width, screen_height)
+            tooltip.wm_geometry(f"+{x}+{y}")
+            outer_frame = tk.Frame(tooltip, background="#9C27B0", relief=tk.FLAT)
+            outer_frame.pack(padx=2, pady=2)
+            inner_frame = tk.Frame(outer_frame, background="#FFFFFF")
+            inner_frame.pack(padx=1, pady=1)
+            content = tk.Frame(inner_frame, background="#FFFFFF", padx=10, pady=8)
+            content.pack()
+            tk.Label(content, text="Screening N", font=("Arial", 10, "bold"),
+                    background="#FFFFFF", foreground="#9C27B0").pack(anchor="w")
+            lines = [
+                "",
+                "Number of MC sims per distribution in Phase 1",
+                "(screening). Used by both MC Fragment Farmer and",
+                "MC Stage Optimizer. Default 200. Range 50–500.",
+                "",
+                "Higher N = more accuracy, longer run time.",
+            ]
+            for line in lines:
+                tk.Label(content, text=line, font=("Arial", 9),
+                        background="#FFFFFF", justify=tk.LEFT).pack(anchor="w")
+            widget.tooltip = tooltip
+        def on_leave(event):
+            if hasattr(widget, 'tooltip'):
+                widget.tooltip.destroy()
+                del widget.tooltip
         widget.bind("<Enter>", on_enter)
         widget.bind("<Leave>", on_leave)
     
@@ -4708,7 +4759,7 @@ class ArchaeologySimulatorWindow:
                 - 'xp_per_hour': XP earned per hour with this build
                 - 'improvement_pct': percentage improvement
         """
-        skills = ['strength', 'agility', 'intellect', 'perception', 'luck']
+        skills = ['strength', 'agility', 'perception', 'intellect', 'luck']
         
         # Calculate current frags per hour for target type
         stats = self.get_total_stats()
@@ -4944,10 +4995,12 @@ class ArchaeologySimulatorWindow:
         # This represents how many ADDITIONAL skill points to allocate optimally
         num_points = self.shared_planner_points.get() if hasattr(self, 'shared_planner_points') else 20
         
+        screening_sims = self._parse_debug_n(self.mc_screening_n_spinbox, 50, 500, 200) if hasattr(self, 'mc_screening_n_spinbox') else 200
+        
         # Show loading dialog
         loading_window = self._show_loading_dialog(
             f"Running MC Fragment Farmer ({target_frag.upper()})...\n"
-            f"Testing skill distributions and finding optimal stage..."
+            f"Screening N={screening_sims}. Testing skill distributions..."
         )
         
         def run_in_thread():
@@ -4965,7 +5018,7 @@ class ArchaeologySimulatorWindow:
             
             # Use brute-force approach to test ALL possible skill distributions
             # This ensures we find the truly optimal distribution, not just a greedy approximation
-            skills = ['strength', 'agility', 'intellect', 'perception', 'luck']
+            skills = ['strength', 'agility', 'perception', 'intellect', 'luck']
             best_distribution = {s: 0 for s in skills}
             best_frag_per_hour_avg = 0.0
             best_optimal_stage = 1
@@ -4996,7 +5049,6 @@ class ArchaeologySimulatorWindow:
             # Two-phase optimization approach:
             # Phase 1: Quick screening with few sims to identify promising candidates
             # Phase 2: Detailed testing of top candidates with full sims
-            screening_sims = 200  # Fast screening with 200 sims
             refinement_sims = 500  # Full accuracy with 500 sims for top candidates
             top_candidates_ratio = 0.05  # Keep top 5% for refinement
             
@@ -5008,7 +5060,7 @@ class ArchaeologySimulatorWindow:
                 if self.window.winfo_exists():
                     self.window.after(0, lambda: 
                                      self._safe_update_progress_label(loading_window, 
-                                                                      f"Phase 1: Screening all distributions... (0/{total_combinations})",
+                                                                      f"Phase 1: Screening (N={screening_sims})... (0/{total_combinations})",
                                                                       current=0, total=total_combinations))
             except (tk.TclError, RuntimeError):
                 pass
@@ -5024,9 +5076,9 @@ class ArchaeologySimulatorWindow:
                 if combination_count % 10 == 0 or combination_count == total_combinations:
                     try:
                         if self.window.winfo_exists():
-                            self.window.after(0, lambda c=combination_count, t=total_combinations: 
+                            self.window.after(0, lambda c=combination_count, t=total_combinations, n=screening_sims: 
                                              self._safe_update_progress_label(loading_window, 
-                                                                              f"Phase 1: Screening distributions... ({c}/{t})",
+                                                                              f"Phase 1: Screening (N={n})... ({c}/{t})",
                                                                               current=c, total=t))
                     except (tk.TclError, RuntimeError):
                         cancel_event.set()
@@ -5293,10 +5345,12 @@ class ArchaeologySimulatorWindow:
         # This represents how many ADDITIONAL skill points to allocate optimally
         num_points = self.shared_planner_points.get() if hasattr(self, 'shared_planner_points') else 20
         
+        screening_sims = self._parse_debug_n(self.mc_screening_n_spinbox, 50, 500, 200) if hasattr(self, 'mc_screening_n_spinbox') else 200
+        
         # Show loading dialog
         loading_window = self._show_loading_dialog(
             f"Running MC Stage Optimizer...\n"
-            f"Testing {num_points} skill points (STR required)..."
+            f"Screening N={screening_sims}. Testing {num_points} skill points (STR required)..."
         )
         
         def run_in_thread():
@@ -5314,7 +5368,7 @@ class ArchaeologySimulatorWindow:
             
             # Use brute-force approach to test ALL possible skill distributions
             # But skip distributions where STR = 0 (STR must always be included)
-            skills = ['strength', 'agility', 'intellect', 'perception', 'luck']
+            skills = ['strength', 'agility', 'perception', 'intellect', 'luck']
             best_distribution = {s: 0 for s in skills}
             best_avg_max_stage = 0.0
             best_stats = None
@@ -5348,7 +5402,6 @@ class ArchaeologySimulatorWindow:
             # Two-phase optimization approach:
             # Phase 1: Quick screening with few sims to identify promising candidates
             # Phase 2: Detailed testing of top candidates with full sims
-            screening_sims = 200  # Fast screening with 200 sims
             refinement_sims = 500  # Full accuracy with 500 sims for top candidates
             top_candidates_ratio = 0.05  # Keep top 5% for refinement
             
@@ -5383,7 +5436,7 @@ class ArchaeologySimulatorWindow:
                 if self.window.winfo_exists():
                     self.window.after(0, lambda: 
                                      self._safe_update_progress_label(loading_window, 
-                                                                      f"Phase 1: Screening distributions with STR... (0/{actual_valid_count})",
+                                                                      f"Phase 1: Screening (N={screening_sims}) with STR... (0/{actual_valid_count})",
                                                                       current=0, total=actual_valid_count))
             except (tk.TclError, RuntimeError):
                 pass
@@ -5780,111 +5833,175 @@ class ArchaeologySimulatorWindow:
         )
         
         def run_in_thread():
-            starting_floor = 1
-            self.skill_points = original_points.copy()
-            enrage_enabled = self.enrage_enabled.get() if hasattr(self, 'enrage_enabled') else True
-            flurry_enabled = self.flurry_enabled.get() if hasattr(self, 'flurry_enabled') else True
-            quake_enabled = self.quake_enabled.get() if hasattr(self, 'quake_enabled') else True
-            block_cards = self.block_cards if hasattr(self, 'block_cards') else None
-            skills = ['strength', 'agility', 'intellect', 'perception', 'luck']
-            cancel_event = loading_window.loading_refs['cancel_event']
-            
-            def generate_distributions(n_pts, n_sk):
-                if n_sk == 1:
-                    yield (n_pts,)
-                    return
-                for i in range(n_pts + 1):
-                    for rest in generate_distributions(n_pts - i, n_sk - 1):
-                        yield (i,) + rest
-            
-            from .monte_carlo_crit import MonteCarloCritSimulator
-            simulator = MonteCarloCritSimulator()
-            results = []
-            
-            for run_idx, screening_sims in enumerate(n_list):
-                if cancel_event.is_set():
-                    self.skill_points = original_points.copy()
-                    return
-                try:
-                    if self.window.winfo_exists():
-                        self.window.after(0, lambda i=run_idx + 1, total=len(n_list), n=screening_sims: 
-                            self._safe_update_progress_label(
-                                loading_window,
-                                f"Testing screening N={n} ({i}/{total})...",
-                                current=i, total=total))
-                except (tk.TclError, RuntimeError):
-                    pass
+            import traceback
+            try:
+                starting_floor = 1
+                self.skill_points = original_points.copy()
+                enrage_enabled = self.enrage_enabled.get() if hasattr(self, 'enrage_enabled') else True
+                flurry_enabled = self.flurry_enabled.get() if hasattr(self, 'flurry_enabled') else True
+                quake_enabled = self.quake_enabled.get() if hasattr(self, 'quake_enabled') else True
+                block_cards = self.block_cards if hasattr(self, 'block_cards') else None
+                skills = ['strength', 'agility', 'perception', 'intellect', 'luck']
+                cancel_event = loading_window.loading_refs['cancel_event']
                 
-                candidate_scores = []
-                for dist_tuple in generate_distributions(num_points, len(skills)):
+                def generate_distributions(n_pts, n_sk):
+                    if n_sk == 1:
+                        yield (n_pts,)
+                        return
+                    for i in range(n_pts + 1):
+                        for rest in generate_distributions(n_pts - i, n_sk - 1):
+                            yield (i,) + rest
+                
+                from .monte_carlo_crit import MonteCarloCritSimulator
+                simulator = MonteCarloCritSimulator()
+                results = []
+                actual_valid_count = sum(
+                    1 for dt in generate_distributions(num_points, len(skills))
+                    if original_points.get('strength', 0) + dt[0] > 0
+                )
+                total_work = len(n_list) * actual_valid_count
+                
+                def dist_str(d):
+                    return " ".join(f"{s[:3].upper()}:{d.get(s, 0)}" for s in skills)
+                
+                for run_idx, screening_sims in enumerate(n_list):
                     if cancel_event.is_set():
                         self.skill_points = original_points.copy()
                         return
-                    if original_points.get('strength', 0) + dist_tuple[0] == 0:
-                        continue
-                    for skill, points in zip(skills, dist_tuple):
-                        self.skill_points[skill] = original_points.get(skill, 0) + points
-                    new_stats = self.get_total_stats()
-                    max_stage_samples = []
-                    m_screening = []
-                    for _ in range(screening_sims):
-                        result = simulator.simulate_run(
-                            new_stats, starting_floor, use_crit=True,
-                            enrage_enabled=enrage_enabled, flurry_enabled=flurry_enabled,
-                            quake_enabled=quake_enabled, block_cards=block_cards, return_metrics=True
-                        )
-                        max_stage_samples.append(result['max_stage_reached'])
-                        m_screening.append({
-                            'total_fragments': result.get('total_fragments', 0.0),
-                            'xp_per_run': result.get('xp_per_run', 0.0),
-                            'run_duration_seconds': result.get('run_duration_seconds', 1.0),
-                        })
-                    avg_max_stage = sum(max_stage_samples) / len(max_stage_samples) if max_stage_samples else 0
-                    avg_rd = sum(m['run_duration_seconds'] for m in m_screening) / len(m_screening) if m_screening else 1.0
-                    avg_frag = sum(m['total_fragments'] for m in m_screening) / len(m_screening) if m_screening else 0.0
-                    avg_xp = sum(m['xp_per_run'] for m in m_screening) / len(m_screening) if m_screening else 0.0
-                    fph = (avg_frag * 3600 / avg_rd) if avg_rd > 0 else 0.0
-                    xph = (avg_xp * 3600 / avg_rd) if avg_rd > 0 else 0.0
-                    candidate_scores.append((dist_tuple, avg_max_stage, fph, xph))
-                    self.skill_points = original_points.copy()
+                    try:
+                        if self.window.winfo_exists():
+                            self.window.after(0, lambda i=run_idx + 1, t=len(n_list), n=screening_sims: 
+                                self._safe_update_progress_label(
+                                    loading_window,
+                                    f"Screening N={n} ({i}/{t})\n"
+                                    f"Distributions: 0 / {actual_valid_count}\n"
+                                    f"Best so far: —",
+                                    current=run_idx * actual_valid_count, total=total_work))
+                    except (tk.TclError, RuntimeError):
+                        pass
+                    
+                    candidate_scores = []
+                    combination_count = 0
+                    best_avg_so_far = 0.0
+                    best_dist_so_far = {s: 0 for s in skills}
+                    best_fph_so_far = 0.0
+                    best_xph_so_far = 0.0
+                    for dist_tuple in generate_distributions(num_points, len(skills)):
+                        if cancel_event.is_set():
+                            self.skill_points = original_points.copy()
+                            return
+                        if original_points.get('strength', 0) + dist_tuple[0] == 0:
+                            continue
+                        combination_count += 1
+                        for skill, points in zip(skills, dist_tuple):
+                            self.skill_points[skill] = original_points.get(skill, 0) + points
+                        new_stats = self.get_total_stats()
+                        max_stage_samples = []
+                        m_screening = []
+                        for _ in range(screening_sims):
+                            result = simulator.simulate_run(
+                                new_stats, starting_floor, use_crit=True,
+                                enrage_enabled=enrage_enabled, flurry_enabled=flurry_enabled,
+                                quake_enabled=quake_enabled, block_cards=block_cards, return_metrics=True
+                            )
+                            max_stage_samples.append(result['max_stage_reached'])
+                            m_screening.append({
+                                'total_fragments': result.get('total_fragments', 0.0),
+                                'xp_per_run': result.get('xp_per_run', 0.0),
+                                'run_duration_seconds': result.get('run_duration_seconds', 1.0),
+                            })
+                        avg_max_stage = sum(max_stage_samples) / len(max_stage_samples) if max_stage_samples else 0
+                        avg_rd = sum(m['run_duration_seconds'] for m in m_screening) / len(m_screening) if m_screening else 1.0
+                        avg_frag = sum(m['total_fragments'] for m in m_screening) / len(m_screening) if m_screening else 0.0
+                        avg_xp = sum(m['xp_per_run'] for m in m_screening) / len(m_screening) if m_screening else 0.0
+                        fph = (avg_frag * 3600 / avg_rd) if avg_rd > 0 else 0.0
+                        xph = (avg_xp * 3600 / avg_rd) if avg_rd > 0 else 0.0
+                        candidate_scores.append((dist_tuple, avg_max_stage, fph, xph))
+                        self.skill_points = original_points.copy()
+                        
+                        is_better = avg_max_stage > best_avg_so_far
+                        if not is_better and avg_max_stage == best_avg_so_far:
+                            if best_fph_so_far > 0:
+                                denom = max(best_fph_so_far, 1e-9)
+                                rel = abs(float(fph or 0) - float(best_fph_so_far or 0)) / denom
+                                if fph > best_fph_so_far and rel > 0.15:
+                                    is_better = True
+                                elif rel <= 0.15 and (float(xph or 0) > float(best_xph_so_far or 0)):
+                                    is_better = True
+                            else:
+                                if fph > 0 or (fph == 0 and (float(xph or 0) > float(best_xph_so_far or 0))):
+                                    is_better = True
+                        if is_better:
+                            best_avg_so_far = avg_max_stage
+                            best_fph_so_far = fph
+                            best_xph_so_far = xph
+                            best_dist_so_far = {s: p for s, p in zip(skills, dist_tuple)}
+                        
+                        if (combination_count % 20 == 0 and combination_count > 0) or combination_count == actual_valid_count:
+                            done = run_idx * actual_valid_count + combination_count
+                            best_line = f"Stage {best_avg_so_far:.1f} | {dist_str(best_dist_so_far)}"
+                            try:
+                                if self.window.winfo_exists():
+                                    self.window.after(0, lambda d=done, tot=total_work, cnt=combination_count,
+                                        v=actual_valid_count, idx=run_idx+1, nt=len(n_list), n=screening_sims, bl=best_line:
+                                        self._safe_update_progress_label(
+                                            loading_window,
+                                            f"Screening N={n} ({idx}/{nt})\n"
+                                            f"Distributions: {cnt} / {v}\n"
+                                            f"Best so far: {bl}",
+                                            current=d, total=tot))
+                            except (tk.TclError, RuntimeError):
+                                pass
+                    
+                    # Best from screening only: sort by avg_max_stage, then fph, then xph (same order as refinement)
+                    candidate_scores.sort(key=lambda x: (x[1], x[2], x[3]), reverse=True)
+                    best_tuple, best_avg, best_fph, best_xph = candidate_scores[0]
+                    best_distribution = {s: p for s, p in zip(skills, best_tuple)}
+                    max_stage_int = int(best_avg)
+                    results.append((screening_sims, best_distribution.copy(), max_stage_int))
                 
-                # Best from screening only: sort by avg_max_stage, then fph, then xph (same order as refinement)
-                candidate_scores.sort(key=lambda x: (x[1], x[2], x[3]), reverse=True)
-                best_tuple, best_avg, best_fph, best_xph = candidate_scores[0]
-                best_distribution = {s: p for s, p in zip(skills, best_tuple)}
-                max_stage_int = int(best_avg)
-                results.append((screening_sims, best_distribution.copy(), max_stage_int))
-            
-            if cancel_event.is_set():
+                if cancel_event.is_set():
+                    try:
+                        if self.window.winfo_exists():
+                            self.window.after(0, lambda: self._close_loading_dialog(loading_window))
+                    except (tk.TclError, RuntimeError):
+                        pass
+                    return
+                
+                ref_dist = results[-1][1] if results else {}
+                match_flags = [r[1] == ref_dist for r in results]
+                safe_n = None
+                for i, n in enumerate(n_list):
+                    if match_flags[i]:
+                        safe_n = n
+                        break
+                if safe_n is None:
+                    safe_n = n_list[-1]
+                
+                table_data = [(n, _d, _s, match_flags[i]) for i, (n, _d, _s) in enumerate(results)]
                 try:
                     if self.window.winfo_exists():
-                        self.window.after(0, lambda: self._close_loading_dialog(loading_window))
+                        self.window.after(0, lambda: (
+                            self._close_loading_dialog(loading_window),
+                            self._show_mc_debug_screening_results(
+                                n_list, table_data, ref_dist, safe_n, goal_stage, num_points
+                            )
+                        ))
                 except (tk.TclError, RuntimeError):
-                    pass
-                return
-            
-            ref_dist = results[-1][1] if results else {}
-            match_flags = [r[1] == ref_dist for r in results]
-            safe_n = None
-            for i, n in enumerate(n_list):
-                if match_flags[i]:
-                    safe_n = n
-                    break
-            if safe_n is None:
-                safe_n = n_list[-1]
-            
-            table_data = [(n, r[1], r[2], match_flags[i]) for i, (n, _d, _s) in enumerate(results)]
-            try:
-                if self.window.winfo_exists():
-                    self.window.after(0, lambda: (
-                        self._close_loading_dialog(loading_window),
-                        self._show_mc_debug_screening_results(
-                            n_list, table_data, ref_dist, safe_n, goal_stage, num_points
-                        )
-                    ))
-            except (tk.TclError, RuntimeError):
+                    self.skill_points = original_points.copy()
                 self.skill_points = original_points.copy()
-            self.skill_points = original_points.copy()
+            except Exception as e:
+                traceback.print_exc()
+                err_msg = str(e)
+                try:
+                    if self.window.winfo_exists():
+                        self.window.after(0, lambda msg=err_msg: (
+                            self._close_loading_dialog(loading_window),
+                            messagebox.showerror("Debug MC Error", msg)
+                        ))
+                except Exception:
+                    pass
+                self.skill_points = original_points.copy()
         
         thread = threading.Thread(target=run_in_thread, daemon=True)
         thread.start()
@@ -6038,7 +6155,7 @@ Fragments/h: {fragments_per_hour:.2f}"""
         top3_added = False
         
         skill_text_parts = []
-        for skill in ['strength', 'agility', 'intellect', 'perception', 'luck']:
+        for skill in ['strength', 'agility', 'perception', 'intellect', 'luck']:
             points = added_distribution.get(skill, 0)
             skill_short = skill[:3].upper()
             skill_text_parts.append(f"{skill_short}: {points}")
@@ -6105,7 +6222,7 @@ Fragments/h: {fragments_per_hour:.2f}"""
                     for idx, (dist_dict, max_stage_int, frags_h, xp_h) in enumerate(tied_candidates[:3]):
                         # Create skill label
                         skill_parts = []
-                        for skill in ['strength', 'agility', 'intellect', 'perception', 'luck']:
+                        for skill in ['strength', 'agility', 'perception', 'intellect', 'luck']:
                             points = dist_dict.get(skill, 0)
                             if points > 0:
                                 skill_parts.append(f"{skill[:3].upper()}:{points}")
@@ -6238,7 +6355,7 @@ Fragments/h: {fragments_per_hour:.2f}"""
                         font=("Arial", 9))
         sub.grid(row=1, column=0, columnspan=2, pady=(0, 8), sticky=tk.W)
         
-        skills = ['strength', 'agility', 'intellect', 'perception', 'luck']
+        skills = ['strength', 'agility', 'perception', 'intellect', 'luck']
         ref_str = " | ".join(f"{s[:3].upper()}:{ref_dist.get(s, 0)}" for s in skills)
         ref_label = ttk.Label(main, text=f"Reference (max N={max(n_list)}): {ref_str}", font=("Arial", 9))
         ref_label.grid(row=2, column=0, columnspan=2, pady=(0, 8), sticky=tk.W)
@@ -6433,7 +6550,7 @@ Fragments/h: {fragments_per_hour:.2f}"""
         skill_frame.grid(row=skill_row, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 10))
         
         skill_text_parts = []
-        for skill in ['strength', 'agility', 'intellect', 'perception', 'luck']:
+        for skill in ['strength', 'agility', 'perception', 'intellect', 'luck']:
             points = skill_points_display.get(skill, 0)
             skill_short = skill[:3].upper()
             skill_text_parts.append(f"{skill_short}: {points}")
