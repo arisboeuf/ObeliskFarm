@@ -18,7 +18,6 @@ import os
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from ui_utils import calculate_tooltip_position, get_resource_path
 
-
 def get_user_data_path() -> Path:
     """Get path for user data (saves) - persists outside of bundle."""
     if getattr(sys, 'frozen', False):
@@ -47,7 +46,7 @@ class Stargazing2Window:
         
         # Create window
         self.window = tk.Toplevel(parent)
-        self.window.title("Stargazing 2.0 Calculator")
+        self.window.title("Stargazing 2.0 Calculator · Live")
         self.window.state('zoomed')
         self.window.resizable(True, True)
         self.window.minsize(800, 600)
@@ -69,8 +68,9 @@ class Stargazing2Window:
         # Initialize state
         self.reset_to_defaults()
         
-        # Initialize update debouncing
-        self._update_pending = None
+        # Auto-calculate: debounce with cancel (like Freebie Gem EV, but reset timer on each keystroke)
+        self.auto_calculate_enabled = True
+        self._after_id = None
         
         # Create widgets
         self.create_widgets()
@@ -373,19 +373,14 @@ class Stargazing2Window:
                 tk.Label(stat_row, text=f"{label}:", background=tile['color'], 
                          font=("Arial", 9), anchor=tk.W).pack(side=tk.LEFT, padx=(0, 5))
                 
-                # Entry
+                # Entry with update callback (like Freebie Gem EV)
                 var = tk.StringVar(value=str(self.manual_stats.get(key, 0)))
                 self.stat_vars[key] = var
                 entry = ttk.Entry(stat_row, textvariable=var, width=8, font=("Arial", 9))
                 entry.pack(side=tk.LEFT, padx=2)
                 
-                # Bind update events - use direct method reference to avoid closure issues
-                # StringVar trace
-                var.trace_add('write', lambda *args: self._schedule_update())
-                # Entry widget events
-                entry.bind('<KeyRelease>', lambda e: self._schedule_update())
-                entry.bind('<FocusOut>', lambda e: self._schedule_update())
-                entry.bind('<Return>', lambda e: self._schedule_update())
+                # Live-Update: Berechne automatisch bei Änderung (mit Delay) - genau wie Freebie Gem EV
+                var.trace_add('write', lambda *args: self.trigger_auto_calculate())
                 
                 # Suffix
                 if suffix:
@@ -429,7 +424,7 @@ class Stargazing2Window:
         ctrl_f_checkbox.pack(side=tk.LEFT)
     
     def create_results_section(self, parent):
-        """Create the results display section"""
+        """Create the results display section - compact like Freebie Gem EV"""
         
         container = tk.Frame(parent, background=COLOR_RESULTS, relief=tk.RIDGE, borderwidth=2)
         container.grid(row=0, column=1, sticky="nsew", padx=(3, 0), pady=0)
@@ -445,119 +440,84 @@ class Stargazing2Window:
         self.result_labels = {}
         
         # Star Results - Online
-        star_online_header = tk.Frame(results_frame, background=COLOR_RESULTS)
-        star_online_header.pack(fill=tk.X, pady=(0, 5))
-        tk.Label(star_online_header, text="⭐ Star Income (Online)", font=("Arial", 11, "bold"), 
-                 background=COLOR_RESULTS, fg="#1565C0").pack(side=tk.LEFT)
-        
-        star_online_metrics = [
-            ('Stars/hour:', 'stars_online'),
-        ]
-        
-        for label, key in star_online_metrics:
-            row = tk.Frame(results_frame, background=COLOR_RESULTS)
-            row.pack(fill=tk.X, pady=1)
-            tk.Label(row, text=f"  {label}", background=COLOR_RESULTS, 
-                     font=("Arial", 10)).pack(side=tk.LEFT)
-            val_label = tk.Label(row, text="—", background=COLOR_RESULTS, 
-                                 font=("Arial", 11, "bold"), fg="#1565C0")
-            val_label.pack(side=tk.RIGHT)
-            self.result_labels[key] = val_label
+        star_online_row = tk.Frame(results_frame, background=COLOR_RESULTS)
+        star_online_row.pack(fill=tk.X, pady=3)
+        tk.Label(star_online_row, text="⭐ Stars/hour (Online):", background=COLOR_RESULTS, 
+                 font=("Arial", 10)).pack(side=tk.LEFT)
+        val_label = tk.Label(star_online_row, text="—", background=COLOR_RESULTS, 
+                             font=("Arial", 11, "bold"), fg="#1565C0")
+        val_label.pack(side=tk.RIGHT)
+        self.result_labels['stars_online'] = val_label
         
         # Star Results - Offline
-        ttk.Separator(results_frame, orient='horizontal').pack(fill=tk.X, pady=5)
-        star_offline_header = tk.Frame(results_frame, background=COLOR_RESULTS)
-        star_offline_header.pack(fill=tk.X, pady=(0, 5))
-        tk.Label(star_offline_header, text="⭐ Star Income (Offline)", font=("Arial", 11, "bold"), 
-                 background=COLOR_RESULTS, fg="#1565C0").pack(side=tk.LEFT)
+        star_offline_row = tk.Frame(results_frame, background=COLOR_RESULTS)
+        star_offline_row.pack(fill=tk.X, pady=3)
+        tk.Label(star_offline_row, text="⭐ Stars/hour (Offline):", background=COLOR_RESULTS, 
+                 font=("Arial", 10)).pack(side=tk.LEFT)
+        val_label = tk.Label(star_offline_row, text="—", background=COLOR_RESULTS, 
+                             font=("Arial", 11, "bold"), fg="#1565C0")
+        val_label.pack(side=tk.RIGHT)
+        self.result_labels['stars_offline'] = val_label
         
-        star_offline_metrics = [
-            ('Stars/hour:', 'stars_offline'),
-        ]
-        
-        for label, key in star_offline_metrics:
-            row = tk.Frame(results_frame, background=COLOR_RESULTS)
-            row.pack(fill=tk.X, pady=1)
-            tk.Label(row, text=f"  {label}", background=COLOR_RESULTS, 
-                     font=("Arial", 10)).pack(side=tk.LEFT)
-            val_label = tk.Label(row, text="—", background=COLOR_RESULTS, 
-                                 font=("Arial", 11, "bold"), fg="#1565C0")
-            val_label.pack(side=tk.RIGHT)
-            self.result_labels[key] = val_label
+        # Separator
+        ttk.Separator(results_frame, orient='horizontal').pack(fill=tk.X, pady=8)
         
         # Super Star Results - Online
-        ttk.Separator(results_frame, orient='horizontal').pack(fill=tk.X, pady=8)
-        super_online_header = tk.Frame(results_frame, background=COLOR_RESULTS)
-        super_online_header.pack(fill=tk.X, pady=(0, 5))
-        tk.Label(super_online_header, text="🌟 Super Star Income (Online)", font=("Arial", 11, "bold"), 
-                 background=COLOR_RESULTS, fg="#E65100").pack(side=tk.LEFT)
-        
-        super_online_metrics = [
-            ('Super Stars/hour:', 'super_stars_online'),
-        ]
-        
-        for label, key in super_online_metrics:
-            row = tk.Frame(results_frame, background=COLOR_RESULTS)
-            row.pack(fill=tk.X, pady=1)
-            tk.Label(row, text=f"  {label}", background=COLOR_RESULTS, 
-                     font=("Arial", 10)).pack(side=tk.LEFT)
-            val_label = tk.Label(row, text="—", background=COLOR_RESULTS, 
-                                 font=("Arial", 11, "bold"), fg="#E65100")
-            val_label.pack(side=tk.RIGHT)
-            self.result_labels[key] = val_label
+        super_online_row = tk.Frame(results_frame, background=COLOR_RESULTS)
+        super_online_row.pack(fill=tk.X, pady=3)
+        tk.Label(super_online_row, text="🌟 Super Stars/hour (Online):", background=COLOR_RESULTS, 
+                 font=("Arial", 10)).pack(side=tk.LEFT)
+        val_label = tk.Label(super_online_row, text="—", background=COLOR_RESULTS, 
+                             font=("Arial", 11, "bold"), fg="#E65100")
+        val_label.pack(side=tk.RIGHT)
+        self.result_labels['super_stars_online'] = val_label
         
         # Super Star Results - Offline
-        ttk.Separator(results_frame, orient='horizontal').pack(fill=tk.X, pady=5)
-        super_offline_header = tk.Frame(results_frame, background=COLOR_RESULTS)
-        super_offline_header.pack(fill=tk.X, pady=(0, 5))
-        tk.Label(super_offline_header, text="🌟 Super Star Income (Offline)", font=("Arial", 11, "bold"), 
-                 background=COLOR_RESULTS, fg="#E65100").pack(side=tk.LEFT)
+        super_offline_row = tk.Frame(results_frame, background=COLOR_RESULTS)
+        super_offline_row.pack(fill=tk.X, pady=3)
+        tk.Label(super_offline_row, text="🌟 Super Stars/hour (Offline):", background=COLOR_RESULTS, 
+                 font=("Arial", 10)).pack(side=tk.LEFT)
+        val_label = tk.Label(super_offline_row, text="—", background=COLOR_RESULTS, 
+                             font=("Arial", 11, "bold"), fg="#E65100")
+        val_label.pack(side=tk.RIGHT)
+        self.result_labels['super_stars_offline'] = val_label
         
-        super_offline_metrics = [
-            ('Super Stars/hour:', 'super_stars_offline'),
-        ]
-        
-        for label, key in super_offline_metrics:
-            row = tk.Frame(results_frame, background=COLOR_RESULTS)
-            row.pack(fill=tk.X, pady=1)
-            tk.Label(row, text=f"  {label}", background=COLOR_RESULTS, 
-                     font=("Arial", 10)).pack(side=tk.LEFT)
-            val_label = tk.Label(row, text="—", background=COLOR_RESULTS, 
-                                 font=("Arial", 11, "bold"), fg="#E65100")
-            val_label.pack(side=tk.RIGHT)
-            self.result_labels[key] = val_label
+        ttk.Separator(results_frame, orient='horizontal').pack(fill=tk.X, pady=8)
+        btn_frame = tk.Frame(results_frame, background=COLOR_RESULTS)
+        btn_frame.pack(fill=tk.X, pady=5)
+        def _on_calculate():
+            self.update_calculations()
+            self.window.update_idletasks()
+            self.window.update()
+        self._btn_calculate = tk.Button(
+            btn_frame, text="Berechnen", command=_on_calculate,
+            font=("Arial", 10), bg="#E0E0E0", relief=tk.RAISED, bd=2,
+            cursor="hand2"
+        )
+        self._btn_calculate.pack(pady=2)
     
-    def _schedule_update(self, *args):
-        """Schedule an update with debouncing"""
-        # Ensure update_pending attribute exists
-        if not hasattr(self, '_update_pending'):
-            self._update_pending = None
-        
-        # Cancel any pending update
-        if self._update_pending is not None:
-            try:
-                self.window.after_cancel(self._update_pending)
-            except:
-                pass
-        
-        # Schedule new update after short delay (debounce) - reduced to 50ms for faster response
-        self._update_pending = self.window.after(50, self._do_live_update)
+    def trigger_auto_calculate(self):
+        """Schedule recalculation 500ms after last change. Cancel previous timer."""
+        if not self.auto_calculate_enabled:
+            return
+        if self._after_id is not None:
+            self.parent.after_cancel(self._after_id)
+            self._after_id = None
+        self._after_id = self.parent.after(500, self._perform_auto_calculate)
     
-    def _do_live_update(self):
-        """Perform the actual live update"""
-        self._update_pending = None
+    def _perform_auto_calculate(self):
+        """Run recalculation (called after debounce delay)."""
+        self._after_id = None
         try:
             self.update_calculations()
-        except Exception as e:
-            print(f"Error in _do_live_update: {e}")
-            import traceback
-            traceback.print_exc()
+        except Exception:
+            pass
     
     def on_ctrl_f_changed(self):
         """Handle CTRL+F Stars checkbox change"""
         if hasattr(self, 'ctrl_f_stars_var'):
             self.ctrl_f_stars_enabled = self.ctrl_f_stars_var.get()
-        self.update_calculations()
+        self.trigger_auto_calculate()
     
     def update_calculations(self):
         """Recalculate and update display"""
@@ -629,16 +589,13 @@ class Stargazing2Window:
                 self.result_labels[key].config(text="Error")
             return
         
-        # Update results
+        # Update results - simple labels like Freebie Gem EV
         try:
-            if 'stars_online' in self.result_labels:
-                self.result_labels['stars_online'].config(text=f"{summary['stars_per_hour_online']:.4f}")
-            if 'stars_offline' in self.result_labels:
-                self.result_labels['stars_offline'].config(text=f"{summary['stars_per_hour_offline']:.4f}")
-            if 'super_stars_online' in self.result_labels:
-                self.result_labels['super_stars_online'].config(text=f"{summary['super_stars_per_hour_online']:.4f}")
-            if 'super_stars_offline' in self.result_labels:
-                self.result_labels['super_stars_offline'].config(text=f"{summary['super_stars_per_hour_offline']:.4f}")
+            self.result_labels['stars_online'].config(text=f"{summary['stars_per_hour_online']:.4f}")
+            self.result_labels['stars_offline'].config(text=f"{summary['stars_per_hour_offline']:.4f}")
+            self.result_labels['super_stars_online'].config(text=f"{summary['super_stars_per_hour_online']:.4f}")
+            self.result_labels['super_stars_offline'].config(text=f"{summary['super_stars_per_hour_offline']:.4f}")
+            self.window.update_idletasks()
         except KeyError as e:
             print(f"KeyError updating results: {e}")
             print(f"Available labels: {list(self.result_labels.keys())}")
