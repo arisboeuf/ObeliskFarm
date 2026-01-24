@@ -3630,6 +3630,57 @@ class ArchaeologySimulatorWindow:
         )
         mc_stage_optimizer_button.pack(fill=tk.X)
         
+        # === MC Stage Optimizer (Debug) - collapsible, for developer only ===
+        debug_collapsible = CollapsibleFrame(
+            mc_stage_optimizer_section,
+            title="Debug MC (for developer only)",
+            bg_color="#E1BEE7",
+            expanded=False,
+        )
+        
+        def make_spinbox(parent, low, high, default, width=5):
+            sb = tk.Spinbox(parent, from_=low, to=high, width=width, font=("Arial", 9))
+            sb.delete(0, tk.END)
+            sb.insert(0, str(default))
+            return sb
+        
+        debug_row = tk.Frame(debug_collapsible.content, background="#E1BEE7")
+        debug_row.pack(fill=tk.X, padx=0, pady=(0, 5))
+        
+        tk.Label(debug_row, text="Debug (screening N):", font=("Arial", 9),
+                background="#E1BEE7").pack(side=tk.LEFT, padx=(0, 4))
+        
+        screening_frame = tk.Frame(debug_row, background="#E1BEE7")
+        screening_frame.pack(side=tk.LEFT, padx=(0, 2))
+        tk.Label(screening_frame, text="N min:", font=("Arial", 8), background="#E1BEE7").pack(side=tk.LEFT)
+        self.debug_screening_min_spinbox = make_spinbox(screening_frame, 10, 500, 30)
+        self.debug_screening_min_spinbox.pack(side=tk.LEFT, padx=(2, 0))
+        tk.Label(screening_frame, text="max:", font=("Arial", 8), background="#E1BEE7").pack(side=tk.LEFT, padx=(4, 0))
+        self.debug_screening_max_spinbox = make_spinbox(screening_frame, 10, 500, 200)
+        self.debug_screening_max_spinbox.pack(side=tk.LEFT, padx=(2, 0))
+        tk.Label(screening_frame, text="\u0394:", font=("Arial", 8), background="#E1BEE7").pack(side=tk.LEFT, padx=(4, 0))
+        self.debug_screening_delta_spinbox = make_spinbox(screening_frame, 5, 200, 30)
+        self.debug_screening_delta_spinbox.pack(side=tk.LEFT, padx=(2, 0))
+        
+        mc_stage_optimizer_debug_button = tk.Button(
+            debug_row,
+            text="MC Stage Optimizer (Debug)",
+            command=self.run_mc_stage_optimizer_debug,
+            font=("Arial", 9),
+            bg="#7B1FA2",
+            fg="#FFFFFF",
+            activebackground="#9C27B0",
+            activeforeground="#FFFFFF",
+            relief=tk.RAISED,
+            borderwidth=2
+        )
+        mc_stage_optimizer_debug_button.pack(side=tk.LEFT, padx=(10, 0))
+        
+        debug_help = tk.Label(debug_row, text="?", font=("Arial", 9, "bold"),
+                             cursor="hand2", foreground="#4A148C", background="#E1BEE7")
+        debug_help.pack(side=tk.LEFT, padx=(4, 0))
+        self._create_mc_stage_optimizer_debug_tooltip(debug_help)
+        
         # Initialize target button highlight
         self._update_frag_target_buttons()
     
@@ -3774,6 +3825,59 @@ class ArchaeologySimulatorWindow:
                 "  - Performance metrics (XP/h, Fragments/h)",
                 "  - Stage distribution histogram",
                 "  - Top candidates comparison (if tied)",
+            ]
+            
+            for line in lines:
+                tk.Label(content, text=line, font=("Arial", 9),
+                        background="#FFFFFF", justify=tk.LEFT).pack(anchor="w")
+            
+            widget.tooltip = tooltip
+        
+        def on_leave(event):
+            if hasattr(widget, 'tooltip'):
+                widget.tooltip.destroy()
+                del widget.tooltip
+        
+        widget.bind("<Enter>", on_enter)
+        widget.bind("<Leave>", on_leave)
+    
+    def _create_mc_stage_optimizer_debug_tooltip(self, widget):
+        """Creates a tooltip explaining the MC Stage Optimizer (Debug) feature"""
+        def on_enter(event):
+            tooltip = tk.Toplevel()
+            tooltip.wm_overrideredirect(True)
+            
+            tooltip_width = 360
+            tooltip_height = 340
+            screen_width = tooltip.winfo_screenwidth()
+            screen_height = tooltip.winfo_screenheight()
+            x, y = calculate_tooltip_position(event, tooltip_width, tooltip_height, screen_width, screen_height)
+            tooltip.wm_geometry(f"+{x}+{y}")
+            
+            outer_frame = tk.Frame(tooltip, background="#7B1FA2", relief=tk.FLAT)
+            outer_frame.pack(padx=2, pady=2)
+            
+            inner_frame = tk.Frame(outer_frame, background="#FFFFFF")
+            inner_frame.pack(padx=1, pady=1)
+            
+            content = tk.Frame(inner_frame, background="#FFFFFF", padx=10, pady=8)
+            content.pack()
+            
+            tk.Label(content, text="MC Stage Optimizer (Debug)", font=("Arial", 10, "bold"),
+                    background="#FFFFFF", foreground="#7B1FA2").pack(anchor="w")
+            
+            lines = [
+                "",
+                "Screening only. Tests multiple screening N (min, max, Δ)",
+                "and recommends whether you can safely reduce N.",
+                "Same Goal Stage as main optimizer. No refinement/final.",
+                "",
+                "Runs screening for each N. Best = top by stage, then",
+                "frags/h, then xp/h. Match = same best as reference",
+                "(max N).",
+                "",
+                "Output: table (N | match? | best dist) +",
+                "recommendation: safe minimum N or keep ≥ max.",
             ]
             
             for line in lines:
@@ -5636,6 +5740,155 @@ class ArchaeologySimulatorWindow:
         thread = threading.Thread(target=run_in_thread, daemon=True)
         thread.start()
     
+    def _parse_debug_n(self, spinbox, low, high, default):
+        """Parse integer from debug Spinbox, clamp to [low, high], fallback to default on error."""
+        try:
+            v = int(str(spinbox.get()).strip())
+            return max(low, min(high, v))
+        except (ValueError, TypeError):
+            return default
+    
+    def run_mc_stage_optimizer_debug(self):
+        """Debug MC Stage Optimizer: screening only. Tests multiple screening N (min/max/delta).
+        Checks if the same skill distribution is identified for refinement; no refinement/final runs."""
+        import threading
+        
+        n_min = self._parse_debug_n(self.debug_screening_min_spinbox, 10, 500, 30)
+        n_max = self._parse_debug_n(self.debug_screening_max_spinbox, 10, 500, 200)
+        delta = self._parse_debug_n(self.debug_screening_delta_spinbox, 5, 200, 30)
+        n_min, n_max = min(n_min, n_max), max(n_min, n_max)
+        if delta <= 0:
+            delta = 30
+        goal_stage = getattr(self, 'current_stage', 1)
+        
+        n_list = []
+        v = n_min
+        while v <= n_max:
+            n_list.append(v)
+            v += delta
+        if n_list and n_list[-1] != n_max:
+            n_list.append(n_max)
+        n_list = sorted(set(n_list))
+        
+        original_points = self.skill_points.copy()
+        num_points = self.shared_planner_points.get() if hasattr(self, 'shared_planner_points') else 20
+        
+        loading_window = self._show_loading_dialog(
+            f"MC Stage Optimizer (Debug) – screening only\n"
+            f"N: {n_min}..{n_max} step {delta} -> {n_list}\n"
+            f"Goal Stage={goal_stage}. Same skill identified for refinement?"
+        )
+        
+        def run_in_thread():
+            starting_floor = 1
+            self.skill_points = original_points.copy()
+            enrage_enabled = self.enrage_enabled.get() if hasattr(self, 'enrage_enabled') else True
+            flurry_enabled = self.flurry_enabled.get() if hasattr(self, 'flurry_enabled') else True
+            quake_enabled = self.quake_enabled.get() if hasattr(self, 'quake_enabled') else True
+            block_cards = self.block_cards if hasattr(self, 'block_cards') else None
+            skills = ['strength', 'agility', 'intellect', 'perception', 'luck']
+            cancel_event = loading_window.loading_refs['cancel_event']
+            
+            def generate_distributions(n_pts, n_sk):
+                if n_sk == 1:
+                    yield (n_pts,)
+                    return
+                for i in range(n_pts + 1):
+                    for rest in generate_distributions(n_pts - i, n_sk - 1):
+                        yield (i,) + rest
+            
+            from .monte_carlo_crit import MonteCarloCritSimulator
+            simulator = MonteCarloCritSimulator()
+            results = []
+            
+            for run_idx, screening_sims in enumerate(n_list):
+                if cancel_event.is_set():
+                    self.skill_points = original_points.copy()
+                    return
+                try:
+                    if self.window.winfo_exists():
+                        self.window.after(0, lambda i=run_idx + 1, total=len(n_list), n=screening_sims: 
+                            self._safe_update_progress_label(
+                                loading_window,
+                                f"Testing screening N={n} ({i}/{total})...",
+                                current=i, total=total))
+                except (tk.TclError, RuntimeError):
+                    pass
+                
+                candidate_scores = []
+                for dist_tuple in generate_distributions(num_points, len(skills)):
+                    if cancel_event.is_set():
+                        self.skill_points = original_points.copy()
+                        return
+                    if original_points.get('strength', 0) + dist_tuple[0] == 0:
+                        continue
+                    for skill, points in zip(skills, dist_tuple):
+                        self.skill_points[skill] = original_points.get(skill, 0) + points
+                    new_stats = self.get_total_stats()
+                    max_stage_samples = []
+                    m_screening = []
+                    for _ in range(screening_sims):
+                        result = simulator.simulate_run(
+                            new_stats, starting_floor, use_crit=True,
+                            enrage_enabled=enrage_enabled, flurry_enabled=flurry_enabled,
+                            quake_enabled=quake_enabled, block_cards=block_cards, return_metrics=True
+                        )
+                        max_stage_samples.append(result['max_stage_reached'])
+                        m_screening.append({
+                            'total_fragments': result.get('total_fragments', 0.0),
+                            'xp_per_run': result.get('xp_per_run', 0.0),
+                            'run_duration_seconds': result.get('run_duration_seconds', 1.0),
+                        })
+                    avg_max_stage = sum(max_stage_samples) / len(max_stage_samples) if max_stage_samples else 0
+                    avg_rd = sum(m['run_duration_seconds'] for m in m_screening) / len(m_screening) if m_screening else 1.0
+                    avg_frag = sum(m['total_fragments'] for m in m_screening) / len(m_screening) if m_screening else 0.0
+                    avg_xp = sum(m['xp_per_run'] for m in m_screening) / len(m_screening) if m_screening else 0.0
+                    fph = (avg_frag * 3600 / avg_rd) if avg_rd > 0 else 0.0
+                    xph = (avg_xp * 3600 / avg_rd) if avg_rd > 0 else 0.0
+                    candidate_scores.append((dist_tuple, avg_max_stage, fph, xph))
+                    self.skill_points = original_points.copy()
+                
+                # Best from screening only: sort by avg_max_stage, then fph, then xph (same order as refinement)
+                candidate_scores.sort(key=lambda x: (x[1], x[2], x[3]), reverse=True)
+                best_tuple, best_avg, best_fph, best_xph = candidate_scores[0]
+                best_distribution = {s: p for s, p in zip(skills, best_tuple)}
+                max_stage_int = int(best_avg)
+                results.append((screening_sims, best_distribution.copy(), max_stage_int))
+            
+            if cancel_event.is_set():
+                try:
+                    if self.window.winfo_exists():
+                        self.window.after(0, lambda: self._close_loading_dialog(loading_window))
+                except (tk.TclError, RuntimeError):
+                    pass
+                return
+            
+            ref_dist = results[-1][1] if results else {}
+            match_flags = [r[1] == ref_dist for r in results]
+            safe_n = None
+            for i, n in enumerate(n_list):
+                if match_flags[i]:
+                    safe_n = n
+                    break
+            if safe_n is None:
+                safe_n = n_list[-1]
+            
+            table_data = [(n, r[1], r[2], match_flags[i]) for i, (n, _d, _s) in enumerate(results)]
+            try:
+                if self.window.winfo_exists():
+                    self.window.after(0, lambda: (
+                        self._close_loading_dialog(loading_window),
+                        self._show_mc_debug_screening_results(
+                            n_list, table_data, ref_dist, safe_n, goal_stage, num_points
+                        )
+                    ))
+            except (tk.TclError, RuntimeError):
+                self.skill_points = original_points.copy()
+            self.skill_points = original_points.copy()
+        
+        thread = threading.Thread(target=run_in_thread, daemon=True)
+        thread.start()
+    
     def _show_stage_optimizer_results(self, max_stage_samples, skill_points_display, added_distribution, num_points, metrics_samples, top_3_candidates=None):
         """Show histogram window with max stage distribution and optimal skill setup"""
         try:
@@ -5652,24 +5905,22 @@ class ArchaeologySimulatorWindow:
         
         # Create window in normal GUI style (not Matrix)
         result_window = tk.Toplevel(self.window)
-        result_window.title("MC Stage Optimizer Results")
         result_window.transient(self.window)
-        
-        # Set window to fullscreen (maximized)
-        result_window.state('zoomed')  # Maximize on Windows
+        result_window.state('zoomed')
         result_window.resizable(True, True)
         
-        # Main container
         main_frame = ttk.Frame(result_window, padding="10")
         main_frame.pack(fill=tk.BOTH, expand=True)
         main_frame.columnconfigure(0, weight=1)
         
-        # Title
-        title_label = ttk.Label(main_frame, 
-                               text=f"MC Stage Optimizer Results - 1000 simulations\n"
-                                    f"Finding optimal skill distribution for maximum stage reached\n"
-                                    f"Used {num_points} additional points (Arch Level: {num_points})", 
-                               font=("Arial", 12, "bold"))
+        n_sims = len(max_stage_samples) if max_stage_samples else 0
+        result_window.title("MC Stage Optimizer Results")
+        title_lines = [
+            f"MC Stage Optimizer Results - {n_sims} simulations",
+            "Finding optimal skill distribution for maximum stage reached",
+            f"Used {num_points} additional points (Arch Level: {num_points})",
+        ]
+        title_label = ttk.Label(main_frame, text="\n".join(title_lines), font=("Arial", 12, "bold"))
         title_label.grid(row=0, column=0, columnspan=2, pady=(0, 10), sticky=tk.W)
         
         # Statistics frame
@@ -5966,6 +6217,69 @@ Fragments/h: {fragments_per_hour:.2f}"""
         
         close_btn = ttk.Button(button_frame, text="Close", command=result_window.destroy)
         close_btn.pack()
+    
+    def _show_mc_debug_screening_results(self, n_list, table_data, ref_dist, safe_n, goal_stage, num_points):
+        """Show debug results: table of screening N vs match + recommendation for safe reduction."""
+        win = tk.Toplevel(self.window)
+        win.title("MC Stage Optimizer (Debug) – Screening N Recommendation")
+        win.transient(self.window)
+        win.state('zoomed')
+        win.resizable(True, True)
+        
+        main = ttk.Frame(win, padding="10")
+        main.pack(fill=tk.BOTH, expand=True)
+        main.columnconfigure(0, weight=1)
+        
+        title = ttk.Label(main, text="MC Stage Optimizer (Debug) – Screening only",
+                         font=("Arial", 12, "bold"))
+        title.grid(row=0, column=0, columnspan=2, pady=(0, 8), sticky=tk.W)
+        
+        sub = ttk.Label(main, text=f"Goal Stage: {goal_stage} | Points: {num_points} | Same skill identified for refinement?",
+                        font=("Arial", 9))
+        sub.grid(row=1, column=0, columnspan=2, pady=(0, 8), sticky=tk.W)
+        
+        skills = ['strength', 'agility', 'intellect', 'perception', 'luck']
+        ref_str = " | ".join(f"{s[:3].upper()}:{ref_dist.get(s, 0)}" for s in skills)
+        ref_label = ttk.Label(main, text=f"Reference (max N={max(n_list)}): {ref_str}", font=("Arial", 9))
+        ref_label.grid(row=2, column=0, columnspan=2, pady=(0, 8), sticky=tk.W)
+        
+        tbl_frame = ttk.LabelFrame(main, text="Screening N vs Result", padding="8")
+        tbl_frame.grid(row=3, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 8))
+        tbl_frame.columnconfigure(0, weight=1)
+        
+        tree = ttk.Treeview(tbl_frame, columns=("n", "match", "dist", "stage"), show="headings", height=min(12, max(4, len(n_list))))
+        tree.heading("n", text="Screening N")
+        tree.heading("match", text="Matches reference?")
+        tree.heading("dist", text="Best distribution (STR/AGI/INT/PER/LUK)")
+        tree.heading("stage", text="Max stage")
+        tree.column("n", width=100)
+        tree.column("match", width=140)
+        tree.column("dist", width=320)
+        tree.column("stage", width=80)
+        tree.grid(row=0, column=0, sticky=(tk.W, tk.E))
+        sb = ttk.Scrollbar(tbl_frame, orient=tk.VERTICAL, command=tree.yview)
+        sb.grid(row=0, column=1, sticky=(tk.N, tk.S))
+        tree.configure(yscrollcommand=sb.set)
+        
+        for n, dist, stage, match in table_data:
+            dist_str = " | ".join(f"{s[:3].upper()}:{dist.get(s, 0)}" for s in skills)
+            tree.insert("", tk.END, values=(n, "Yes" if match else "No", dist_str, stage))
+        
+        rec_frame = ttk.LabelFrame(main, text="Recommendation", padding="10")
+        rec_frame.grid(row=4, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 8))
+        rec_frame.columnconfigure(0, weight=1)
+        
+        if safe_n == min(n_list) and all(m for (_, _, _, m) in table_data):
+            rec_text = f"You can safely reduce screening N to {safe_n}. All tested N matched the reference."
+        elif safe_n == max(n_list):
+            rec_text = f"No safe reduction. Keep screening N ≥ {max(n_list)}."
+        else:
+            rec_text = f"You can safely reduce screening N to {safe_n} (reference = {max(n_list)})."
+        
+        rec_label = ttk.Label(rec_frame, text=rec_text, font=("Arial", 10, "bold"), wraplength=700)
+        rec_label.pack(anchor=tk.W)
+        
+        ttk.Button(main, text="Close", command=win.destroy).grid(row=5, column=0, columnspan=2, pady=(10, 0))
     
     def _show_fragment_farmer_results(self, frag_per_hour_samples, skill_points_display, num_points,
                                      target_frag, optimal_stage, metrics_samples):

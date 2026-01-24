@@ -18,7 +18,7 @@ except ImportError:
 
 from .constants import (
     get_prestige_wave_requirement, TIER_COLORS, TIER_MAT_NAMES, UPGRADE_SHORT_NAMES,
-    CURRENCY_ICONS, WAVE_REWARDS, PRESTIGE_UNLOCKED, MAX_LEVELS, CAP_UPGRADES
+    CURRENCY_ICONS, WAVE_REWARDS, PRESTIGE_UNLOCKED, MAX_LEVELS, CAP_UPGRADES, PRESTIGE_BONUS_BASE
 )
 from .utils import format_number
 from .stats import PlayerStats, EnemyStats
@@ -29,7 +29,7 @@ from .simulation import (
 from .optimizer import greedy_optimize, format_upgrade_summary, UpgradeState
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from ui_utils import get_resource_path, create_tooltip
+from ui_utils import get_resource_path, create_tooltip, calculate_tooltip_position
 
 
 def get_user_data_path() -> Path:
@@ -197,20 +197,40 @@ class BudgetOptimizerPanel:
         tk.Label(header_content, text="Upgrades", font=("Arial", 10, "bold"),
                 background="#4CAF50", foreground="white").pack(side=tk.LEFT)
         
-        # Prestige input in header (right side)
+        # Prestige input in header (right side) - using +/- buttons like upgrades
         prestige_header_frame = tk.Frame(header_content, background="#4CAF50")
         prestige_header_frame.pack(side=tk.RIGHT)
         
         tk.Label(prestige_header_frame, text="Prestige:", font=("Arial", 9, "bold"),
                 background="#4CAF50", foreground="white").pack(side=tk.LEFT, padx=(10, 5))
         
-        prestige_spin_header = ttk.Spinbox(prestige_header_frame, from_=0, to=20, width=5,
-                                          textvariable=self.budget_prestige_var,
-                                          command=self._on_prestige_change)
-        prestige_spin_header.pack(side=tk.LEFT)
-        prestige_spin_header.bind('<Return>', lambda e: self._on_prestige_change())
-        # Save when prestige changes
-        self.budget_prestige_var.trace('w', lambda *args: self.save_state())
+        # Prestige buttons and display
+        prestige_control_frame = tk.Frame(prestige_header_frame, background="#4CAF50")
+        prestige_control_frame.pack(side=tk.LEFT)
+        
+        # Minus button
+        prestige_minus_btn = tk.Button(prestige_control_frame, text="−", width=2, height=1, font=("Arial", 9, "bold"),
+                                      command=self._decrement_prestige,
+                                      bg="#CCCCCC", fg="black",
+                                      relief=tk.RAISED, borderwidth=1, cursor="hand2")
+        prestige_minus_btn.pack(side=tk.LEFT, padx=2)
+        
+        # Prestige value display (read-only label)
+        self.prestige_display_label = tk.Label(prestige_control_frame, text="0", 
+                                               font=("Arial", 9, "bold"),
+                                               background="#4CAF50", foreground="white",
+                                               width=3)
+        self.prestige_display_label.pack(side=tk.LEFT, padx=2)
+        
+        # Plus button
+        prestige_plus_btn = tk.Button(prestige_control_frame, text="+", width=2, height=1, font=("Arial", 9, "bold"),
+                                     command=self._increment_prestige,
+                                     bg="#CCCCCC", fg="black",
+                                     relief=tk.RAISED, borderwidth=1, cursor="hand2")
+        prestige_plus_btn.pack(side=tk.LEFT, padx=2)
+        
+        # Update display initially
+        self._update_prestige_display()
         
         # === CURRENT UPGRADE LEVELS (Forecast Mode) ===
         current_upgrades_frame = tk.Frame(left_column, background="#FFF3E0", relief=tk.RIDGE, borderwidth=2)
@@ -231,7 +251,7 @@ class BudgetOptimizerPanel:
         
         # Reset button
         reset_btn = tk.Button(upgrade_header, text="Reset", 
-                            font=("Arial", 8, "bold"), bg="#F44336", fg="white",
+                            font=("Arial", 8, "bold"), bg="#CCCCCC", fg="black",
                             command=self._reset_upgrades, padx=8, pady=2)
         reset_btn.pack(side=tk.RIGHT)
         
@@ -471,8 +491,8 @@ class BudgetOptimizerPanel:
                 plus_btn = tk.Button(buttons_frame, text="+", width=2, height=1, font=("Arial", 9, "bold"),
                                    command=lambda t=tier, i=idx: self._increment_upgrade(t, i),
                                    state='disabled' if current_level >= max_level else 'normal',
-                                   bg="#44AA44" if current_level < max_level else "#CCCCCC",
-                                   fg="white" if current_level < max_level else "#666666",
+                                   bg="#CCCCCC" if current_level < max_level else "#CCCCCC",
+                                   fg="black" if current_level < max_level else "#666666",
                                    relief=tk.RAISED, borderwidth=1,
                                    cursor="hand2" if current_level < max_level else "arrow")
                 plus_btn.pack(pady=(0, 1))
@@ -481,8 +501,8 @@ class BudgetOptimizerPanel:
                 minus_btn = tk.Button(buttons_frame, text="−", width=2, height=1, font=("Arial", 9, "bold"),
                                     command=lambda t=tier, i=idx: self._decrement_upgrade(t, i),
                                     state='disabled' if current_level == 0 else 'normal',
-                                    bg="#FF4444" if current_level > 0 else "#CCCCCC",
-                                    fg="white" if current_level > 0 else "#666666",
+                                    bg="#CCCCCC" if current_level > 0 else "#CCCCCC",
+                                    fg="black" if current_level > 0 else "#666666",
                                     relief=tk.RAISED, borderwidth=1,
                                     cursor="hand2" if current_level > 0 else "arrow")
                 minus_btn.pack(pady=(1, 0))
@@ -605,20 +625,44 @@ class BudgetOptimizerPanel:
         if current_level >= max_level:
             plus_btn.config(state='disabled', bg="#CCCCCC", fg="#666666", cursor="arrow")
         else:
-            plus_btn.config(state='normal', bg="#44AA44", fg="white", cursor="hand2")
+            plus_btn.config(state='normal', bg="#CCCCCC", fg="black", cursor="hand2")
         
         # Minus button
         if current_level == 0:
             minus_btn.config(state='disabled', bg="#CCCCCC", fg="#666666", cursor="arrow")
         else:
-            minus_btn.config(state='normal', bg="#FF4444", fg="white", cursor="hand2")
+            minus_btn.config(state='normal', bg="#CCCCCC", fg="black", cursor="hand2")
         
         # Update total points display (only if requested, to avoid multiple updates)
         if update_total:
             self._update_total_points()
     
+    def _increment_prestige(self):
+        """Increment prestige level"""
+        current = self.budget_prestige_var.get()
+        if current < 20:
+            self.budget_prestige_var.set(current + 1)
+            self._on_prestige_change()
+    
+    def _decrement_prestige(self):
+        """Decrement prestige level"""
+        current = self.budget_prestige_var.get()
+        if current > 0:
+            self.budget_prestige_var.set(current - 1)
+            self._on_prestige_change()
+    
+    def _update_prestige_display(self):
+        """Update the prestige display label"""
+        if hasattr(self, 'prestige_display_label'):
+            prestige = self.budget_prestige_var.get()
+            self.prestige_display_label.config(text=str(prestige))
+    
     def _on_prestige_change(self):
         """Update upgrade inputs when prestige changes"""
+        prestige = self.budget_prestige_var.get()
+        # Update display
+        self._update_prestige_display()
+        # Rebuild upgrade inputs
         self._build_upgrade_level_inputs()
         # Update player stats to reflect new prestige multiplier
         self._update_player_stats()
@@ -968,8 +1012,17 @@ class BudgetOptimizerPanel:
             return
         
         player = result.player_stats
+        # Get prestige dynamically - will be evaluated when tooltip is shown
         prestige = self.budget_prestige_var.get()
         prestige_mult = 1 + prestige * player.prestige_bonus_scale
+        
+        # Calculate bonus from upgrades (prestige_bonus_scale already includes base 0.1)
+        prestige_bonus_from_upgrades = player.prestige_bonus_scale - PRESTIGE_BONUS_BASE
+        
+        # Store prestige for tooltip (will be used when creating tooltip text)
+        current_prestige = prestige
+        current_prestige_mult = prestige_mult
+        current_prestige_bonus = prestige_bonus_from_upgrades
         
         # Define stat rows: (label, value_formatter, icon_symbol, tooltip_text)
         stat_rows = [
@@ -1043,8 +1096,8 @@ class BudgetOptimizerPanel:
             ("Crit Damage:", lambda: f"{player.crit_dmg:.2f}x", "⭐", None),
             ("Event Speed:", lambda: f"{player.game_speed:.2f}x", "⏱", None),
             ("Block Chance:", lambda: f"{player.block_chance*100:.0f}%", "🛡", None),
-            ("Prestige Hp/Dmg:", lambda: f"{prestige_mult:.2f}x", "⬆", 
-             f"Multiplier from Prestige {prestige}:\n• Base: +10% per prestige\n• Bonus: +{player.prestige_bonus_scale*100:.0f}% per prestige (from upgrades)\n• Total: {prestige_mult:.2f}x HP and ATK"),
+            ("Prestige Hp/Dmg:", lambda: f"{current_prestige_mult:.2f}x", "⬆", 
+             f"Multiplier from Prestige {current_prestige}:\n• Base: +10% per prestige\n• Bonus: +{current_prestige_bonus*100:.1f}% per prestige (from upgrades)\n• Total: {current_prestige_mult:.2f}x HP and ATK"),
             ("2x Currencies:", lambda: f"{player.x2_money}", "💰", None),
             ("5x Currencies:", lambda: f"{player.x5_money}%", "💎", None),
         ])
@@ -1070,7 +1123,51 @@ class BudgetOptimizerPanel:
                         background="#2C2C2C", foreground="#888888",
                         cursor="hand2", width=2)
                 help_icon.pack(side=tk.LEFT, padx=(0, 3))
-                create_tooltip(help_icon, tooltip_text)
+                # For Prestige tooltip, create dynamic tooltip that reads current prestige value
+                if label == "Prestige Hp/Dmg:":
+                    # Store reference to player for dynamic tooltip
+                    help_icon._player_ref = player
+                    def on_enter_prestige(event):
+                        """Dynamic tooltip that reads current prestige value"""
+                        # Get current prestige value dynamically
+                        current_p = self.budget_prestige_var.get()
+                        current_p_mult = 1 + current_p * player.prestige_bonus_scale
+                        current_p_bonus = player.prestige_bonus_scale - PRESTIGE_BONUS_BASE
+                        dynamic_text = f"Multiplier from Prestige {current_p}:\n• Base: +10% per prestige\n• Bonus: +{current_p_bonus*100:.1f}% per prestige (from upgrades)\n• Total: {current_p_mult:.2f}x HP and ATK"
+                        # Create tooltip directly with dynamic text
+                        tooltip = tk.Toplevel()
+                        tooltip.wm_overrideredirect(True)
+                        lines = dynamic_text.split('\n')
+                        tooltip_width = min(max(len(line) for line in lines) * 8 + 30, 400) if lines else 250
+                        tooltip_height = len(lines) * 18 + 30
+                        screen_width = tooltip.winfo_screenwidth()
+                        screen_height = tooltip.winfo_screenheight()
+                        x, y = calculate_tooltip_position(event, tooltip_width, tooltip_height, screen_width, screen_height, "auto")
+                        tooltip.wm_geometry(f"+{x}+{y}")
+                        outer_frame = tk.Frame(tooltip, background="#2C3E50", relief=tk.FLAT, borderwidth=0)
+                        outer_frame.pack(padx=2, pady=2)
+                        inner_frame = tk.Frame(outer_frame, background="#FFFFFF", relief=tk.FLAT, borderwidth=0)
+                        inner_frame.pack(padx=1, pady=1)
+                        text_widget = tk.Text(inner_frame, background="#FFFFFF", foreground="#2C3E50", font=("Arial", 9), wrap=tk.WORD, padx=12, pady=8, relief=tk.FLAT, borderwidth=0, highlightthickness=0)
+                        text_widget.tag_config("bold", font=("Arial", 9, "bold"))
+                        text_widget.tag_config("header", font=("Arial", 10, "bold"), foreground="#1976D2")
+                        for i, line in enumerate(lines):
+                            if i == 0 or (line.endswith(':') and not line.startswith('   ')):
+                                text_widget.insert(tk.END, line + '\n', "header")
+                            else:
+                                text_widget.insert(tk.END, line + '\n')
+                        text_widget.config(height=len(lines), width=max(len(line) for line in lines) if lines else 20)
+                        text_widget.config(state=tk.DISABLED)
+                        text_widget.pack()
+                        help_icon.tooltip = tooltip
+                    def on_leave_prestige(event):
+                        if hasattr(help_icon, 'tooltip'):
+                            help_icon.tooltip.destroy()
+                            del help_icon.tooltip
+                    help_icon.bind("<Enter>", on_enter_prestige)
+                    help_icon.bind("<Leave>", on_leave_prestige)
+                else:
+                    create_tooltip(help_icon, tooltip_text)
             
             # Icon
             icon_widget = tk.Label(inner_frame, text=icon, font=("Arial", 9),
@@ -1079,7 +1176,8 @@ class BudgetOptimizerPanel:
             icon_widget.pack(side=tk.LEFT, padx=(0, 5))
             
             # Value on right
-            value_label = tk.Label(inner_frame, text=value_func(), font=("Arial", 8, "bold"),
+            value_text = value_func()
+            value_label = tk.Label(inner_frame, text=value_text, font=("Arial", 8, "bold"),
                                   background="#2C2C2C", foreground="white",
                                   anchor="e", width=18)
             value_label.pack(side=tk.LEFT)
@@ -1129,6 +1227,8 @@ class BudgetOptimizerPanel:
             # Load prestige
             if 'prestige' in state:
                 self.budget_prestige_var.set(state['prestige'])
+                # Update display after loading
+                self._update_prestige_display()
                 # Debug print removed: print(f"Loaded prestige: {state['prestige']}")
             
             # Load upgrade levels
