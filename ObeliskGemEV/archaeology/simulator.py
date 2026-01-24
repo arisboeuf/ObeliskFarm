@@ -515,8 +515,8 @@ class ArchaeologySimulatorWindow:
             'quake_enabled': self.quake_enabled.get() if hasattr(self, 'quake_enabled') else True,
             'shared_planner_points': self.shared_planner_points.get() if hasattr(self, 'shared_planner_points') else 20,
             'frag_target_type': self.frag_target_var.get() if hasattr(self, 'frag_target_var') else 'common',
-            'mc_screening_n': self._parse_debug_n(self.mc_screening_n_spinbox, 50, 500, 200) if hasattr(self, 'mc_screening_n_spinbox') else 200,
-            'mc_refinement_n': self._parse_debug_n(self.mc_refinement_n_spinbox, 100, 2000, 500) if hasattr(self, 'mc_refinement_n_spinbox') else 500,
+            'mc_screening_n': self.mc_screening_n_var.get() if hasattr(self, 'mc_screening_n_var') else 200,
+            'mc_refinement_n': self.mc_refinement_n_var.get() if hasattr(self, 'mc_refinement_n_var') else 500,
         }
         try:
             SAVE_DIR.mkdir(parents=True, exist_ok=True)
@@ -591,17 +591,19 @@ class ArchaeologySimulatorWindow:
                 self._update_frag_target_buttons()
             
             # MC Screening N (shared by Fragment Farmer + Stage Optimizer)
-            if hasattr(self, 'mc_screening_n_spinbox'):
+            if hasattr(self, 'mc_screening_n_var'):
                 n = state.get('mc_screening_n', 200)
-                n = max(50, min(500, int(n))) if isinstance(n, (int, float)) else 200
-                self.mc_screening_n_spinbox.delete(0, tk.END)
-                self.mc_screening_n_spinbox.insert(0, str(n))
+                n = max(1, min(500, int(n))) if isinstance(n, (int, float)) else 200
+                self.mc_screening_n_var.set(n)
+                if hasattr(self, 'mc_screening_n_label'):
+                    self.mc_screening_n_label.config(text=str(n))
             # MC Refinement N (shared by Fragment Farmer + Stage Optimizer)
-            if hasattr(self, 'mc_refinement_n_spinbox'):
+            if hasattr(self, 'mc_refinement_n_var'):
                 n = state.get('mc_refinement_n', 500)
-                n = max(100, min(2000, int(n))) if isinstance(n, (int, float)) else 500
-                self.mc_refinement_n_spinbox.delete(0, tk.END)
-                self.mc_refinement_n_spinbox.insert(0, str(n))
+                n = max(1, min(2000, int(n))) if isinstance(n, (int, float)) else 500
+                self.mc_refinement_n_var.set(n)
+                if hasattr(self, 'mc_refinement_n_label'):
+                    self.mc_refinement_n_label.config(text=str(n))
             
             # Update unlocked stage and rebuild upgrade widgets
             unlocked_stage = state.get('unlocked_stage', 1)
@@ -3562,34 +3564,47 @@ class ArchaeologySimulatorWindow:
         )
         mc_fragment_farmer_button.pack(fill=tk.X, pady=(5, 3))
         
-        # === Shared MC options (Screening N for Fragment Farmer + Stage Optimizer) ===
+        # === Shared MC options (Screening N, Refinement N – buttons only, no typing) ===
         mc_shared_frame = tk.Frame(col_frame, background="#F3E5F5", relief=tk.FLAT)
         mc_shared_frame.pack(fill=tk.X, padx=5, pady=(0, 5))
-        screening_n_row = tk.Frame(mc_shared_frame, background="#F3E5F5")
-        screening_n_row.pack(fill=tk.X)
-        tk.Label(screening_n_row, text="Screening N:", font=("Arial", 9), background="#F3E5F5").pack(side=tk.LEFT, padx=(0, 3))
-        self.mc_screening_n_spinbox = tk.Spinbox(screening_n_row, from_=50, to=500, width=5, font=("Arial", 9))
-        self.mc_screening_n_spinbox.delete(0, tk.END)
-        self.mc_screening_n_spinbox.insert(0, "200")
-        self.mc_screening_n_spinbox.pack(side=tk.LEFT)
-        self.mc_screening_n_spinbox.bind("<FocusOut>", lambda e: self.save_state())
-        self.mc_screening_n_spinbox.bind("<Return>", lambda e: self.save_state())
+        bg = "#F3E5F5"
+        
+        def _make_n_row(parent, label_text, low, high, default, var_attr, label_attr, adjust_method, pady=(0, 0)):
+            row = tk.Frame(parent, background=bg)
+            row.pack(fill=tk.X, pady=pady)
+            tk.Label(row, text=label_text, font=("Arial", 9), background=bg).pack(side=tk.LEFT, padx=(0, 3))
+            var = tk.IntVar(value=default)
+            setattr(self, var_attr, var)
+            btn_frame = tk.Frame(row, background=bg)
+            btn_frame.pack(side=tk.LEFT)
+            for d, w in [(-100, 4), (-5, 3), (-1, 2)]:
+                tk.Button(btn_frame, text=str(d), width=w, font=("Arial", 8, "bold"),
+                         command=lambda delta=d: adjust_method(delta), background=bg).pack(side=tk.LEFT, padx=(0, 1))
+            lbl = tk.Label(btn_frame, text=str(default), width=5, font=("Arial", 9, "bold"),
+                          background="#FFFFFF", relief=tk.SUNKEN, borderwidth=1)
+            lbl.pack(side=tk.LEFT, padx=(2, 2))
+            setattr(self, label_attr, lbl)
+            for d, w in [(1, 2), (5, 3), (100, 4)]:
+                tk.Button(btn_frame, text=f"+{d}", width=w, font=("Arial", 8, "bold"),
+                         command=lambda delta=d: adjust_method(delta), background=bg).pack(side=tk.LEFT, padx=(0, 1))
+            return row
+        
+        screening_n_row = _make_n_row(
+            mc_shared_frame, "Screening N:", 1, 500, 200,
+            "mc_screening_n_var", "mc_screening_n_label", self._adjust_mc_screening_n,
+            pady=(0, 2),
+        )
         screening_n_help = tk.Label(screening_n_row, text="?", font=("Arial", 9, "bold"),
-                                    cursor="hand2", foreground="#7B1FA2", background="#F3E5F5")
+                                    cursor="hand2", foreground="#7B1FA2", background=bg)
         screening_n_help.pack(side=tk.LEFT, padx=(5, 0))
         self._create_screening_n_tooltip(screening_n_help)
         
-        refinement_n_row = tk.Frame(mc_shared_frame, background="#F3E5F5")
-        refinement_n_row.pack(fill=tk.X, pady=(2, 0))
-        tk.Label(refinement_n_row, text="Refinement N:", font=("Arial", 9), background="#F3E5F5").pack(side=tk.LEFT, padx=(0, 3))
-        self.mc_refinement_n_spinbox = tk.Spinbox(refinement_n_row, from_=100, to=2000, width=5, font=("Arial", 9))
-        self.mc_refinement_n_spinbox.delete(0, tk.END)
-        self.mc_refinement_n_spinbox.insert(0, "500")
-        self.mc_refinement_n_spinbox.pack(side=tk.LEFT)
-        self.mc_refinement_n_spinbox.bind("<FocusOut>", lambda e: self.save_state())
-        self.mc_refinement_n_spinbox.bind("<Return>", lambda e: self.save_state())
+        refinement_n_row = _make_n_row(
+            mc_shared_frame, "Refinement N:", 100, 2000, 500,
+            "mc_refinement_n_var", "mc_refinement_n_label", self._adjust_mc_refinement_n,
+        )
         refinement_n_help = tk.Label(refinement_n_row, text="?", font=("Arial", 9, "bold"),
-                                     cursor="hand2", foreground="#7B1FA2", background="#F3E5F5")
+                                     cursor="hand2", foreground="#7B1FA2", background=bg)
         refinement_n_help.pack(side=tk.LEFT, padx=(5, 0))
         self._create_refinement_n_tooltip(refinement_n_help)
         
@@ -3827,7 +3842,7 @@ class ArchaeologySimulatorWindow:
                 "",
                 "Number of MC sims per distribution in Phase 1",
                 "(screening). Used by both MC Fragment Farmer and",
-                "MC Stage Optimizer. Default 200. Range 50–500.",
+                "MC Stage Optimizer. Default 200. Range 1–500.",
                 "",
                 "Higher N = more accuracy, longer run time.",
             ]
@@ -3865,7 +3880,7 @@ class ArchaeologySimulatorWindow:
                 "",
                 "Number of MC sims per top candidate in Phase 2",
                 "(refinement). Used by both MC Fragment Farmer and",
-                "MC Stage Optimizer. Default 500. Range 100–2000.",
+                "MC Stage Optimizer. Default 500. Range 1–2000.",
                 "",
                 "Higher N = more accurate ranking, longer run time.",
             ]
@@ -4074,6 +4089,24 @@ class ArchaeologySimulatorWindow:
         new_val = max(1, min(100, self.shared_planner_points.get() + delta))
         self.shared_planner_points.set(new_val)
         self.shared_planner_points_label.config(text=str(new_val))
+    
+    def _adjust_mc_screening_n(self, delta: int):
+        """Adjust Screening N (1–500). Buttons only, no typing."""
+        if not hasattr(self, 'mc_screening_n_var'):
+            return
+        new_val = max(1, min(500, self.mc_screening_n_var.get() + delta))
+        self.mc_screening_n_var.set(new_val)
+        self.mc_screening_n_label.config(text=str(new_val))
+        self.save_state()
+    
+    def _adjust_mc_refinement_n(self, delta: int):
+        """Adjust Refinement N (1–2000). Buttons only, no typing."""
+        if not hasattr(self, 'mc_refinement_n_var'):
+            return
+        new_val = max(1, min(2000, self.mc_refinement_n_var.get() + delta))
+        self.mc_refinement_n_var.set(new_val)
+        self.mc_refinement_n_label.config(text=str(new_val))
+        self.save_state()
     
     def _create_forecast_help_tooltip(self, widget):
         """Creates a tooltip explaining the Stage Rushing Forecaster feature"""
@@ -5058,8 +5091,8 @@ class ArchaeologySimulatorWindow:
         # This represents how many ADDITIONAL skill points to allocate optimally
         num_points = self.shared_planner_points.get() if hasattr(self, 'shared_planner_points') else 20
         
-        screening_sims = self._parse_debug_n(self.mc_screening_n_spinbox, 50, 500, 200) if hasattr(self, 'mc_screening_n_spinbox') else 200
-        refinement_sims = self._parse_debug_n(self.mc_refinement_n_spinbox, 100, 2000, 500) if hasattr(self, 'mc_refinement_n_spinbox') else 500
+        screening_sims = max(50, min(500, self.mc_screening_n_var.get())) if hasattr(self, 'mc_screening_n_var') else 200
+        refinement_sims = max(100, min(2000, self.mc_refinement_n_var.get())) if hasattr(self, 'mc_refinement_n_var') else 500
         
         # Show loading dialog
         loading_window = self._show_loading_dialog(
@@ -5408,8 +5441,8 @@ class ArchaeologySimulatorWindow:
         # This represents how many ADDITIONAL skill points to allocate optimally
         num_points = self.shared_planner_points.get() if hasattr(self, 'shared_planner_points') else 20
         
-        screening_sims = self._parse_debug_n(self.mc_screening_n_spinbox, 50, 500, 200) if hasattr(self, 'mc_screening_n_spinbox') else 200
-        refinement_sims = self._parse_debug_n(self.mc_refinement_n_spinbox, 100, 2000, 500) if hasattr(self, 'mc_refinement_n_spinbox') else 500
+        screening_sims = max(50, min(500, self.mc_screening_n_var.get())) if hasattr(self, 'mc_screening_n_var') else 200
+        refinement_sims = max(100, min(2000, self.mc_refinement_n_var.get())) if hasattr(self, 'mc_refinement_n_var') else 500
         
         # Show loading dialog
         loading_window = self._show_loading_dialog(
