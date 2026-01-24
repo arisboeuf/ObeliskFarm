@@ -163,14 +163,8 @@ class MainMenuWindow:
             ('gem', 'Gem EV Calculator', self.open_gem_ev),
             ('archaeology', 'Archaeology Simulator', self.open_archaeology),
             ('event', 'Event Simulator', self.open_event),
-            ('stargazing', 'Stargazing Optimizer', self.open_stargazing),
+            ('lootbug', 'Option Analyzer', self.open_lootbug),
         ]
-        
-        # Add Stargazing 2.0 if available
-        if STARGAZING2_AVAILABLE:
-            buttons.append(('stargazing', 'Stargazing 2.0 Calculator', self.open_stargazing2))
-        
-        buttons.append(('lootbug', 'Option Analyzer', self.open_lootbug))
         
         # Create buttons in grid (2 columns)
         row = 0
