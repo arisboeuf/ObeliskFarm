@@ -27,6 +27,7 @@ from .simulation import (
     calculate_effective_hp
 )
 from .optimizer import greedy_optimize, format_upgrade_summary, UpgradeState
+from .monte_carlo_optimizer import monte_carlo_optimize, MCOptimizationResult
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from ui_utils import get_resource_path, create_tooltip, calculate_tooltip_position
@@ -60,6 +61,10 @@ class BudgetOptimizerPanel:
         self.material_vars = {}
         self.material_entries = {}  # Store entry widgets for direct access
         
+        # MC Settings
+        self.mc_num_runs_var = tk.IntVar(value=2000)  # Number of upgrade combinations to test
+        self.mc_event_runs_var = tk.IntVar(value=5)   # Number of event runs per combination
+        
         # Current upgrade levels (for forecast mode)
         self.current_upgrade_levels = {
             1: [0] * 10,
@@ -88,6 +93,9 @@ class BudgetOptimizerPanel:
         
         # Update expected results after loading
         self._update_expected_results()
+        
+        # Update max combinations after UI is built
+        self.window.after(100, self._update_max_combinations)
     
     def _load_currency_icons(self):
         """Load currency icons from sprites folder"""
@@ -1102,6 +1110,17 @@ class BudgetOptimizerPanel:
             ("5x Currencies:", lambda: f"{player.x5_money}%", "💎", None),
         ])
         
+        # Add simulation button after stats
+        sim_button_frame = tk.Frame(self.stats_container, background="#2C2C2C")
+        sim_button_frame.pack(fill=tk.X, pady=(10, 5))
+        
+        sim_button = tk.Button(sim_button_frame, text="🎲 Run Simulation", 
+                              font=("Arial", 9, "bold"), bg="#4CAF50", fg="white",
+                              command=lambda: self._run_stats_simulation(player, result.enemy_stats if hasattr(result, 'enemy_stats') else None),
+                              relief=tk.RAISED, borderwidth=2, padx=10, pady=5,
+                              cursor="hand2")
+        sim_button.pack(pady=5)
+        
         # Create stat rows - centered and compact
         for label, value_func, icon, tooltip_text in stat_rows:
             row_frame = tk.Frame(self.stats_container, background="#2C2C2C")
@@ -1181,6 +1200,259 @@ class BudgetOptimizerPanel:
                                   background="#2C2C2C", foreground="white",
                                   anchor="e", width=18)
             value_label.pack(side=tk.LEFT)
+    
+    def _run_stats_simulation(self, player_stats, enemy_stats=None):
+        """Run a simulation with current player stats"""
+        from .simulation import run_full_simulation
+        from .stats import EnemyStats as BaseEnemyStats
+        from .simulation import apply_upgrades
+        
+        # Get enemy stats if not provided
+        if enemy_stats is None:
+            _, enemy_stats = apply_upgrades(
+                self.current_upgrade_levels,
+                PlayerStats(),
+                BaseEnemyStats(),
+                self.budget_prestige_var.get(),
+                self.current_gem_levels
+            )
+        
+        # Show loading dialog
+        loading_window = self._show_simulation_loading_dialog()
+        
+        # Run simulation in thread
+        import threading
+        sim_result = [None]
+        error_occurred = [False]
+        error_message = [""]
+        
+        def run_simulation():
+            try:
+                print(f"[DEBUG] Stats simulation started")
+                # Update status immediately
+                def safe_update():
+                    try:
+                        if self.window.winfo_exists():
+                            self._update_simulation_progress(loading_window, 0, 1000, 0)
+                    except:
+                        pass
+                self.window.after(0, safe_update)
+                
+                # Run simulation with 1000 runs and progress updates
+                def progress_callback(run_num, total_runs):
+                    """Update progress during simulation"""
+                    try:
+                        if self.window.winfo_exists():
+                            # Get current wave from last result (approximate)
+                            current_wave = 0
+                            self.window.after(0, lambda: self._update_simulation_progress(
+                                loading_window, run_num, total_runs, current_wave
+                            ))
+                    except (tk.TclError, RuntimeError, AttributeError):
+                        pass
+                
+                # We need to modify run_full_simulation to support progress callback
+                # For now, just run it and update progress manually
+                results = []
+                total_distance = 0.0
+                total_time = 0.0
+                
+                for run_num in range(1000):
+                    from .simulation import simulate_event_run
+                    wave, subwave, time = simulate_event_run(player_stats, enemy_stats)
+                    results.append((wave, subwave, time))
+                    total_distance += wave + 1 - (subwave * 0.2)
+                    total_time += time
+                    
+                    # Update progress every 10 runs
+                    if (run_num + 1) % 10 == 0:
+                        try:
+                            if self.window.winfo_exists():
+                                self.window.after(0, lambda r=run_num+1, w=wave: self._update_simulation_progress(
+                                    loading_window, r, 1000, w
+                                ))
+                        except (tk.TclError, RuntimeError, AttributeError):
+                            pass
+                
+                results.sort(key=lambda x: x[0] + 1 - x[1] * 0.2)
+                avg_wave = total_distance / 1000
+                avg_time = total_time / 1000
+                
+                # Calculate statistics
+                waves = [r[0] + 1 - (r[1] * 0.2) for r in results]
+                times = [r[2] for r in results]
+                
+                waves_sorted = sorted(waves)
+                times_sorted = sorted(times)
+                n = len(waves)
+                
+                stats = {
+                    'mean_wave': sum(waves) / n if n > 0 else 0,
+                    'median_wave': waves_sorted[n//2] if n > 0 else 0,
+                    'min_wave': min(waves) if waves else 0,
+                    'max_wave': max(waves) if waves else 0,
+                    'std_dev_wave': (sum((w - sum(waves)/n)**2 for w in waves) / n)**0.5 if n > 1 else 0,
+                    'mean_time': sum(times) / n if n > 0 else 0,
+                    'median_time': times_sorted[n//2] if n > 0 else 0,
+                    'min_time': min(times) if times else 0,
+                    'max_time': max(times) if times else 0,
+                }
+                
+                sim_result[0] = {
+                    'results': results,
+                    'avg_wave': avg_wave,
+                    'avg_time': avg_time,
+                    'stats': stats
+                }
+                print(f"[DEBUG] Stats simulation completed, avg_wave = {avg_wave:.2f}")
+            except Exception as e:
+                import traceback
+                error_occurred[0] = True
+                error_message[0] = str(e)
+                print(f"[DEBUG] Stats simulation error: {traceback.format_exc()}")
+            finally:
+                def safe_close():
+                    try:
+                        if self.window.winfo_exists():
+                            self._close_simulation_loading_dialog(loading_window)
+                    except:
+                        pass
+                try:
+                    if self.window.winfo_exists():
+                        self.window.after(0, safe_close)
+                except (tk.TclError, RuntimeError, AttributeError):
+                    pass
+        
+        # Start simulation in thread
+        sim_thread = threading.Thread(target=run_simulation, daemon=True)
+        sim_thread.start()
+        
+        # Poll for completion
+        def check_sim_thread():
+            try:
+                if not self.window.winfo_exists():
+                    return
+                
+                if sim_thread.is_alive():
+                    if self.window.winfo_exists():
+                        self.window.after(100, check_sim_thread)
+                else:
+                    if error_occurred[0]:
+                        self._show_simulation_error(error_message[0])
+                    elif sim_result[0] is None:
+                        self._show_simulation_error("Simulation timed out or failed")
+                    else:
+                        self._show_simulation_results(sim_result[0])
+            except Exception as e:
+                print(f"[DEBUG] Error in check_sim_thread: {e}")
+        
+        self.window.after(100, check_sim_thread)
+    
+    def _show_simulation_loading_dialog(self):
+        """Show loading dialog for stats simulation"""
+        loading_window = tk.Toplevel(self.window)
+        loading_window.title("Running Simulation...")
+        loading_window.geometry("400x150")
+        loading_window.resizable(False, False)
+        loading_window.transient(self.window)
+        loading_window.grab_set()
+        
+        # Center on parent window
+        loading_window.update_idletasks()
+        x = self.window.winfo_x() + (self.window.winfo_width() // 2) - 200
+        y = self.window.winfo_y() + (self.window.winfo_height() // 2) - 75
+        loading_window.geometry(f"+{x}+{y}")
+        
+        main_frame = tk.Frame(loading_window, background="#E8F5E9")
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        tk.Label(main_frame, text="Running Simulation (N=1000)...", 
+                font=("Arial", 10, "bold"), background="#E8F5E9").pack(pady=(0, 10))
+        
+        self.sim_status_label = tk.Label(main_frame, text="Initializing...", 
+                                         font=("Arial", 9), background="#E8F5E9")
+        self.sim_status_label.pack(pady=(0, 5))
+        
+        self.sim_progress_bar = ttk.Progressbar(main_frame, mode='determinate', maximum=1000)
+        self.sim_progress_bar.pack(fill=tk.X, pady=(0, 5))
+        
+        self.sim_progress_label = tk.Label(main_frame, text="0%", 
+                                          font=("Arial", 8), background="#E8F5E9")
+        self.sim_progress_label.pack()
+        
+        loading_window.update()
+        return loading_window
+    
+    def _update_simulation_progress(self, loading_window, current, total, current_wave):
+        """Update simulation progress"""
+        try:
+            if not self.window.winfo_exists():
+                return
+            if not loading_window or not loading_window.winfo_exists():
+                return
+            
+            percentage = int((current / total) * 100) if total > 0 else 0
+            self.sim_status_label.config(text=f"Run {current}/{total} | Current Wave: {current_wave:.1f}")
+            self.sim_progress_bar['value'] = current
+            self.sim_progress_label.config(text=f"{percentage}%")
+            loading_window.update()
+        except (tk.TclError, RuntimeError, AttributeError):
+            pass
+    
+    def _close_simulation_loading_dialog(self, loading_window):
+        """Close simulation loading dialog"""
+        try:
+            if not self.window.winfo_exists():
+                return
+            if not loading_window or not loading_window.winfo_exists():
+                return
+            
+            loading_window.grab_release()
+            loading_window.destroy()
+        except (tk.TclError, RuntimeError, AttributeError):
+            pass
+    
+    def _show_simulation_results(self, result):
+        """Show simulation results in a dialog"""
+        dialog = tk.Toplevel(self.window)
+        dialog.title("Simulation Results (N=1000)")
+        dialog.geometry("500x400")
+        dialog.transient(self.window)
+        
+        # Center on parent window
+        dialog.update_idletasks()
+        x = self.window.winfo_x() + (self.window.winfo_width() // 2) - 250
+        y = self.window.winfo_y() + (self.window.winfo_height() // 2) - 200
+        dialog.geometry(f"+{x}+{y}")
+        
+        main_frame = tk.Frame(dialog, background="#FFFFFF")
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        tk.Label(main_frame, text="Simulation Results", 
+                font=("Arial", 12, "bold"), background="#FFFFFF").pack(pady=(0, 10))
+        
+        stats = result['stats']
+        text = f"Average Wave: {stats['mean_wave']:.2f} ± {stats['std_dev_wave']:.2f}\n"
+        text += f"Median Wave: {stats['median_wave']:.2f}\n"
+        text += f"Wave Range: {stats['min_wave']:.2f} - {stats['max_wave']:.2f}\n\n"
+        text += f"Average Time: {stats['mean_time']:.2f}s\n"
+        text += f"Median Time: {stats['median_time']:.2f}s\n"
+        text += f"Time Range: {stats['min_time']:.2f}s - {stats['max_time']:.2f}s"
+        
+        text_widget = tk.Text(main_frame, font=("Arial", 10), wrap=tk.WORD, 
+                             background="#F5F5F5", relief=tk.FLAT, padx=10, pady=10)
+        text_widget.insert("1.0", text)
+        text_widget.config(state=tk.DISABLED)
+        text_widget.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+        
+        tk.Button(main_frame, text="Close", command=dialog.destroy,
+                 font=("Arial", 9), bg="#4CAF50", fg="white",
+                 padx=20, pady=5).pack()
+    
+    def _show_simulation_error(self, error_msg):
+        """Show simulation error"""
+        import tkinter.messagebox as messagebox
+        messagebox.showerror("Simulation Error", f"Error running simulation:\n{error_msg}")
     
     def save_state(self):
         """Save current state to file (upgrade levels and prestige, NOT currencies)"""
@@ -1268,6 +1540,99 @@ class BudgetOptimizerPanel:
             print(f"Warning: Could not load state: {e}")
             traceback.print_exc()
     
+    def _show_mc_loading_dialog(self):
+        """Show loading dialog for Monte Carlo optimization"""
+        import threading
+        
+        loading_window = tk.Toplevel(self.window)
+        loading_window.title("Monte Carlo Optimization")
+        loading_window.transient(self.window)
+        loading_window.grab_set()
+        loading_window.resizable(False, False)
+        
+        # Center the window
+        loading_window.update_idletasks()
+        x = (loading_window.winfo_screenwidth() // 2) - (500 // 2)
+        y = (loading_window.winfo_screenheight() // 2) - (250 // 2)
+        loading_window.geometry(f"500x250+{x}+{y}")
+        
+        # Disable main window
+        self.window.attributes('-disabled', True)
+        
+        # Main frame
+        main_frame = tk.Frame(loading_window, padx=20, pady=20)
+        main_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Title
+        title_label = tk.Label(main_frame, text="Running Monte Carlo Optimization...", 
+                              font=("Arial", 12, "bold"))
+        title_label.pack(pady=(0, 10))
+        
+        # Status labels
+        self.mc_status_label = tk.Label(main_frame, text="Starting Monte Carlo optimization...", 
+                                       font=("Arial", 10), wraplength=460, justify=tk.LEFT)
+        self.mc_status_label.pack(pady=(0, 5), anchor=tk.W)
+        
+        self.mc_wave_label = tk.Label(main_frame, text="", 
+                                     font=("Arial", 9), foreground="#1976D2")
+        self.mc_wave_label.pack(pady=(0, 10), anchor=tk.W)
+        
+        # Progress bar
+        progress_frame = tk.Frame(main_frame)
+        progress_frame.pack(fill=tk.X, pady=(0, 5))
+        
+        self.mc_progress_bar = ttk.Progressbar(progress_frame, mode='determinate', length=460, maximum=100)
+        self.mc_progress_bar.pack(fill=tk.X)
+        
+        # Progress percentage
+        self.mc_progress_label = tk.Label(main_frame, text="0%", 
+                                         font=("Arial", 11, "bold"), foreground="#1976D2")
+        self.mc_progress_label.pack()
+        
+        loading_window.update()
+        return loading_window
+    
+    def _update_mc_progress(self, loading_window, current_run, total_runs, current_wave, best_wave):
+        """Update MC loading dialog progress (must be called from main thread)"""
+        try:
+            if not self.window.winfo_exists():
+                return
+            if not loading_window or not loading_window.winfo_exists():
+                return
+            
+            percentage = int((current_run / total_runs) * 100) if total_runs > 0 else 0
+            
+            # Update status
+            self.mc_status_label.config(text=f"Run {current_run}/{total_runs}")
+            
+            # Update wave info
+            wave_text = f"Current Run: Wave {current_wave:.1f} | Best So Far: Wave {best_wave:.1f}"
+            self.mc_wave_label.config(text=wave_text)
+            
+            # Update progress bar
+            self.mc_progress_bar['value'] = percentage
+            self.mc_progress_label.config(text=f"{percentage}%")
+            
+            loading_window.update()
+        except (tk.TclError, RuntimeError, AttributeError):
+            pass
+    
+    def _close_mc_loading_dialog(self, loading_window):
+        """Close MC loading dialog (must be called from main thread)"""
+        try:
+            if not self.window.winfo_exists():
+                return
+            if not loading_window or not loading_window.winfo_exists():
+                return
+            
+            if loading_window and loading_window.winfo_exists():
+                loading_window.grab_release()
+                loading_window.destroy()
+            self.window.attributes('-disabled', False)
+            self.window.focus_set()
+        except (tk.TclError, RuntimeError, AttributeError):
+            pass
+    
     def show_initial_instructions(self):
         """Show initial instructions in results area"""
         # Clear container
@@ -1301,6 +1666,140 @@ class BudgetOptimizerPanel:
                     var.set("0")  # Reset to 0 if invalid
             else:
                 var.set("0")
+    
+    def _update_max_combinations(self):
+        """Calculate and display maximum possible upgrade combinations"""
+        try:
+            # Parse current budget
+            budget = {}
+            for tier in range(1, 5):
+                if tier in self.material_entries:
+                    entry = self.material_entries[tier]
+                    raw_val = entry.get() if entry else ""
+                elif tier in self.material_vars:
+                    var = self.material_vars[tier]
+                    raw_val = var.get() if var else ""
+                else:
+                    raw_val = ""
+                
+                if raw_val:
+                    val = str(raw_val).strip().replace(",", "").replace(" ", "")
+                    try:
+                        budget[tier] = float(val) if val else 0.0
+                    except (ValueError, TypeError):
+                        budget[tier] = 0.0
+                else:
+                    budget[tier] = 0.0
+            
+            prestige = self.budget_prestige_var.get()
+            max_combinations = self._calculate_max_combinations(budget, prestige)
+            
+            if max_combinations is None:
+                self.max_combinations_label.config(text="Max Combinations: Too many to calculate")
+            elif max_combinations > 1e15:
+                self.max_combinations_label.config(text=f"Max Combinations: > 1 Quadrillion")
+            else:
+                formatted = format_number(max_combinations)
+                self.max_combinations_label.config(text=f"Max Combinations: ~{formatted}")
+        except Exception as e:
+            self.max_combinations_label.config(text="Max Combinations: Error calculating")
+    
+    def _calculate_max_combinations(self, budget: dict, prestige: int):
+        """Calculate approximate maximum number of possible upgrade combinations
+        
+        This is a rough estimate based on:
+        - Number of upgrade points that can be purchased with the budget
+        - Number of available upgrade types
+        - Distribution across tiers
+        """
+        from .constants import COSTS, PRESTIGE_UNLOCKED
+        from .optimizer import get_max_level_with_caps, UpgradeState
+        
+        try:
+            # Count available upgrades
+            available_upgrades = []
+            for tier in range(1, 5):
+                for idx in range(len(COSTS[tier])):
+                    if PRESTIGE_UNLOCKED[tier][idx] <= prestige:
+                        available_upgrades.append((tier, idx))
+            
+            if not available_upgrades:
+                return 0
+            
+            # Estimate total upgrade points that can be purchased
+            # This is a rough calculation - we sum up the maximum affordable levels
+            total_points = 0
+            state = UpgradeState()
+            
+            for tier in range(1, 5):
+                tier_budget = budget.get(tier, 0)
+                if tier_budget <= 0:
+                    continue
+                
+                # For each upgrade in this tier, calculate how many levels we could buy
+                for idx in range(len(COSTS[tier])):
+                    if PRESTIGE_UNLOCKED[tier][idx] > prestige:
+                        continue
+                    
+                    base_cost = COSTS[tier][idx]
+                    if base_cost <= 0:
+                        continue
+                    
+                    # Calculate how many levels we could buy with this tier's budget
+                    # This is approximate - we assume we could buy this upgrade multiple times
+                    levels_affordable = 0
+                    current_cost = base_cost
+                    remaining = tier_budget
+                    
+                    max_level = get_max_level_with_caps(tier, idx, state)
+                    while remaining >= current_cost and levels_affordable < max_level:
+                        levels_affordable += 1
+                        remaining -= current_cost
+                        current_cost = round(current_cost * 1.25)
+                    
+                    # Distribute budget across all upgrades (rough estimate)
+                    # We divide by number of upgrades in tier to get average
+                    num_upgrades_in_tier = sum(1 for i in range(len(COSTS[tier])) 
+                                             if PRESTIGE_UNLOCKED[tier][i] <= prestige)
+                    if num_upgrades_in_tier > 0:
+                        avg_levels = levels_affordable / num_upgrades_in_tier
+                        total_points += int(avg_levels)
+            
+            if total_points <= 0:
+                return 0
+            
+            # Rough estimate: number of ways to distribute 'total_points' across 'num_upgrades'
+            # This is a combinatorial problem: stars and bars
+            num_upgrades = len(available_upgrades)
+            
+            # Upper bound: (total_points + num_upgrades - 1) choose (num_upgrades - 1)
+            # But this can be huge, so we use a more conservative estimate
+            # For large numbers, we use Stirling's approximation or just show "very large"
+            
+            if total_points > 100 or num_upgrades > 20:
+                # For large numbers, return None to indicate "too many"
+                return None
+            
+            # Calculate combinations using stars and bars
+            # C(n + k - 1, k - 1) where n = total_points, k = num_upgrades
+            def binomial_coeff(n, k):
+                if k > n or k < 0:
+                    return 0
+                if k == 0 or k == n:
+                    return 1
+                k = min(k, n - k)  # Use symmetry
+                result = 1
+                for i in range(k):
+                    result = result * (n - i) // (i + 1)
+                return result
+            
+            max_combinations = binomial_coeff(total_points + num_upgrades - 1, num_upgrades - 1)
+            
+            return max_combinations
+            
+        except Exception as e:
+            print(f"Error calculating max combinations: {e}")
+            return None
     
     def calculate_optimal_upgrades(self):
         """Calculate optimal upgrades based on material budget"""
@@ -1386,53 +1885,183 @@ class BudgetOptimizerPanel:
         prestige = self.budget_prestige_var.get()
         next_prestige_wave = get_prestige_wave_requirement(prestige + 1)
         
-        # Show loading
-        for widget in self.results_container.winfo_children():
-            widget.destroy()
-        loading_label = tk.Label(self.results_container, text="Forecasting...", 
-                                font=("Arial", 10), background="#E8F5E9")
-        loading_label.pack(pady=20)
-        self.window.update()
-        
         # Create initial state from current upgrade levels
         initial_state = UpgradeState()
         for t in range(1, 5):
             initial_state.levels[t] = self.current_upgrade_levels[t].copy()
         initial_state.gem_levels = self.current_gem_levels.copy()
         
-        # Run optimizer with initial state (Wave Pusher mode - maximize wave)
+        # Show loading dialog and run Monte Carlo optimizer
+        loading_window = self._show_mc_loading_dialog()
+        
+        # Run Monte Carlo optimizer in a thread
+        import threading
+        mc_result = [None]  # Use list to store result from thread
+        error_occurred = [False]
+        error_message = [""]
+        # Store initial_state in list so it's accessible in closure
+        initial_state_ref = [initial_state]
+        
+        def run_mc_optimizer():
+            try:
+                print(f"[DEBUG] MC Optimizer thread started")
+                # Update status immediately (safe call)
+                def safe_update():
+                    try:
+                        if self.window.winfo_exists():
+                            self._update_mc_progress(loading_window, 0, 2000, 0, 0)
+                    except:
+                        pass
+                self.window.after(0, safe_update)
+                
+                def safe_progress_callback(run, total, current_wave, best_wave):
+                    """Thread-safe progress callback"""
+                    try:
+                        if self.window.winfo_exists():
+                            self.window.after(0, lambda: self._update_mc_progress(
+                                loading_window, run, total, current_wave, best_wave
+                            ))
+                    except (tk.TclError, RuntimeError, AttributeError):
+                        pass
+                
+                # Get MC settings from UI
+                num_mc_runs = max(1, self.mc_num_runs_var.get())
+                num_event_runs = max(1, self.mc_event_runs_var.get())
+                
+                result = monte_carlo_optimize(
+                    budget=self.material_budget,
+                    prestige=prestige,
+                    initial_state=initial_state_ref[0],
+                    num_runs=num_mc_runs,
+                    progress_callback=safe_progress_callback,
+                    event_runs_per_combination=num_event_runs
+                )
+                print(f"[DEBUG] MC Optimizer completed, best_wave = {result.best_wave}")
+                mc_result[0] = result
+            except Exception as e:
+                import traceback
+                error_occurred[0] = True
+                error_message[0] = str(e)
+                print(f"[DEBUG] MC Optimizer error: {traceback.format_exc()}")
+            finally:
+                # Close loading dialog (safe call)
+                def safe_close():
+                    try:
+                        if self.window.winfo_exists():
+                            self._close_mc_loading_dialog(loading_window)
+                    except (tk.TclError, RuntimeError, AttributeError):
+                        pass
+                print(f"[DEBUG] MC Optimizer thread finishing")
+                try:
+                    if self.window.winfo_exists():
+                        self.window.after(0, safe_close)
+                except (tk.TclError, RuntimeError, AttributeError):
+                    pass
+        
+        # Start optimizer in thread
+        optimizer_thread = threading.Thread(target=run_mc_optimizer, daemon=True)
+        optimizer_thread.start()
+        
+        # Poll for completion instead of blocking join
+        # This allows the UI to stay responsive
+        def check_thread():
+            try:
+                if not self.window.winfo_exists():
+                    return  # Window closed, stop checking
+                
+                if optimizer_thread.is_alive():
+                    # Thread still running, check again in 100ms
+                    if self.window.winfo_exists():
+                        self.window.after(100, check_thread)
+                else:
+                    # Thread finished, process result (only once)
+                    if error_occurred[0]:
+                        # Show error
+                        for widget in self.expected_results_container.winfo_children():
+                            widget.destroy()
+                        error_label = tk.Label(self.expected_results_container, 
+                                              text=f"Error: {error_message[0]}", 
+                                              font=("Arial", 9), foreground="red",
+                                              background="#E8F5E9", justify=tk.LEFT, wraplength=300)
+                        error_label.pack(pady=20)
+                    elif mc_result[0] is None:
+                        # Timeout or error
+                        for widget in self.expected_results_container.winfo_children():
+                            widget.destroy()
+                        error_label = tk.Label(self.expected_results_container, 
+                                              text="Error: Optimization timed out or failed", 
+                                              font=("Arial", 9), foreground="red",
+                                              background="#E8F5E9")
+                        error_label.pack(pady=20)
+                    else:
+                        # Success - process result
+                        self._process_mc_result(mc_result[0], initial_state_ref[0])
+            except Exception as e:
+                print(f"[DEBUG] Error in check_thread: {e}")
+                import traceback
+                traceback.print_exc()
+        
+        # Start polling (only once)
         try:
-            result = greedy_optimize(
-                budget=self.material_budget,
-                prestige=prestige,
-                target_wave=None,  # None = maximize wave (Wave Pusher mode)
-                initial_state=initial_state
-            )
-        except Exception as e:
-            import traceback
-            error_msg = f"Error: {str(e)}\n\n{traceback.format_exc()}"
-            # Show error in expected results container instead
-            for widget in self.expected_results_container.winfo_children():
-                widget.destroy()
-            error_label = tk.Label(self.expected_results_container, 
-                                  text=f"Error: {str(e)}", 
-                                  font=("Arial", 9), foreground="red",
-                                  background="#E8F5E9", justify=tk.LEFT, wraplength=300)
-            error_label.pack(pady=20)
-            return
+            if self.window.winfo_exists():
+                self.window.after(100, check_thread)
+        except (tk.TclError, RuntimeError, AttributeError):
+            pass
+        
+        # Don't block - return immediately and let check_thread handle completion
+        return
+        
+    def _process_mc_result(self, mc_res, initial_state):
+        """Process Monte Carlo result and display it"""
+        # Convert MC result to OptimizationResult format for compatibility
+        from .optimizer import OptimizationResult
+        
+        # Get MC settings from UI
+        num_mc_runs = max(1, self.mc_num_runs_var.get())
+        num_event_runs = max(1, self.mc_event_runs_var.get())
+        
+        result = OptimizationResult(
+            upgrades=mc_res.best_state,
+            expected_wave=mc_res.best_wave,
+            expected_time=mc_res.best_time,
+            materials_spent=mc_res.materials_spent,
+            materials_remaining=mc_res.materials_remaining,
+            player_stats=mc_res.player_stats,
+            enemy_stats=mc_res.enemy_stats,
+            recommendations=[
+                f"Monte Carlo Optimization (N={num_mc_runs}, {num_event_runs} runs/combo)",
+                f"Best Wave: {mc_res.best_wave:.1f}",
+                f"Average Wave: {mc_res.statistics['mean_wave']:.1f} ± {mc_res.statistics['std_dev_wave']:.1f}",
+                f"Wave Range: {mc_res.statistics['min_wave']:.1f} - {mc_res.statistics['max_wave']:.1f}",
+                f"Median Wave: {mc_res.statistics['median_wave']:.1f}",
+            ],
+            breakpoints=[]
+        )
         
         # Store result for applying upgrades
         self.last_optimization_result = result
         self.last_initial_state = initial_state
         
         # Update player stats with CURRENT upgrades (not recommended ones)
-        # This ensures the stats display shows current state, not forecast state
         self._update_player_stats()
         
-        # Reset apply button state (new optimization = button can be used again)
+        # Reset apply button state
         self.apply_button = None
         
-        # Clear and rebuild results display
+        # Display results (pass initial_state so it can calculate differences)
+        self._display_optimization_results(result, initial_state)
+    
+    def _display_optimization_results(self, result, initial_state=None):
+        """Display optimization results in the results container"""
+        # Use stored initial_state if not provided
+        if initial_state is None:
+            initial_state = getattr(self, 'last_initial_state', None)
+        if initial_state is None:
+            # Fallback: create empty state
+            from .optimizer import UpgradeState
+            initial_state = UpgradeState()
+        
+        # Clear existing results
         for widget in self.results_container.winfo_children():
             widget.destroy()
         

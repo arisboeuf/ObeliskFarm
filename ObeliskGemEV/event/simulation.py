@@ -122,8 +122,9 @@ def simulate_event_run(player: PlayerStats, enemy: EnemyStats) -> Tuple[int, int
     
     wave = 0
     final_subwave = 0
+    max_waves = 1000  # Safety limit to prevent infinite loops
     
-    while player_hp > 0:
+    while player_hp > 0 and wave < max_waves:
         wave += 1
         for subwave in range(5, 0, -1):
             if player_hp <= 0:
@@ -132,7 +133,12 @@ def simulate_event_run(player: PlayerStats, enemy: EnemyStats) -> Tuple[int, int
             # Enemy stats scale with wave
             enemy_hp = enemy.base_health + enemy.health_scaling * wave
             
-            while enemy_hp > 0 and player_hp > 0:
+            # Safety limit for combat loop
+            combat_iterations = 0
+            max_combat_iterations = 10000
+            
+            while enemy_hp > 0 and player_hp > 0 and combat_iterations < max_combat_iterations:
+                combat_iterations += 1
                 # Calculate time until next attack for each
                 p_atk_time_left = (1 - p_atk_prog) / player.atk_speed
                 e_atk_time_left = (1 - e_atk_prog) / (enemy.atk_speed + wave * 0.02)
