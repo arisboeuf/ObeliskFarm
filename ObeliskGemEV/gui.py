@@ -46,7 +46,6 @@ try:
     matplotlib.use('TkAgg')
     from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
     from matplotlib.figure import Figure
-    import matplotlib.pyplot as plt
     MATPLOTLIB_AVAILABLE = True
 except ImportError:
     MATPLOTLIB_AVAILABLE = False
@@ -58,14 +57,13 @@ from freebie_ev_calculator import FreebieEVCalculator, GameParameters
 from archaeology import ArchaeologySimulatorWindow
 from lootbug import LootbugWindow
 from event import EventSimulatorWindow
-from stargazing import StargazingWindow
 try:
-    from stargazing2_0 import Stargazing2Window
-    STARGAZING2_AVAILABLE = True
+    from stargazing3_0 import Stargazing3Window
+    STARGAZING3_AVAILABLE = True
 except ImportError as e:
-    print(f"Warning: Could not import Stargazing2Window: {e}")
-    Stargazing2Window = None
-    STARGAZING2_AVAILABLE = False
+    print(f"Warning: Could not import Stargazing3Window: {e}")
+    Stargazing3Window = None
+    STARGAZING3_AVAILABLE = False
 from ui_utils import create_tooltip as _create_tooltip, calculate_tooltip_position
 
 # Import version/config info
@@ -164,6 +162,7 @@ class MainMenuWindow:
             ('archaeology', 'Archaeology Simulator', self.open_archaeology),
             ('event', 'Event Simulator', self.open_event),
             ('lootbug', 'Option Analyzer', self.open_lootbug),
+            ('stargazing', 'Stargazing 3.0', self.open_stargazing3),
         ]
         
         # Create buttons in grid (2 columns)
@@ -420,25 +419,16 @@ class MainMenuWindow:
         """Open Event Simulator - opens in new window, closes menu"""
         self._open_toplevel_module(EventSimulatorWindow)
     
-    def open_stargazing(self):
-        """Open Stargazing Optimizer - opens in new window, closes menu"""
-        # Force reload of stargazing module to ensure latest version
-        import importlib
-        import stargazing
-        importlib.reload(stargazing)
-        from stargazing import StargazingWindow as ReloadedStargazingWindow
-        self._open_toplevel_module(ReloadedStargazingWindow)
-    
-    def open_stargazing2(self):
-        """Open Stargazing 2.0 Calculator - opens in new window, closes menu"""
-        if not STARGAZING2_AVAILABLE or Stargazing2Window is None:
+    def open_stargazing3(self):
+        """Open Stargazing 3.0 Calculator - opens in new window, closes menu"""
+        if not STARGAZING3_AVAILABLE or Stargazing3Window is None:
             messagebox.showerror(
                 "Error",
-                "Stargazing 2.0 Calculator is not available.\n"
+                "Stargazing 3.0 Calculator is not available.\n"
                 "Please check that the module is properly installed."
             )
             return
-        self._open_toplevel_module(Stargazing2Window)
+        self._open_toplevel_module(Stargazing3Window)
     
     def open_lootbug(self):
         """Open Option Analyzer - opens in new window, closes menu"""
@@ -950,96 +940,6 @@ class ObeliskGemEVGUI:
         
         self.create_entry(bomb_frame, "founder_bomb_speed_duration_seconds", "    Speed Duration (Seconds):", row, "10.0", bg_color="#FFF3E0")
     
-    def create_lootbug_button(self, parent):
-        """Erstellt den Lootbug-Button für den Option Analyzer"""
-        
-        # Versuche, das Lootbug-Logo zu laden
-        try:
-            lootbug_path = get_resource_path("sprites/lootbug/lootbug.png")
-            if lootbug_path.exists():
-                # Lade und skaliere das Bild
-                lootbug_image = Image.open(lootbug_path)
-                lootbug_image = lootbug_image.resize((32, 32), Image.Resampling.LANCZOS)
-                self.lootbug_photo = ImageTk.PhotoImage(lootbug_image)
-                
-                # Button mit Bild
-                lootbug_button = tk.Button(
-                    parent,
-                    image=self.lootbug_photo,
-                    command=self.open_option_analyzer,
-                    cursor="hand2",
-                    relief=tk.RAISED,
-                    borderwidth=2
-                )
-                lootbug_button.pack(side=tk.LEFT)
-                
-                # Tooltip für den Button
-                self.create_tooltip(
-                    lootbug_button,
-                    "Option Analyzer\nFinde heraus, ob sich bestimmte\nKauf-Optionen lohnen!"
-                )
-            else:
-                # Fallback: Button mit Text
-                lootbug_button = ttk.Button(
-                    parent,
-                    text="🐛 Option Analyzer",
-                    command=self.open_option_analyzer
-                )
-                lootbug_button.pack(side=tk.LEFT)
-        except Exception as e:
-            # Fallback: Button mit Text
-            lootbug_button = ttk.Button(
-                parent,
-                text="🐛 Option Analyzer",
-                command=self.open_option_analyzer
-            )
-            lootbug_button.pack(side=tk.LEFT)
-    
-    def create_archaeology_button(self, parent):
-        """Creates the Archaeology button for the Archaeology Simulator"""
-        
-        # Try to load archaeology icon
-        try:
-            icon_path = get_resource_path("sprites/archaeology/archaeology.png")
-            if icon_path.exists():
-                # Load and scale the image
-                icon_image = Image.open(icon_path)
-                icon_image = icon_image.resize((32, 32), Image.Resampling.LANCZOS)
-                self.archaeology_photo = ImageTk.PhotoImage(icon_image)
-                
-                # Button with image
-                archaeology_button = tk.Button(
-                    parent,
-                    image=self.archaeology_photo,
-                    command=self.open_archaeology_simulator,
-                    cursor="hand2",
-                    relief=tk.RAISED,
-                    borderwidth=2
-                )
-                archaeology_button.pack(side=tk.LEFT, padx=(10, 0))
-                
-                # Tooltip for the button
-                self.create_tooltip(
-                    archaeology_button,
-                    "Archaeology Simulator\nOptimize skill points and upgrades\nfor maximum floors per run!"
-                )
-            else:
-                # Fallback: Button with text
-                archaeology_button = ttk.Button(
-                    parent,
-                    text="Archaeology",
-                    command=self.open_archaeology_simulator
-                )
-                archaeology_button.pack(side=tk.LEFT, padx=(10, 0))
-        except Exception as e:
-            # Fallback: Button with text
-            archaeology_button = ttk.Button(
-                parent,
-                text="Archaeology",
-                command=self.open_archaeology_simulator
-            )
-            archaeology_button.pack(side=tk.LEFT, padx=(10, 0))
-    
     def open_archaeology_simulator(self):
         """Opens the Archaeology Simulator window"""
         try:
@@ -1050,51 +950,6 @@ class ObeliskGemEVGUI:
                 "Error",
                 f"Error opening Archaeology Simulator:\n{str(e)}"
             )
-    
-    def create_event_button(self, parent):
-        """Creates the Event button for the Event Simulator"""
-        
-        # Try to load event icon (valentines event button from wiki)
-        try:
-            icon_path = get_resource_path("sprites/event/event_button.png")
-            if icon_path.exists():
-                # Load and scale the image
-                icon_image = Image.open(icon_path)
-                icon_image = icon_image.resize((32, 32), Image.Resampling.LANCZOS)
-                self.event_photo = ImageTk.PhotoImage(icon_image)
-                
-                # Button with image
-                event_button = tk.Button(
-                    parent,
-                    image=self.event_photo,
-                    command=self.open_event_simulator,
-                    cursor="hand2",
-                    relief=tk.RAISED,
-                    borderwidth=2
-                )
-                event_button.pack(side=tk.LEFT, padx=(10, 0))
-                
-                # Tooltip for the button
-                self.create_tooltip(
-                    event_button,
-                    "Event Simulator\nBudget optimizer for bimonthly events\nwith damage breakpoint analysis!"
-                )
-            else:
-                # Fallback: Button with text
-                event_button = ttk.Button(
-                    parent,
-                    text="Event Sim",
-                    command=self.open_event_simulator
-                )
-                event_button.pack(side=tk.LEFT, padx=(10, 0))
-        except Exception as e:
-            # Fallback: Button with text
-            event_button = ttk.Button(
-                parent,
-                text="Event Sim",
-                command=self.open_event_simulator
-            )
-            event_button.pack(side=tk.LEFT, padx=(10, 0))
     
     def open_event_simulator(self):
         """Opens the Event Simulator window"""
@@ -1107,84 +962,6 @@ class ObeliskGemEVGUI:
                 f"Error opening Event Simulator:\n{str(e)}"
             )
     
-    def create_stargazing_button(self, parent):
-        """Creates the Stargazing button for the Stargazing Optimizer"""
-        
-        # Try to load stargazing icon
-        try:
-            icon_path = get_resource_path("sprites/stargazing/stargazing.png")
-            if icon_path.exists():
-                # Load and scale the image
-                icon_image = Image.open(icon_path)
-                icon_image = icon_image.resize((32, 32), Image.Resampling.LANCZOS)
-                self.stargazing_photo = ImageTk.PhotoImage(icon_image)
-                
-                # Button with image
-                stargazing_button = tk.Button(
-                    parent,
-                    image=self.stargazing_photo,
-                    command=self.open_stargazing,
-                    cursor="hand2",
-                    relief=tk.RAISED,
-                    borderwidth=2
-                )
-                stargazing_button.pack(side=tk.LEFT, padx=(10, 0))
-                
-                # Tooltip for the button
-                self.create_tooltip(
-                    stargazing_button,
-                    "Stargazing Optimizer\nTrack star upgrades and optimize\nyour star/super star income!"
-                )
-            else:
-                # Fallback: Button with text
-                stargazing_button = ttk.Button(
-                    parent,
-                    text="Stargazing",
-                    command=self.open_stargazing
-                )
-                stargazing_button.pack(side=tk.LEFT, padx=(10, 0))
-        except Exception as e:
-            # Fallback: Button with text
-            stargazing_button = ttk.Button(
-                parent,
-                text="Stargazing",
-                command=self.open_stargazing
-            )
-            stargazing_button.pack(side=tk.LEFT, padx=(10, 0))
-    
-    def open_stargazing(self):
-        """Opens the Stargazing Optimizer window"""
-        try:
-            # Force reload of stargazing module to ensure latest version
-            import importlib
-            import stargazing
-            importlib.reload(stargazing)
-            from stargazing import StargazingWindow as ReloadedStargazingWindow
-            # Open the Stargazing window
-            ReloadedStargazingWindow(self.root)
-        except Exception as e:
-            messagebox.showerror(
-                "Error",
-                f"Error opening Stargazing Optimizer:\n{str(e)}"
-            )
-    
-    def open_stargazing2(self):
-        """Opens the Stargazing 2.0 Calculator window"""
-        if not STARGAZING2_AVAILABLE or Stargazing2Window is None:
-            messagebox.showerror(
-                "Error",
-                "Stargazing 2.0 Calculator is not available.\n"
-                "Please check that the module is properly installed."
-            )
-            return
-        try:
-            Stargazing2Window(self.root)
-        except Exception as e:
-            messagebox.showerror(
-                "Error",
-                f"Error opening Stargazing 2.0 Calculator:\n{str(e)}"
-            )
-
     def open_option_analyzer(self):
         """Öffnet das Option Analyzer Fenster"""
         # Hole aktuelle Parameter und erstelle Calculator

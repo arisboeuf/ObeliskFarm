@@ -1,4 +1,4 @@
-# Stargazing 2.0 Calculator
+# Stargazing 3.0 Calculator
 
 Simple calculator for stars and super stars per hour based on in-game stats.
 
@@ -17,7 +17,7 @@ Simple calculator for stars and super stars per hour based on in-game stats.
    - Multiplier values (x): Enter as shown (e.g., 1.16 for 1.16x)
    - Percentage values (%): Enter as shown (e.g., 25 for 25%)
 3. Enable "CTRL+F Stars" checkbox if you have this skill unlocked
-4. Results update automatically as you type
+4. Click "Calculate" button to update results
 
 ## Game Mechanics
 
@@ -59,7 +59,7 @@ The CTRL+F Stars skill multiplies offline gains by **5x** (from 0.2 to 1.0) for 
 
 ### Stars per Hour (Online)
 ```
-stars_per_hour = floor_clears_per_hour
+stars_per_hour = floor_clears_per_minute × 60
                  × star_spawn_chance (2% base)
                  × star_spawn_rate_mult
                  × stars_per_spawn (1-3)
@@ -91,10 +91,23 @@ Similar calculation but with Super Star spawn mechanics:
 - All Star Multiplier applies as a final multiplier
 - **Offline Gains:** Without CTRL+F Stars = 0.2x (1 of 5 floors), With CTRL+F Stars = 1.0x (all 5 floors)
 
+### GUI Implementation Notes
+
+**Important: ttk.Entry with StringVar Binding Issue**
+
+When using `ttk.Entry` with `textvariable=StringVar`, the StringVar may not update reliably when users type into the Entry widget. This is a known issue with ttk widgets in some Tkinter versions.
+
+**Solution:** Use Entry widgets directly without StringVar binding:
+- Store Entry widgets in `self.stat_entries` dictionary
+- Read values directly with `entry.get()` instead of `var.get()`
+- Set values with `entry.delete(0, tk.END)` and `entry.insert(0, value)` instead of `var.set()`
+
+This ensures that user input is always correctly captured and read from the Entry widgets.
+
 ## Module Structure
 
 ```
-stargazing2_0/
+stargazing3_0/
 ├── __init__.py      # Module exports
 ├── README.md        # This documentation
 ├── calculator.py    # Star income calculations

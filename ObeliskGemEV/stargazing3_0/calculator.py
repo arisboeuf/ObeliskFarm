@@ -1,5 +1,5 @@
 """
-Stargazing 2.0 Calculator
+Stargazing 3.0 Calculator
 
 Calculates stars and super stars per hour based on in-game stats.
 Supports both online and offline calculations with CTRL+F Stars skill.
@@ -72,7 +72,7 @@ class PlayerStats:
     ctrl_f_stars_enabled: bool = False
 
 
-class Stargazing2Calculator:
+class Stargazing3Calculator:
     """
     Calculates stars and super stars per hour.
     

@@ -1,5 +1,5 @@
 """
-Stargazing 2.0 GUI
+Stargazing 3.0 GUI
 
 Simple interface for calculating stars and super stars per hour
 based on in-game stats.
@@ -9,9 +9,10 @@ import tkinter as tk
 from tkinter import ttk
 from pathlib import Path
 import json
+import traceback
 from PIL import Image, ImageTk
 
-from .calculator import Stargazing2Calculator, PlayerStats
+from .calculator import Stargazing3Calculator, PlayerStats
 
 import sys
 import os
@@ -31,22 +32,22 @@ def get_user_data_path() -> Path:
 
 # Save file path
 SAVE_DIR = get_user_data_path()
-SAVE_FILE = SAVE_DIR / "stargazing2_save.json"
+SAVE_FILE = SAVE_DIR / "stargazing3_save.json"
 
 # Section colors
 COLOR_STATS = "#E8F5E9"      # Light Green for Stats input
 COLOR_RESULTS = "#FFF3E0"    # Light Orange for Results
 
 
-class Stargazing2Window:
-    """Window for Stargazing 2.0 calculations"""
+class Stargazing3Window:
+    """Window for Stargazing 3.0 calculations"""
     
     def __init__(self, parent):
         self.parent = parent
         
         # Create window
         self.window = tk.Toplevel(parent)
-        self.window.title("Stargazing 2.0 Calculator · Live")
+        self.window.title("Stargazing 3.0 Calculator · Live")
         self.window.state('zoomed')
         self.window.resizable(True, True)
         self.window.minsize(800, 600)
@@ -68,7 +69,7 @@ class Stargazing2Window:
         # Initialize state
         self.reset_to_defaults()
         
-        # Auto-calculate: debounce with cancel (like Freebie Gem EV, but reset timer on each keystroke)
+        # Auto-calculate: debounce with cancel (reset timer on each keystroke)
         self.auto_calculate_enabled = True
         self._after_id = None
         
@@ -99,8 +100,7 @@ class Stargazing2Window:
             'super_supergiant': 'Super_Star_Supergiant_Chance.png',
             'all_star_mult': 'All_Star_Multiplier.png',
             'super_radiant': 'Super_Star_Radiant_Chance.png',
-            'star': 'star.png',
-            'super_star': 'super_star.png',
+            'ctrl_f_stars': 'Ctrl+F_Stars.png',
         }
         
         sprites_dir = get_resource_path("sprites/stargazing")
@@ -123,7 +123,7 @@ class Stargazing2Window:
         """Reset all values to defaults"""
         # Manual stats from game (what user sees in stats page)
         self.manual_stats = {
-            'floor_clears_per_hour': 120.0,
+            'floor_clears_per_minute': 2.0,  # 120/hour = 2/min
             'star_spawn_rate_mult': 1.0,
             'auto_catch_chance': 0.0,  # As percentage
             'double_star_chance': 0.0,  # As percentage
@@ -152,10 +152,10 @@ class Stargazing2Window:
     
     def save_state(self):
         """Save current state to file"""
-        # Update manual_stats from current UI values before saving
-        if hasattr(self, 'stat_vars'):
-            for key, var in self.stat_vars.items():
-                val = var.get().strip()
+        # Update manual_stats from current UI values before saving (read from Entry widgets)
+        if hasattr(self, 'stat_entries'):
+            for key, entry in self.stat_entries.items():
+                val = entry.get().strip()
                 if val:
                     try:
                         self.manual_stats[key] = float(val)
@@ -197,22 +197,22 @@ class Stargazing2Window:
             # Update UI
             self.update_ui_from_state()
             
-            # Trigger calculation after loading state
-            self.window.after(100, self.update_calculations)
-            
         except Exception as e:
             print(f"Warning: Could not load state: {e}")
     
     def update_ui_from_state(self):
         """Update UI elements to reflect current state"""
-        # Update manual stat entries
-        if hasattr(self, 'stat_vars'):
-            for key, var in self.stat_vars.items():
-                var.set(str(self.manual_stats.get(key, 0)))
+        # Update manual stat entries (update Entry widgets directly)
+        if hasattr(self, 'stat_entries'):
+            for key, entry in self.stat_entries.items():
+                new_value = str(self.manual_stats.get(key, 0))
+                entry.delete(0, tk.END)
+                entry.insert(0, new_value)
         
         # Update CTRL+F Stars checkbox
-        if hasattr(self, 'ctrl_f_stars_var'):
-            self.ctrl_f_stars_var.set(self.ctrl_f_stars_enabled)
+        # Update toggle button visual state
+        if hasattr(self, 'ctrl_f_toggle_button'):
+            self._update_ctrl_f_button_visual()
     
     def create_widgets(self):
         """Create all GUI widgets"""
@@ -235,7 +235,7 @@ class Stargazing2Window:
         except:
             pass
         
-        ttk.Label(title_frame, text="Stargazing 2.0 Calculator", font=("Arial", 14, "bold")).pack(side=tk.LEFT)
+        ttk.Label(title_frame, text="Stargazing 3.0 Calculator", font=("Arial", 14, "bold")).pack(side=tk.LEFT)
         
         # Main horizontal layout
         content_frame = ttk.Frame(main_frame)
@@ -288,7 +288,7 @@ class Stargazing2Window:
         stats_frame.columnconfigure(0, weight=1, uniform="tile")
         stats_frame.columnconfigure(1, weight=1, uniform="tile")
         
-        self.stat_vars = {}
+        self.stat_entries = {}  # Store Entry widgets directly (no StringVar - see README for why)
         
         # Define thematic tiles
         tiles = [
@@ -297,7 +297,7 @@ class Stargazing2Window:
                 'title': 'Basic Stats',
                 'color': '#E8F5E9',
                 'stats': [
-                    ('floor_clears_per_hour', 'Floor Clears/hour', '', None),
+                    ('floor_clears_per_minute', 'Floor Clears/min', '', None),
                     ('star_spawn_rate_mult', 'Star Spawn Rate', 'x', 'star_spawn_rate'),
                     ('auto_catch_chance', 'Auto-Catch', '%', 'auto_catch'),
                 ]
@@ -373,14 +373,19 @@ class Stargazing2Window:
                 tk.Label(stat_row, text=f"{label}:", background=tile['color'], 
                          font=("Arial", 9), anchor=tk.W).pack(side=tk.LEFT, padx=(0, 5))
                 
-                # Entry with update callback (like Freebie Gem EV)
-                var = tk.StringVar(value=str(self.manual_stats.get(key, 0)))
-                self.stat_vars[key] = var
-                entry = ttk.Entry(stat_row, textvariable=var, width=8, font=("Arial", 9))
+                # Entry field - use Entry widget directly (no StringVar)
+                # NOTE: ttk.Entry with textvariable=StringVar has binding issues where StringVar
+                # doesn't update when users type. Solution: read directly from Entry widget.
+                default_value = str(self.manual_stats.get(key, 0))
+                entry = ttk.Entry(stat_row, width=8, font=("Arial", 9))
+                entry.insert(0, default_value)  # Set initial value
                 entry.pack(side=tk.LEFT, padx=2)
                 
-                # Live-Update: Berechne automatisch bei Änderung (mit Delay) - genau wie Freebie Gem EV
-                var.trace_add('write', lambda *args: self.trigger_auto_calculate())
+                # Store Entry widget directly (read with entry.get() instead of var.get())
+                self.stat_entries[key] = entry
+                
+                # Live-Update: Trigger auto-calculate when user types (with debounce)
+                entry.bind('<KeyRelease>', lambda e: self.trigger_auto_calculate())
                 
                 # Suffix
                 if suffix:
@@ -403,6 +408,7 @@ class Stargazing2Window:
         
         ctrl_f_header = tk.Frame(ctrl_f_tile, background="#E1F5FE")
         ctrl_f_header.pack(fill=tk.X, padx=5, pady=(5, 3))
+        
         tk.Label(ctrl_f_header, text="CTRL+F Stars Skill", font=("Arial", 10, "bold"), 
                  background="#E1F5FE", fg="#1565C0").pack(side=tk.LEFT)
         
@@ -414,14 +420,39 @@ class Stargazing2Window:
         ctrl_f_content = tk.Frame(ctrl_f_tile, background="#E1F5FE")
         ctrl_f_content.pack(fill=tk.X, padx=5, pady=5)
         
-        self.ctrl_f_stars_var = tk.BooleanVar(value=self.ctrl_f_stars_enabled)
-        ctrl_f_checkbox = ttk.Checkbutton(
+        # Toggle button with icon
+        ctrl_f_icon = self.sprites.get('ctrl_f_stars')
+        btn_kwargs = {
+            'command': self.on_ctrl_f_toggle,
+            'relief': tk.SUNKEN if self.ctrl_f_stars_enabled else tk.RAISED,
+            'borderwidth': 2,
+            'background': "#E1F5FE",
+            'activebackground': "#B3E5FC",
+            'cursor': 'hand2',
+        }
+        
+        if ctrl_f_icon:
+            btn_kwargs['image'] = ctrl_f_icon
+            btn_kwargs['width'] = 34
+            btn_kwargs['height'] = 34
+        else:
+            btn_kwargs['text'] = "CTRL+F"
+            btn_kwargs['width'] = 10
+            btn_kwargs['height'] = 2
+        
+        self.ctrl_f_toggle_button = tk.Button(ctrl_f_content, **btn_kwargs)
+        self.ctrl_f_toggle_button.pack(side=tk.LEFT, anchor=tk.W, padx=(0, 8))
+        
+        # Status label
+        status_text = "Enabled" if self.ctrl_f_stars_enabled else "Disabled"
+        self.ctrl_f_status_label = tk.Label(
             ctrl_f_content,
-            text="CTRL+F Stars enabled (5x offline gains)",
-            variable=self.ctrl_f_stars_var,
-            command=self.on_ctrl_f_changed
+            text=status_text,
+            font=("Arial", 9),
+            background="#E1F5FE",
+            fg="#1565C0" if self.ctrl_f_stars_enabled else "#757575"
         )
-        ctrl_f_checkbox.pack(side=tk.LEFT)
+        self.ctrl_f_status_label.pack(side=tk.LEFT, anchor=tk.W)
     
     def create_results_section(self, parent):
         """Create the results display section - compact like Freebie Gem EV"""
@@ -442,8 +473,10 @@ class Stargazing2Window:
         # Star Results - Online
         star_online_row = tk.Frame(results_frame, background=COLOR_RESULTS)
         star_online_row.pack(fill=tk.X, pady=3)
-        tk.Label(star_online_row, text="⭐ Stars/hour (Online):", background=COLOR_RESULTS, 
-                 font=("Arial", 10)).pack(side=tk.LEFT)
+        online_label = tk.Label(star_online_row, text="⭐ Stars/hour (Online):", background=COLOR_RESULTS, 
+                 font=("Arial", 10))
+        online_label.pack(side=tk.LEFT)
+        self._create_online_tooltip(online_label)
         val_label = tk.Label(star_online_row, text="—", background=COLOR_RESULTS, 
                              font=("Arial", 11, "bold"), fg="#1565C0")
         val_label.pack(side=tk.RIGHT)
@@ -465,8 +498,10 @@ class Stargazing2Window:
         # Super Star Results - Online
         super_online_row = tk.Frame(results_frame, background=COLOR_RESULTS)
         super_online_row.pack(fill=tk.X, pady=3)
-        tk.Label(super_online_row, text="🌟 Super Stars/hour (Online):", background=COLOR_RESULTS, 
-                 font=("Arial", 10)).pack(side=tk.LEFT)
+        super_online_label = tk.Label(super_online_row, text="🌟 Super Stars/hour (Online):", background=COLOR_RESULTS, 
+                 font=("Arial", 10))
+        super_online_label.pack(side=tk.LEFT)
+        self._create_online_tooltip(super_online_label)
         val_label = tk.Label(super_online_row, text="—", background=COLOR_RESULTS, 
                              font=("Arial", 11, "bold"), fg="#E65100")
         val_label.pack(side=tk.RIGHT)
@@ -483,27 +518,15 @@ class Stargazing2Window:
         self.result_labels['super_stars_offline'] = val_label
         
         ttk.Separator(results_frame, orient='horizontal').pack(fill=tk.X, pady=8)
-        btn_frame = tk.Frame(results_frame, background=COLOR_RESULTS)
-        btn_frame.pack(fill=tk.X, pady=5)
-        def _on_calculate():
-            self.update_calculations()
-            self.window.update_idletasks()
-            self.window.update()
-        self._btn_calculate = tk.Button(
-            btn_frame, text="Berechnen", command=_on_calculate,
-            font=("Arial", 10), bg="#E0E0E0", relief=tk.RAISED, bd=2,
-            cursor="hand2"
-        )
-        self._btn_calculate.pack(pady=2)
     
     def trigger_auto_calculate(self):
         """Schedule recalculation 500ms after last change. Cancel previous timer."""
         if not self.auto_calculate_enabled:
             return
         if self._after_id is not None:
-            self.parent.after_cancel(self._after_id)
+            self.window.after_cancel(self._after_id)
             self._after_id = None
-        self._after_id = self.parent.after(500, self._perform_auto_calculate)
+        self._after_id = self.window.after(500, self._perform_auto_calculate)
     
     def _perform_auto_calculate(self):
         """Run recalculation (called after debounce delay)."""
@@ -513,11 +536,24 @@ class Stargazing2Window:
         except Exception:
             pass
     
-    def on_ctrl_f_changed(self):
-        """Handle CTRL+F Stars checkbox change"""
-        if hasattr(self, 'ctrl_f_stars_var'):
-            self.ctrl_f_stars_enabled = self.ctrl_f_stars_var.get()
-        self.trigger_auto_calculate()
+    def on_ctrl_f_toggle(self):
+        """Handle CTRL+F Stars toggle button click"""
+        self.ctrl_f_stars_enabled = not self.ctrl_f_stars_enabled
+        self._update_ctrl_f_button_visual()
+        # Force immediate update
+        self.update_calculations()
+    
+    def _update_ctrl_f_button_visual(self):
+        """Update the visual appearance of CTRL+F toggle button"""
+        if hasattr(self, 'ctrl_f_toggle_button'):
+            if self.ctrl_f_stars_enabled:
+                self.ctrl_f_toggle_button.config(relief=tk.SUNKEN, borderwidth=2)
+                if hasattr(self, 'ctrl_f_status_label'):
+                    self.ctrl_f_status_label.config(text="Enabled", fg="#1565C0")
+            else:
+                self.ctrl_f_toggle_button.config(relief=tk.RAISED, borderwidth=2)
+                if hasattr(self, 'ctrl_f_status_label'):
+                    self.ctrl_f_status_label.config(text="Disabled", fg="#757575")
     
     def update_calculations(self):
         """Recalculate and update display"""
@@ -529,12 +565,15 @@ class Stargazing2Window:
             print("Warning: result_labels is empty")
             return
         
-        # Read all values from UI entries
+        # Read all values from UI entries (read directly from Entry widgets)
         manual_stats = {}
-        if hasattr(self, 'stat_vars'):
-            for key, var in self.stat_vars.items():
+        if hasattr(self, 'stat_entries'):
+            for key, entry in self.stat_entries.items():
                 try:
-                    val = var.get().strip()
+                    # Get raw value directly from Entry widget
+                    raw_val = entry.get()
+                    val = raw_val.strip() if raw_val else ""
+                    
                     if val:
                         manual_stats[key] = float(val)
                     else:
@@ -544,17 +583,19 @@ class Stargazing2Window:
                     # On error, use default value
                     manual_stats[key] = self.manual_stats.get(key, 0)
         
-        # Update CTRL+F Stars from checkbox
-        if hasattr(self, 'ctrl_f_stars_var'):
-            self.ctrl_f_stars_enabled = self.ctrl_f_stars_var.get()
+        # CTRL+F Stars is managed by toggle button, no need to read from var
         
         # Update manual_stats with new values
         self.manual_stats.update(manual_stats)
         
         # Create stats from manual input
         try:
+            # Convert floor_clears_per_minute to floor_clears_per_hour for calculation
+            floor_clears_per_minute = manual_stats.get('floor_clears_per_minute', 2.0)
+            floor_clears_per_hour = floor_clears_per_minute * 60.0
+            
             stats = PlayerStats(
-                floor_clears_per_hour=manual_stats.get('floor_clears_per_hour', 120.0),
+                floor_clears_per_hour=floor_clears_per_hour,
                 star_spawn_rate_mult=manual_stats.get('star_spawn_rate_mult', 1.0),
                 auto_catch_chance=manual_stats.get('auto_catch_chance', 0) / 100,  # % to decimal
                 double_star_chance=manual_stats.get('double_star_chance', 0) / 100,
@@ -579,10 +620,10 @@ class Stargazing2Window:
                 ctrl_f_stars_enabled=self.ctrl_f_stars_enabled,
             )
             
-            calc = Stargazing2Calculator(stats)
+            calc = Stargazing3Calculator(stats)
             summary = calc.get_summary()
+            
         except Exception as e:
-            import traceback
             print(f"Error in update_calculations: {e}")
             traceback.print_exc()
             for key in self.result_labels:
@@ -602,7 +643,6 @@ class Stargazing2Window:
             print(f"Available summary keys: {list(summary.keys())}")
         except Exception as e:
             print(f"Error updating result labels: {e}")
-            import traceback
             traceback.print_exc()
     
     def _create_ctrl_f_help_tooltip(self, widget):
@@ -611,11 +651,12 @@ class Stargazing2Window:
             tooltip = tk.Toplevel()
             tooltip.wm_overrideredirect(True)
             
-            tooltip_width = 320
-            tooltip_height = 150
+            # Better size estimation based on content
+            tooltip_width = 350
+            tooltip_height = 200  # Increased for better visibility
             screen_width = tooltip.winfo_screenwidth()
             screen_height = tooltip.winfo_screenheight()
-            x, y = calculate_tooltip_position(event, tooltip_width, tooltip_height, screen_width, screen_height)
+            x, y = calculate_tooltip_position(event, tooltip_width, tooltip_height, screen_width, screen_height, position="auto")
             tooltip.wm_geometry(f"+{x}+{y}")
             
             outer_frame = tk.Frame(tooltip, background="#1565C0", relief=tk.FLAT)
@@ -642,6 +683,54 @@ class Stargazing2Window:
                 "",
                 "  With CTRL+F: You follow the star through all 5 floors",
                 "    → Offline gains = auto_catch × spawn_rate × 1.0",
+            ]
+            
+            for line in lines:
+                tk.Label(content_frame, text=line, font=("Arial", 9), 
+                         background="#FFFFFF", anchor=tk.W, justify=tk.LEFT).pack(anchor=tk.W)
+            
+            widget.tooltip = tooltip
+        
+        def on_leave(event):
+            if hasattr(widget, 'tooltip'):
+                widget.tooltip.destroy()
+                del widget.tooltip
+        
+        widget.bind("<Enter>", on_enter)
+        widget.bind("<Leave>", on_leave)
+    
+    def _create_online_tooltip(self, widget):
+        """Tooltip explaining what 'Online' means"""
+        def on_enter(event):
+            tooltip = tk.Toplevel()
+            tooltip.wm_overrideredirect(True)
+            
+            tooltip_width = 320
+            tooltip_height = 120
+            screen_width = tooltip.winfo_screenwidth()
+            screen_height = tooltip.winfo_screenheight()
+            x, y = calculate_tooltip_position(event, tooltip_width, tooltip_height, screen_width, screen_height, position="auto")
+            tooltip.wm_geometry(f"+{x}+{y}")
+            
+            outer_frame = tk.Frame(tooltip, background="#1565C0", relief=tk.FLAT)
+            outer_frame.pack(padx=2, pady=2)
+            
+            inner_frame = tk.Frame(outer_frame, background="#FFFFFF")
+            inner_frame.pack(padx=1, pady=1)
+            
+            content_frame = tk.Frame(inner_frame, background="#FFFFFF", padx=10, pady=8)
+            content_frame.pack()
+            
+            tk.Label(content_frame, text="Online Mode", font=("Arial", 10, "bold"), 
+                     foreground="#1565C0", background="#FFFFFF").pack(anchor=tk.W)
+            
+            lines = [
+                "",
+                "Online means you manually catch all stars",
+                "and follow them through all floors.",
+                "",
+                "Note: This is not realistic as it requires",
+                "constant active play on your device.",
             ]
             
             for line in lines:
