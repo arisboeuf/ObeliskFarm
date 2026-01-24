@@ -9,6 +9,7 @@ from tkinter import ttk, messagebox
 from pathlib import Path
 import json
 import math
+import random
 from PIL import Image, ImageTk
 
 from .block_spawn_rates import get_block_mix_for_stage, get_stage_range_label, STAGE_RANGES, get_normalized_spawn_rates, spawn_block_for_slot, get_total_spawn_probability, get_available_blocks_at_stage
@@ -36,6 +37,186 @@ def get_user_data_path() -> Path:
 # Save file path (in user data folder for persistence)
 SAVE_DIR = get_user_data_path()
 SAVE_FILE = SAVE_DIR / "archaeology_save.json"
+
+
+def generate_dirichlet_samples(n_points: int, n_skills: int, n_samples: int, 
+                               require_str: bool = False, original_str: int = 0):
+    """
+    Generate skill point distributions using Dirichlet-based sampling (space-filling design).
+    
+    This is much more efficient than brute-force for large n_points, as it samples uniformly
+    from the simplex (all points where sum = n_points) instead of testing all combinations.
+    
+    Args:
+        n_points: Total skill points to distribute
+        n_skills: Number of skills (typically 5)
+        n_samples: Number of samples to generate (e.g., 500-1000)
+        require_str: If True, only return samples where STR > 0 (after adding to original_str)
+        original_str: Original STR points (for require_str check)
+    
+    Yields:
+        Tuples of (skill1_points, skill2_points, ..., skillN_points) with sum = n_points
+    """
+    # Try to use numpy if available (more efficient)
+    try:
+        import numpy as np
+        use_numpy = True
+    except ImportError:
+        use_numpy = False
+    
+    samples_generated = 0
+    while samples_generated < n_samples:
+        if use_numpy:
+            # Generate Dirichlet sample: n_skills values that sum to 1
+            # Using alpha=1 for uniform distribution on simplex
+            dirichlet_sample = np.random.dirichlet([1.0] * n_skills)
+            # Scale to n_points
+            scaled = dirichlet_sample * n_points
+        else:
+            # Fallback: Generate Dirichlet sample manually using Gamma distribution
+            # Dirichlet(α) = Gamma(α) / sum(Gamma(α))
+            # For α=1, Gamma(1) = Exponential(1)
+            gamma_samples = [-math.log(random.random()) for _ in range(n_skills)]
+            gamma_sum = sum(gamma_samples)
+            if gamma_sum == 0:
+                continue  # Skip if all zeros (very rare)
+            dirichlet_sample = [g / gamma_sum for g in gamma_samples]
+            # Scale to n_points
+            scaled = [s * n_points for s in dirichlet_sample]
+        
+        # Round to integers
+        rounded = [int(round(s)) for s in scaled]
+        
+        # Normalize: ensure sum equals n_points (adjust for rounding errors)
+        current_sum = sum(rounded)
+        if current_sum != n_points:
+            diff = n_points - current_sum
+            # Distribute difference to random skills
+            if diff > 0:
+                # Add points
+                for _ in range(diff):
+                    idx = random.randint(0, n_skills - 1)
+                    rounded[idx] += 1
+            else:
+                # Remove points (but keep non-negative)
+                for _ in range(-diff):
+                    idx = random.randint(0, n_skills - 1)
+                    if rounded[idx] > 0:
+                        rounded[idx] -= 1
+        
+        # Check STR requirement if needed
+        if require_str:
+            total_str = original_str + rounded[0]  # First skill is STR
+            if total_str == 0:
+                continue  # Skip this sample
+        
+        # Verify sum is correct (should always be true after normalization)
+        if sum(rounded) == n_points:
+            samples_generated += 1
+            yield tuple(rounded)
+
+
+def generate_local_refinement_samples(anchor_points: list, n_points: int, n_skills: int, 
+                                     n_samples_per_anchor: int, local_radius: int = 2,
+                                     require_str: bool = False, original_str: int = 0):
+    """
+    Generate local refinement samples around promising candidates (anchor points).
+    
+    For each anchor point, generates samples in a local design space (±local_radius points
+    per skill) to explore the neighborhood and find better solutions.
+    
+    Args:
+        anchor_points: List of tuples from candidate_scores - first element is dist_tuple
+        n_points: Total skill points to distribute
+        n_skills: Number of skills (typically 5)
+        n_samples_per_anchor: Number of samples to generate around each anchor
+        local_radius: Maximum deviation per skill (e.g., ±2 points)
+        require_str: If True, only return samples where STR > 0
+        original_str: Original STR points (for require_str check)
+    
+    Yields:
+        Tuples of (skill1_points, skill2_points, ..., skillN_points) with sum = n_points
+    """
+    for anchor_data in anchor_points:
+        # Extract dist_tuple (first element) from candidate_scores format
+        # candidate_scores format: (dist_tuple, avg_max_stage, stats, fragments_per_hour, xp_per_hour)
+        anchor_tuple = anchor_data[0]
+        # Define local bounds around anchor point
+        # Each skill can vary by ±local_radius, but must stay within [0, n_points]
+        local_bounds = []
+        for skill_val in anchor_tuple:
+            min_val = max(0, skill_val - local_radius)
+            max_val = min(n_points, skill_val + local_radius)
+            local_bounds.append((min_val, max_val))
+        
+        # Generate samples in local space
+        samples_generated = 0
+        max_attempts = n_samples_per_anchor * 10  # Prevent infinite loops
+        
+        while samples_generated < n_samples_per_anchor and max_attempts > 0:
+            max_attempts -= 1
+            
+            # Generate sample within local bounds using Dirichlet
+            # Scale to local range, then shift to anchor neighborhood
+            try:
+                import numpy as np
+                use_numpy = True
+            except ImportError:
+                use_numpy = False
+            
+            if use_numpy:
+                dirichlet_sample = np.random.dirichlet([1.0] * n_skills)
+            else:
+                gamma_samples = [-math.log(random.random()) for _ in range(n_skills)]
+                gamma_sum = sum(gamma_samples)
+                if gamma_sum == 0:
+                    continue
+                dirichlet_sample = [g / gamma_sum for g in gamma_samples]
+            
+            # Map to local bounds
+            local_sample = []
+            for i, (min_val, max_val) in enumerate(local_bounds):
+                if max_val > min_val:
+                    # Map [0,1] to [min_val, max_val]
+                    local_val = min_val + dirichlet_sample[i] * (max_val - min_val)
+                else:
+                    local_val = min_val
+                local_sample.append(int(round(local_val)))
+            
+            # Normalize to ensure sum = n_points
+            current_sum = sum(local_sample)
+            if current_sum != n_points:
+                diff = n_points - current_sum
+                # Distribute difference while respecting bounds
+                if diff > 0:
+                    # Add points
+                    for _ in range(diff):
+                        idx = random.randint(0, n_skills - 1)
+                        if local_sample[idx] < local_bounds[idx][1]:
+                            local_sample[idx] += 1
+                else:
+                    # Remove points
+                    for _ in range(-diff):
+                        idx = random.randint(0, n_skills - 1)
+                        if local_sample[idx] > local_bounds[idx][0]:
+                            local_sample[idx] -= 1
+            
+            # Check STR requirement
+            if require_str:
+                total_str = original_str + local_sample[0]
+                if total_str == 0:
+                    continue
+            
+            # Verify sum and bounds
+            if sum(local_sample) == n_points:
+                # Check all values are within bounds
+                valid = all(
+                    local_bounds[i][0] <= local_sample[i] <= local_bounds[i][1]
+                    for i in range(n_skills)
+                )
+                if valid:
+                    samples_generated += 1
+                    yield tuple(local_sample)
 
 
 class CollapsibleFrame:
@@ -3970,6 +4151,21 @@ class ArchaeologySimulatorWindow:
         )
         mc_stage_optimizer_debug_button.pack(side=tk.LEFT, padx=(10, 0))
         
+        # Comparison button: Compare Dirichlet vs Brute-Force
+        compare_button = tk.Button(
+            debug_row,
+            text="Compare Methods",
+            command=self.run_mc_stage_optimizer_compare,
+            font=("Arial", 9),
+            bg="#E91E63",
+            fg="#FFFFFF",
+            activebackground="#F06292",
+            activeforeground="#FFFFFF",
+            relief=tk.RAISED,
+            borderwidth=2
+        )
+        compare_button.pack(side=tk.LEFT, padx=(10, 0))
+        
         debug_help = tk.Label(debug_row, text="?", font=("Arial", 9, "bold"),
                              cursor="hand2", foreground="#4A148C", background="#E1BEE7")
         debug_help.pack(side=tk.LEFT, padx=(4, 0))
@@ -5372,45 +5568,38 @@ class ArchaeologySimulatorWindow:
             
             cancel_event = loading_window.loading_refs['cancel_event']
             
-            # Generate all possible distributions of num_points among 5 skills
-            # This is a "stars and bars" problem: C(n+k-1, k-1) combinations
-            # For 21 points, 5 skills: C(25,4) = 12,650 combinations
-            def generate_distributions(n_points, n_skills):
-                """Generate all ways to distribute n_points among n_skills"""
-                if n_skills == 1:
-                    yield (n_points,)
-                    return
-                for i in range(n_points + 1):
-                    for rest in generate_distributions(n_points - i, n_skills - 1):
-                        yield (i,) + rest
-            
-            # Calculate total number of combinations for progress tracking
-            total_combinations = 1
-            for i in range(4):
-                total_combinations = total_combinations * (num_points + 1 + i) // (i + 1)
-            
             from .monte_carlo_crit import MonteCarloCritSimulator
             simulator = MonteCarloCritSimulator()
             
+            # Use Dirichlet-based sampling for efficient space-filling design
+            # Instead of testing all C(n+k-1, k-1) combinations, we sample uniformly from the simplex
+            # Use 4× more samples for better coverage (same as Stage Optimizer)
+            base_n_samples = max(500, num_points * 20)
+            n_samples = base_n_samples * 4
+            
             # Two-phase optimization approach:
             # Phase 1: Quick screening with few sims to identify promising candidates
-            # Phase 2: Detailed testing of top candidates with full sims (refinement_sims from UI)
+            # Phase 2: Local refinement - generate new samples in promising regions
             top_candidates_ratio = 0.05  # Keep top 5% for refinement
             
             combination_count = 0
             candidate_scores = []  # List of (dist_tuple, avg_frag_per_hour, optimal_stage, stats)
             
-            # Phase 1: Quick screening of all distributions
+            # Phase 1: Quick screening using Dirichlet sampling
             try:
                 if self.window.winfo_exists():
-                    self.window.after(0, lambda n=local_screening_n_display, t=total_combinations: 
+                    self.window.after(0, lambda n=local_screening_n_display, t=n_samples: 
                                      self._safe_update_progress_label(loading_window, 
-                                                                      f"Phase 1: Screening (N={n})... (0/{t})",
+                                                                      f"Phase 1: Screening (N={n}, {t} samples)... (0/{t})",
                                                                       current=0, total=t))
             except (tk.TclError, RuntimeError):
                 pass
             
-            for dist_tuple in generate_distributions(num_points, len(skills)):
+            original_str = original_points.get('strength', 0)
+            for dist_tuple in generate_dirichlet_samples(
+                num_points, len(skills), n_samples,
+                require_str=True, original_str=original_str
+            ):
                 if cancel_event.is_set():
                     self.skill_points = original_points.copy()
                     return
@@ -5418,10 +5607,10 @@ class ArchaeologySimulatorWindow:
                 combination_count += 1
                 
                 # Update progress every 10 combinations for smoother progress
-                if combination_count % 10 == 0 or combination_count == total_combinations:
+                if combination_count % 10 == 0 or combination_count == n_samples:
                     try:
                         if self.window.winfo_exists():
-                            self.window.after(0, lambda c=combination_count, t=total_combinations, n=local_screening_n_display: 
+                            self.window.after(0, lambda c=combination_count, t=n_samples, n=local_screening_n_display: 
                                              self._safe_update_progress_label(loading_window, 
                                                                               f"Phase 1: Screening (N={n})... ({c}/{t})",
                                                                               current=c, total=t))
@@ -5474,43 +5663,61 @@ class ArchaeologySimulatorWindow:
             # Sort candidates by performance (best first)
             candidate_scores.sort(key=lambda x: x[1], reverse=True)
             
-            # Phase 2: Refine top candidates with full simulations
-            num_refinement = max(1, int(len(candidate_scores) * top_candidates_ratio))
-            top_candidates = candidate_scores[:num_refinement]
+            # Phase 2: Local refinement - generate new samples in promising regions
+            num_refinement_anchors = max(1, int(len(candidate_scores) * top_candidates_ratio))
+            top_anchors = candidate_scores[:num_refinement_anchors]
+            
+            # Generate local samples around top candidates
+            n_samples_per_anchor = max(5, min(15, local_refinement_sims // 50))  # Same as Stage Optimizer
+            local_radius = 2  # ±2 points per skill around anchor
+            
+            # Calculate total refinement samples
+            total_refinement_samples = num_refinement_anchors * n_samples_per_anchor
             
             try:
                 if self.window.winfo_exists():
                     self.window.after(0, lambda n=local_refinement_n_display: 
                                      self._safe_update_progress_label(loading_window, 
-                                                                      f"Phase 2: Refining top {num_refinement} candidates (N={n})... (0/{num_refinement})",
-                                                                      current=0, total=num_refinement))
+                                                                      f"Phase 2: Local refinement ({total_refinement_samples} new samples around {num_refinement_anchors} anchors, N={n})... (0/{total_refinement_samples})",
+                                                                      current=0, total=total_refinement_samples))
             except (tk.TclError, RuntimeError):
                 pass
             
-            for refine_idx, (dist_tuple, screening_score, optimal_stage, stats_copy) in enumerate(top_candidates):
+            refinement_scores = []
+            refine_count = 0
+            
+            for refine_sample in generate_local_refinement_samples(
+                top_anchors, num_points, len(skills), n_samples_per_anchor,
+                local_radius=local_radius, require_str=True, original_str=original_str
+            ):
                 if cancel_event.is_set():
                     self.skill_points = original_points.copy()
                     return
                 
-                # Update progress
-                if (refine_idx + 1) % 5 == 0:
-                    progress_pct = int(((refine_idx + 1) / num_refinement) * 100)
+                refine_count += 1
+                if refine_count % 10 == 0 or refine_count == total_refinement_samples:
                     try:
                         if self.window.winfo_exists():
-                            self.window.after(0, lambda p=progress_pct, c=refine_idx+1, t=num_refinement, n=local_refinement_n_display: 
+                            self.window.after(0, lambda c=refine_count, t=total_refinement_samples, n=local_refinement_n_display: 
                                              self._safe_update_progress_label(loading_window, 
-                                                                              f"Phase 2: Refining {p}% (N={n})... ({c}/{t})"))
+                                                                              f"Phase 2: Local refinement (N={n})... ({c}/{t})",
+                                                                              current=c, total=t))
                     except (tk.TclError, RuntimeError):
                         cancel_event.set()
                         return
                 
                 # Apply distribution temporarily
-                for skill, points in zip(skills, dist_tuple):
+                for skill, points in zip(skills, refine_sample):
                     self.skill_points[skill] = original_points.get(skill, 0) + points
                 
                 new_stats = self.get_total_stats()
                 
-                # Run full MC simulations for accurate estimate
+                # Find optimal stage for this build
+                optimal_stage, _ = self.find_optimal_stage_for_fragment_type(
+                    new_stats, target_frag
+                )
+                
+                # Run MC simulations for refinement estimate
                 frag_per_hour_samples = []
                 
                 for _ in range(local_refinement_sims):
@@ -5532,12 +5739,8 @@ class ArchaeologySimulatorWindow:
                 
                 avg_frag_per_hour = sum(frag_per_hour_samples) / len(frag_per_hour_samples) if frag_per_hour_samples else 0
                 
-                # Update best if this is better
-                if avg_frag_per_hour > best_frag_per_hour_avg:
-                    best_frag_per_hour_avg = avg_frag_per_hour
-                    best_distribution = {s: p for s, p in zip(skills, dist_tuple)}
-                    best_optimal_stage = optimal_stage
-                    best_stats = new_stats.copy()
+                # Store refinement candidate
+                refinement_scores.append((refine_sample, avg_frag_per_hour, optimal_stage, new_stats.copy()))
                 
                 # Revert changes
                 self.skill_points = original_points.copy()
@@ -5550,7 +5753,41 @@ class ArchaeologySimulatorWindow:
                     pass
                 return
             
-            # Phase 2: Run full MC simulation (1000 runs) with best distribution
+            # Sort refinement results and find best
+            refinement_scores.sort(key=lambda x: x[1], reverse=True)
+            
+            # Combine screening top candidates with refinement results for final comparison
+            best_from_refinement = refinement_scores[0] if refinement_scores else None
+            best_from_screening = candidate_scores[0] if candidate_scores else None
+            
+            # Determine overall best
+            if best_from_refinement and best_from_screening:
+                if best_from_refinement[1] >= best_from_screening[1]:
+                    best_dist_tuple, best_frag_per_hour_avg, best_optimal_stage, best_stats = best_from_refinement
+                else:
+                    best_dist_tuple, best_frag_per_hour_avg, _, _ = best_from_screening
+                    best_optimal_stage = best_from_screening[2]
+                    best_stats = best_from_screening[3]
+            elif best_from_refinement:
+                best_dist_tuple, best_frag_per_hour_avg, best_optimal_stage, best_stats = best_from_refinement
+            elif best_from_screening:
+                best_dist_tuple, best_frag_per_hour_avg, _, _ = best_from_screening
+                best_optimal_stage = best_from_screening[2]
+                best_stats = best_from_screening[3]
+            else:
+                return
+            
+            best_distribution = {s: p for s, p in zip(skills, best_dist_tuple)}
+            
+            if cancel_event.is_set():
+                try:
+                    if self.window.winfo_exists():
+                        self.window.after(0, lambda: self._close_loading_dialog(loading_window))
+                except (tk.TclError, RuntimeError):
+                    pass
+                return
+            
+            # Phase 3: Run full MC simulation (1000 runs) with best distribution
             # Apply best distribution
             for skill, points in best_distribution.items():
                 self.skill_points[skill] = original_points.get(skill, 0) + points
@@ -5727,25 +5964,15 @@ class ArchaeologySimulatorWindow:
             
             cancel_event = loading_window.loading_refs['cancel_event']
             
-            # Generate all possible distributions of num_points among 5 skills
-            # This is a "stars and bars" problem: C(n+k-1, k-1) combinations
-            # For 21 points, 5 skills: C(25,4) = 12,650 combinations
-            def generate_distributions(n_points, n_skills):
-                """Generate all ways to distribute n_points among n_skills"""
-                if n_skills == 1:
-                    yield (n_points,)
-                    return
-                for i in range(n_points + 1):
-                    for rest in generate_distributions(n_points - i, n_skills - 1):
-                        yield (i,) + rest
-            
-            # Calculate total number of combinations for progress tracking
-            total_combinations = 1
-            for i in range(4):
-                total_combinations = total_combinations * (num_points + 1 + i) // (i + 1)
-            
             from .monte_carlo_crit import MonteCarloCritSimulator
             simulator = MonteCarloCritSimulator()
+            
+            # Use Dirichlet-based sampling for efficient space-filling design
+            # Instead of testing all C(n+k-1, k-1) combinations, we sample uniformly from the simplex
+            # Formula: samples = max(500, num_points * 20) for good coverage
+            # Use 4× more samples for better coverage (instead of 4× testing same sample)
+            base_n_samples = max(500, num_points * 20)
+            n_samples = base_n_samples * 4  # 4× more different samples for better candidate discovery
             
             # Two-phase optimization approach:
             # Phase 1: Quick screening with few sims to identify promising candidates
@@ -5761,43 +5988,25 @@ class ArchaeologySimulatorWindow:
             global_highest_stage = 0.0
             stage_count_dict = {}  # Track how many times each stage was reached (counts each MC simulation)
             
-            # Count actual valid distributions (where STR > 0) before screening
-            # This ensures accurate progress tracking
+            # Phase 1: Quick screening using Dirichlet sampling (only those with STR > 0)
+            # Use 4× more samples for better coverage (instead of 4× testing same sample)
             try:
                 if self.window.winfo_exists():
                     self.window.after(0, lambda: 
                                      self._safe_update_progress_label(loading_window, 
-                                                                      "Phase 1: Counting distributions...",
-                                                                      current=0, total=100))
+                                                                      f"Phase 1: Screening (N={screening_sims}, {n_samples} samples)... (0/{n_samples})",
+                                                                      current=0, total=n_samples))
             except (tk.TclError, RuntimeError):
                 pass
             
-            actual_valid_count = 0
-            for dist_tuple in generate_distributions(num_points, len(skills)):
-                total_str = original_points.get('strength', 0) + dist_tuple[0]
-                if total_str > 0:
-                    actual_valid_count += 1
-            
-            # Phase 1: Quick screening of all distributions (only those with STR > 0)
-            try:
-                if self.window.winfo_exists():
-                    self.window.after(0, lambda: 
-                                     self._safe_update_progress_label(loading_window, 
-                                                                      f"Phase 1: Screening (N={screening_sims}) with STR... (0/{actual_valid_count})",
-                                                                      current=0, total=actual_valid_count))
-            except (tk.TclError, RuntimeError):
-                pass
-            
-            for dist_tuple in generate_distributions(num_points, len(skills)):
+            original_str = original_points.get('strength', 0)
+            for dist_tuple in generate_dirichlet_samples(
+                num_points, len(skills), n_samples, 
+                require_str=True, original_str=original_str
+            ):
                 if cancel_event.is_set():
                     self.skill_points = original_points.copy()
                     return
-                
-                # Skip distributions where total STR would be 0 (STR must always be included)
-                # Check if original STR + new STR points > 0
-                total_str = original_points.get('strength', 0) + dist_tuple[0]
-                if total_str == 0:
-                    continue
                 
                 combination_count += 1
                 
@@ -5807,7 +6016,7 @@ class ArchaeologySimulatorWindow:
                 
                 new_stats = self.get_total_stats()
                 
-                # Quick screening: Run few MC simulations
+                # Quick screening: Run MC simulations for this sample
                 max_stage_samples = []
                 metrics_samples_screening = []
                 
@@ -5867,7 +6076,7 @@ class ArchaeologySimulatorWindow:
                     
                     try:
                         if self.window.winfo_exists():
-                            self.window.after(0, lambda c=combination_count, t=actual_valid_count, 
+                            self.window.after(0, lambda c=combination_count, t=n_samples, 
                                              stages_txt=stages_text: 
                                              self._safe_update_progress_label(loading_window, 
                                                                               f"Phase 1: Screening ({c}/{t})\n"
@@ -5892,46 +6101,63 @@ class ArchaeologySimulatorWindow:
                             self.window.after(0, lambda tied=tied_at_top, stage=best_screening_stage: 
                                              self._safe_update_progress_label(loading_window, 
                                                                               f"Phase 1: {tied} distributions reached Stage {stage:.1f}! Refining...",
-                                                                              current=actual_valid_count, total=actual_valid_count))
+                                                                              current=n_samples, total=n_samples))
                     except (tk.TclError, RuntimeError):
                         pass
             
-            # Phase 2: Refine top candidates with full simulations
-            num_refinement = max(1, int(len(candidate_scores) * top_candidates_ratio))
-            top_candidates = candidate_scores[:num_refinement]
+            # Phase 2: Local refinement - generate new samples in promising regions
+            num_refinement_anchors = max(1, int(len(candidate_scores) * top_candidates_ratio))
+            top_anchors = candidate_scores[:num_refinement_anchors]
+            
+            # Generate local samples around top candidates
+            # Use reasonable number of samples per anchor (not too many to avoid performance issues)
+            n_samples_per_anchor = max(5, min(15, refinement_sims // 50))  # 5-15 samples per anchor
+            local_radius = 2  # ±2 points per skill around anchor
+            
+            # Calculate total refinement samples
+            total_refinement_samples = num_refinement_anchors * n_samples_per_anchor
             
             try:
                 if self.window.winfo_exists():
                     self.window.after(0, lambda: 
                                      self._safe_update_progress_label(loading_window, 
-                                                                      f"Phase 2: Refining top {num_refinement} candidates... (0/{num_refinement})",
-                                                                      current=0, total=num_refinement))
+                                                                      f"Phase 2: Local refinement ({total_refinement_samples} new samples around {num_refinement_anchors} anchors)... (0/{total_refinement_samples})",
+                                                                      current=0, total=total_refinement_samples))
             except (tk.TclError, RuntimeError):
                 pass
             
-            for refine_idx, (dist_tuple, screening_score, stats_copy, screening_frags_h, screening_xp_h) in enumerate(top_candidates):
+            refinement_scores = []
+            refine_count = 0
+            
+            for refine_sample in generate_local_refinement_samples(
+                top_anchors, num_points, len(skills), n_samples_per_anchor,
+                local_radius=local_radius, require_str=True, original_str=original_str
+            ):
                 if cancel_event.is_set():
                     self.skill_points = original_points.copy()
                     return
                 
-                # Update progress every candidate
-                try:
-                    if self.window.winfo_exists():
-                        self.window.after(0, lambda c=refine_idx+1, t=num_refinement: 
-                                         self._safe_update_progress_label(loading_window, 
-                                                                          f"Phase 2: Refining top candidates... ({c}/{t})",
-                                                                          current=c, total=t))
-                except (tk.TclError, RuntimeError):
-                    cancel_event.set()
-                    return
+                refine_count += 1
+                
+                # Update progress
+                if refine_count % 10 == 0 or refine_count == total_refinement_samples:
+                    try:
+                        if self.window.winfo_exists():
+                            self.window.after(0, lambda c=refine_count, t=total_refinement_samples: 
+                                             self._safe_update_progress_label(loading_window, 
+                                                                              f"Phase 2: Local refinement... ({c}/{t})",
+                                                                              current=c, total=t))
+                    except (tk.TclError, RuntimeError):
+                        cancel_event.set()
+                        return
                 
                 # Apply distribution temporarily
-                for skill, points in zip(skills, dist_tuple):
+                for skill, points in zip(skills, refine_sample):
                     self.skill_points[skill] = original_points.get(skill, 0) + points
                 
                 new_stats = self.get_total_stats()
                 
-                # Run full MC simulations for accurate estimate
+                # Run MC simulations for refinement estimate
                 max_stage_samples = []
                 metrics_samples_refinement = []
                 
@@ -5951,7 +6177,7 @@ class ArchaeologySimulatorWindow:
                     })
                 
                 avg_max_stage = sum(max_stage_samples) / len(max_stage_samples) if max_stage_samples else 0
-                max_stage_int = int(avg_max_stage)  # Integer max stage for comparison
+                max_stage_int = int(avg_max_stage)
                 
                 # Calculate fragments/h and xp/h
                 avg_run_duration = sum(m['run_duration_seconds'] for m in metrics_samples_refinement) / len(metrics_samples_refinement) if metrics_samples_refinement else 1.0
@@ -5960,83 +6186,50 @@ class ArchaeologySimulatorWindow:
                 fragments_per_hour = (avg_fragments * 3600 / avg_run_duration) if avg_run_duration > 0 else 0.0
                 xp_per_hour = (avg_xp * 3600 / avg_run_duration) if avg_run_duration > 0 else 0.0
                 
-                # Store in top 3 candidates (for display if there's a tie)
-                dist_dict = {s: p for s, p in zip(skills, dist_tuple)}
-                top_3_candidates.append((dist_dict.copy(), max_stage_int, fragments_per_hour, xp_per_hour))
-                
-                # Update best if this is better
-                # Compare by integer max stage first, then by fragments/h (with 15% relative tolerance), then by xp/h
-                best_max_stage_int = int(best_avg_max_stage)
-                
-                is_better = False
-                is_tie = False
-                if max_stage_int > best_max_stage_int:
-                    is_better = True
-                    tied_distributions_count = 1  # Reset count when new best stage found
-                elif max_stage_int == best_max_stage_int:
-                    is_tie = True
-                    # Same max stage - check fragments/h with relative tolerance (15%)
-                    if best_fragments_per_hour > 0:
-                        relative_diff = abs(fragments_per_hour - best_fragments_per_hour) / best_fragments_per_hour
-                        if fragments_per_hour > best_fragments_per_hour and relative_diff > 0.15:
-                            # Fragments/h is significantly better (>15% relative difference)
-                            is_better = True
-                            tied_distributions_count = 1  # Reset count when better found
-                        elif relative_diff <= 0.15:
-                            # Fragments/h are within 15% (tie) - use xp/h as tiebreaker
-                            if xp_per_hour > best_xp_per_hour:
-                                is_better = True
-                                tied_distributions_count = 1  # Reset count when better found
-                            else:
-                                # Still a tie - increment counter
-                                tied_distributions_count += 1
-                        else:
-                            # Fragments/h is worse by more than 15%, so not better, but still same stage
-                            tied_distributions_count += 1
-                    else:
-                        # best_fragments_per_hour is 0, so any positive value is better
-                        if fragments_per_hour > 0:
-                            is_better = True
-                            tied_distributions_count = 1  # Reset count when better found
-                        elif fragments_per_hour == 0:
-                            # Both are 0, use xp/h as tiebreaker
-                            if xp_per_hour > best_xp_per_hour:
-                                is_better = True
-                                tied_distributions_count = 1  # Reset count when better found
-                            else:
-                                # Still a tie - increment counter
-                                tied_distributions_count += 1
-                
-                if is_better:
-                    best_avg_max_stage = avg_max_stage
-                    best_distribution = dist_dict
-                    best_stats = new_stats.copy()
-                    best_fragments_per_hour = fragments_per_hour
-                    best_xp_per_hour = xp_per_hour
-                    
-                    # Update progress to show tie information if applicable
-                    if is_tie and tied_distributions_count > 1:
-                        try:
-                            if self.window.winfo_exists():
-                                self.window.after(0, lambda c=refine_idx+1, t=num_refinement, tied=tied_distributions_count, stage=max_stage_int: 
-                                                 self._safe_update_progress_label(loading_window, 
-                                                                                  f"Phase 2: Refining... ({c}/{t}) | {tied} distributions reached Stage {stage}!",
-                                                                                  current=c, total=t))
-                        except (tk.TclError, RuntimeError):
-                            pass
-                elif is_tie:
-                    # Update progress to show tie information
-                    try:
-                        if self.window.winfo_exists():
-                            self.window.after(0, lambda c=refine_idx+1, t=num_refinement, tied=tied_distributions_count, stage=max_stage_int: 
-                                             self._safe_update_progress_label(loading_window, 
-                                                                              f"Phase 2: Refining... ({c}/{t}) | {tied} distributions reached Stage {stage}!",
-                                                                              current=c, total=t))
-                    except (tk.TclError, RuntimeError):
-                        pass
+                # Store refinement candidate
+                refinement_scores.append((refine_sample, avg_max_stage, new_stats.copy(), fragments_per_hour, xp_per_hour))
                 
                 # Revert changes
                 self.skill_points = original_points.copy()
+            
+            if cancel_event.is_set():
+                return
+            
+            # Sort refinement results and find best
+            refinement_scores.sort(key=lambda x: x[1], reverse=True)
+            
+            # Combine screening top candidates with refinement results for final comparison
+            # Use best from either screening or refinement
+            best_from_refinement = refinement_scores[0] if refinement_scores else None
+            best_from_screening = candidate_scores[0] if candidate_scores else None
+            
+            # Determine overall best
+            if best_from_refinement and best_from_screening:
+                if best_from_refinement[1] >= best_from_screening[1]:
+                    best_dist_tuple, best_avg_max_stage, best_stats, best_fragments_per_hour, best_xp_per_hour = best_from_refinement
+                else:
+                    best_dist_tuple, best_avg_max_stage, best_stats, best_fragments_per_hour, best_xp_per_hour = (
+                        best_from_screening[0], best_from_screening[1], best_from_screening[2], 
+                        best_from_screening[3], best_from_screening[4]
+                    )
+            elif best_from_refinement:
+                best_dist_tuple, best_avg_max_stage, best_stats, best_fragments_per_hour, best_xp_per_hour = best_from_refinement
+            elif best_from_screening:
+                best_dist_tuple, best_avg_max_stage, best_stats, best_fragments_per_hour, best_xp_per_hour = (
+                    best_from_screening[0], best_from_screening[1], best_from_screening[2],
+                    best_from_screening[3], best_from_screening[4]
+                )
+            else:
+                return
+            
+            # Build top_3_candidates from refinement results
+            top_3_candidates = []
+            for refine_sample, avg_max_stage, stats_copy, fragments_per_hour, xp_per_hour in refinement_scores[:3]:
+                dist_dict = {s: p for s, p in zip(skills, refine_sample)}
+                max_stage_int = int(avg_max_stage)
+                top_3_candidates.append((dist_dict.copy(), max_stage_int, fragments_per_hour, xp_per_hour))
+            
+            best_distribution = {s: p for s, p in zip(skills, best_dist_tuple)}
             
             if cancel_event.is_set():
                 try:
@@ -6744,6 +6937,380 @@ Fragments/h: {fragments_per_hour:.2f}"""
         rec_label.pack(anchor=tk.W)
         
         ttk.Button(main, text="Close", command=win.destroy).grid(row=5, column=0, columnspan=2, pady=(10, 0))
+    
+    def run_mc_stage_optimizer_compare(self):
+        """Compare Dirichlet sampling vs Brute-Force: Run both methods and compare top candidates (with refinement)."""
+        import threading
+        
+        original_points = self.skill_points.copy()
+        num_points = self.shared_planner_points.get() if hasattr(self, 'shared_planner_points') else 20
+        screening_sims = max(50, min(500, self.mc_screening_n_var.get())) if hasattr(self, 'mc_screening_n_var') else 200
+        refinement_sims = max(100, min(2000, self.mc_refinement_n_var.get())) if hasattr(self, 'mc_refinement_n_var') else 500
+        
+        loading_window = self._show_loading_dialog(
+            f"Comparing Methods (with Refinement)...\n"
+            f"Dirichlet Sampling vs Brute-Force\n"
+            f"Screening N={screening_sims}, Refinement N={refinement_sims}, Points={num_points}"
+        )
+        
+        def run_in_thread():
+            starting_floor = 1
+            self.skill_points = original_points.copy()
+            enrage_enabled = self.enrage_enabled.get() if hasattr(self, 'enrage_enabled') else True
+            flurry_enabled = self.flurry_enabled.get() if hasattr(self, 'flurry_enabled') else True
+            quake_enabled = self.quake_enabled.get() if hasattr(self, 'quake_enabled') else True
+            block_cards = self.block_cards if hasattr(self, 'block_cards') else None
+            skills = ['strength', 'agility', 'perception', 'intellect', 'luck']
+            cancel_event = loading_window.loading_refs['cancel_event']
+            
+            from .monte_carlo_crit import MonteCarloCritSimulator
+            simulator = MonteCarloCritSimulator()
+            
+            # Brute-Force method (old)
+            def generate_distributions(n_points, n_skills):
+                if n_skills == 1:
+                    yield (n_points,)
+                    return
+                for i in range(n_points + 1):
+                    for rest in generate_distributions(n_points - i, n_skills - 1):
+                        yield (i,) + rest
+            
+            original_str = original_points.get('strength', 0)
+            # Use 4× more samples for better coverage (same as main optimizer)
+            base_n_samples = max(500, num_points * 20)
+            n_samples = base_n_samples * 4
+            
+            # Count brute-force combinations
+            brute_force_count = sum(
+                1 for dt in generate_distributions(num_points, len(skills))
+                if original_str + dt[0] > 0
+            )
+            
+            # Run both methods
+            try:
+                if self.window.winfo_exists():
+                    self.window.after(0, lambda: 
+                                     self._safe_update_progress_label(loading_window, 
+                                                                      f"Running Brute-Force ({brute_force_count} combinations)...",
+                                                                      current=0, total=brute_force_count))
+            except (tk.TclError, RuntimeError):
+                pass
+            
+            # Method 1: Brute-Force
+            brute_force_scores = []
+            bf_count = 0
+            for dist_tuple in generate_distributions(num_points, len(skills)):
+                if cancel_event.is_set():
+                    self.skill_points = original_points.copy()
+                    return
+                if original_str + dist_tuple[0] == 0:
+                    continue
+                bf_count += 1
+                if bf_count % 50 == 0:
+                    try:
+                        if self.window.winfo_exists():
+                            self.window.after(0, lambda c=bf_count, t=brute_force_count: 
+                                             self._safe_update_progress_label(loading_window, 
+                                                                              f"Brute-Force: {c}/{t}",
+                                                                              current=c, total=brute_force_count))
+                    except (tk.TclError, RuntimeError):
+                        pass
+                
+                for skill, points in zip(skills, dist_tuple):
+                    self.skill_points[skill] = original_points.get(skill, 0) + points
+                new_stats = self.get_total_stats()
+                
+                max_stage_samples = []
+                for _ in range(screening_sims):
+                    result = simulator.simulate_run(
+                        new_stats, starting_floor, use_crit=True,
+                        enrage_enabled=enrage_enabled, flurry_enabled=flurry_enabled,
+                        quake_enabled=quake_enabled, block_cards=block_cards, return_metrics=True
+                    )
+                    max_stage_samples.append(result['max_stage_reached'])
+                
+                avg_max_stage = sum(max_stage_samples) / len(max_stage_samples) if max_stage_samples else 0
+                brute_force_scores.append((dist_tuple, avg_max_stage))
+                self.skill_points = original_points.copy()
+            
+            if cancel_event.is_set():
+                return
+            
+            # Method 2: Dirichlet
+            try:
+                if self.window.winfo_exists():
+                    self.window.after(0, lambda: 
+                                     self._safe_update_progress_label(loading_window, 
+                                                                      f"Running Dirichlet Sampling ({n_samples} samples)...",
+                                                                      current=0, total=n_samples))
+            except (tk.TclError, RuntimeError):
+                pass
+            
+            dirichlet_scores = []
+            dir_count = 0
+            for dist_tuple in generate_dirichlet_samples(
+                num_points, len(skills), n_samples,
+                require_str=True, original_str=original_str
+            ):
+                if cancel_event.is_set():
+                    self.skill_points = original_points.copy()
+                    return
+                dir_count += 1
+                if dir_count % 50 == 0:
+                    try:
+                        if self.window.winfo_exists():
+                            self.window.after(0, lambda c=dir_count, t=n_samples: 
+                                             self._safe_update_progress_label(loading_window, 
+                                                                              f"Dirichlet: {c}/{t}",
+                                                                              current=c, total=n_samples))
+                    except (tk.TclError, RuntimeError):
+                        pass
+                
+                for skill, points in zip(skills, dist_tuple):
+                    self.skill_points[skill] = original_points.get(skill, 0) + points
+                new_stats = self.get_total_stats()
+                
+                max_stage_samples = []
+                for _ in range(screening_sims):
+                    result = simulator.simulate_run(
+                        new_stats, starting_floor, use_crit=True,
+                        enrage_enabled=enrage_enabled, flurry_enabled=flurry_enabled,
+                        quake_enabled=quake_enabled, block_cards=block_cards, return_metrics=True
+                    )
+                    max_stage_samples.append(result['max_stage_reached'])
+                
+                avg_max_stage = sum(max_stage_samples) / len(max_stage_samples) if max_stage_samples else 0
+                dirichlet_scores.append((dist_tuple, avg_max_stage))
+                self.skill_points = original_points.copy()
+            
+            if cancel_event.is_set():
+                return
+            
+            # Sort both for refinement selection
+            brute_force_scores.sort(key=lambda x: x[1], reverse=True)
+            dirichlet_scores.sort(key=lambda x: x[1], reverse=True)
+            
+            # Phase 2: Refinement for both methods
+            top_candidates_ratio = 0.05
+            bf_num_refinement = max(1, int(len(brute_force_scores) * top_candidates_ratio))
+            dir_num_refinement = max(1, int(len(dirichlet_scores) * top_candidates_ratio))
+            
+            # Refine Brute-Force top candidates
+            try:
+                if self.window.winfo_exists():
+                    self.window.after(0, lambda: 
+                                     self._safe_update_progress_label(loading_window, 
+                                                                      f"Refining Brute-Force top {bf_num_refinement}...",
+                                                                      current=0, total=bf_num_refinement))
+            except (tk.TclError, RuntimeError):
+                pass
+            
+            bf_refined = []
+            for refine_idx, (dist_tuple, screening_score) in enumerate(brute_force_scores[:bf_num_refinement]):
+                if cancel_event.is_set():
+                    self.skill_points = original_points.copy()
+                    return
+                
+                for skill, points in zip(skills, dist_tuple):
+                    self.skill_points[skill] = original_points.get(skill, 0) + points
+                new_stats = self.get_total_stats()
+                
+                max_stage_samples = []
+                for _ in range(refinement_sims):
+                    result = simulator.simulate_run(
+                        new_stats, starting_floor, use_crit=True,
+                        enrage_enabled=enrage_enabled, flurry_enabled=flurry_enabled,
+                        quake_enabled=quake_enabled, block_cards=block_cards, return_metrics=True
+                    )
+                    max_stage_samples.append(result['max_stage_reached'])
+                
+                avg_max_stage = sum(max_stage_samples) / len(max_stage_samples) if max_stage_samples else 0
+                bf_refined.append((dist_tuple, avg_max_stage))
+                self.skill_points = original_points.copy()
+            
+            # Refine Dirichlet top candidates using local refinement (same as main optimizer)
+            dir_top_anchors = dirichlet_scores[:dir_num_refinement]
+            n_samples_per_anchor = max(5, min(15, refinement_sims // 50))  # Same as main optimizer
+            local_radius = 2
+            total_dir_refinement_samples = dir_num_refinement * n_samples_per_anchor
+            
+            try:
+                if self.window.winfo_exists():
+                    self.window.after(0, lambda: 
+                                     self._safe_update_progress_label(loading_window, 
+                                                                      f"Refining Dirichlet (local, {total_dir_refinement_samples} samples)...",
+                                                                      current=0, total=total_dir_refinement_samples))
+            except (tk.TclError, RuntimeError):
+                pass
+            
+            dir_refined = []
+            dir_refine_count = 0
+            for refine_sample in generate_local_refinement_samples(
+                dir_top_anchors, num_points, len(skills), n_samples_per_anchor,
+                local_radius=local_radius, require_str=True, original_str=original_str
+            ):
+                if cancel_event.is_set():
+                    self.skill_points = original_points.copy()
+                    return
+                
+                dir_refine_count += 1
+                if dir_refine_count % 10 == 0:
+                    try:
+                        if self.window.winfo_exists():
+                            self.window.after(0, lambda c=dir_refine_count, t=total_dir_refinement_samples: 
+                                             self._safe_update_progress_label(loading_window, 
+                                                                              f"Refining Dirichlet... ({c}/{t})",
+                                                                              current=c, total=t))
+                    except (tk.TclError, RuntimeError):
+                        cancel_event.set()
+                        return
+                
+                for skill, points in zip(skills, refine_sample):
+                    self.skill_points[skill] = original_points.get(skill, 0) + points
+                new_stats = self.get_total_stats()
+                
+                max_stage_samples = []
+                for _ in range(refinement_sims):
+                    result = simulator.simulate_run(
+                        new_stats, starting_floor, use_crit=True,
+                        enrage_enabled=enrage_enabled, flurry_enabled=flurry_enabled,
+                        quake_enabled=quake_enabled, block_cards=block_cards, return_metrics=True
+                    )
+                    max_stage_samples.append(result['max_stage_reached'])
+                
+                avg_max_stage = sum(max_stage_samples) / len(max_stage_samples) if max_stage_samples else 0
+                dir_refined.append((refine_sample, avg_max_stage))
+                self.skill_points = original_points.copy()
+            
+            if cancel_event.is_set():
+                return
+            
+            # Sort refined results
+            bf_refined.sort(key=lambda x: x[1], reverse=True)
+            dir_refined.sort(key=lambda x: x[1], reverse=True)
+            
+            # Compare screening results (for reference)
+            top_n_screening = max(10, int(len(brute_force_scores) * 0.05))
+            bf_top_tuples = {x[0] for x in brute_force_scores[:top_n_screening]}
+            dir_top_tuples = {x[0] for x in dirichlet_scores[:top_n_screening]}
+            screening_overlap = bf_top_tuples & dir_top_tuples
+            bf_screening_best = brute_force_scores[0][1] if brute_force_scores else 0
+            dir_screening_best = dirichlet_scores[0][1] if dirichlet_scores else 0
+            
+            # Compare refined results (final decision)
+            top_n_refined = max(5, min(len(bf_refined), len(dir_refined)))
+            bf_refined_top_tuples = {x[0] for x in bf_refined[:top_n_refined]}
+            dir_refined_top_tuples = {x[0] for x in dir_refined[:top_n_refined]}
+            refined_overlap = bf_refined_top_tuples & dir_refined_top_tuples
+            bf_refined_best = bf_refined[0][1] if bf_refined else 0
+            dir_refined_best = dir_refined[0][1] if dir_refined else 0
+            refined_score_diff = abs(bf_refined_best - dir_refined_best)
+            
+            # Show results
+            try:
+                if self.window.winfo_exists():
+                    self.window.after(0, lambda: (
+                        self._close_loading_dialog(loading_window),
+                        self._show_comparison_results(
+                            brute_force_scores, dirichlet_scores, bf_refined, dir_refined,
+                            top_n_screening, top_n_refined,
+                            screening_overlap, refined_overlap,
+                            bf_screening_best, dir_screening_best,
+                            bf_refined_best, dir_refined_best, refined_score_diff,
+                            brute_force_count, n_samples, num_points
+                        )
+                    ))
+            except (tk.TclError, RuntimeError):
+                self.skill_points = original_points.copy()
+        
+        thread = threading.Thread(target=run_in_thread, daemon=True)
+        thread.start()
+    
+    def _show_comparison_results(self, bf_scores, dir_scores, bf_refined, dir_refined,
+                                 top_n_screening, top_n_refined,
+                                 screening_overlap, refined_overlap,
+                                 bf_screening_best, dir_screening_best,
+                                 bf_refined_best, dir_refined_best, refined_score_diff,
+                                 bf_count, dir_count, num_points):
+        """Show comparison results window with screening and refinement."""
+        win = tk.Toplevel(self.window)
+        win.title("Method Comparison: Dirichlet vs Brute-Force (with Refinement)")
+        win.transient(self.window)
+        win.geometry("1000x800")
+        win.resizable(True, True)
+        
+        main = ttk.Frame(win, padding="10")
+        main.pack(fill=tk.BOTH, expand=True)
+        main.columnconfigure(0, weight=1)
+        
+        title = ttk.Label(main, text="Method Comparison Results (with Refinement)", font=("Arial", 14, "bold"))
+        title.grid(row=0, column=0, pady=(0, 10))
+        
+        sub = ttk.Label(main, text=f"Points: {num_points} | Screening: {bf_count} (BF) vs {dir_count} (Dirichlet)",
+                       font=("Arial", 9))
+        sub.grid(row=1, column=0, pady=(0, 15))
+        
+        # Summary - Screening Phase
+        screening_summary = ttk.LabelFrame(main, text="Screening Phase", padding="10")
+        screening_summary.grid(row=2, column=0, sticky=(tk.W, tk.E), pady=(0, 10))
+        
+        ttk.Label(screening_summary, text=f"Brute-Force best: {bf_screening_best:.2f}", font=("Arial", 9)).pack(anchor=tk.W)
+        ttk.Label(screening_summary, text=f"Dirichlet best: {dir_screening_best:.2f}", font=("Arial", 9)).pack(anchor=tk.W)
+        ttk.Label(screening_summary, text=f"Top {top_n_screening} overlap: {len(screening_overlap)}/{top_n_screening} ({len(screening_overlap)/top_n_screening*100:.1f}%)",
+                 font=("Arial", 9)).pack(anchor=tk.W, pady=(5, 0))
+        
+        # Summary - Refinement Phase (FINAL DECISION)
+        refined_summary = ttk.LabelFrame(main, text="Refinement Phase (FINAL)", padding="10")
+        refined_summary.grid(row=3, column=0, sticky=(tk.W, tk.E), pady=(0, 10))
+        
+        ttk.Label(refined_summary, text=f"Brute-Force best (refined): {bf_refined_best:.2f}", 
+                 font=("Arial", 10, "bold")).pack(anchor=tk.W)
+        ttk.Label(refined_summary, text=f"Dirichlet best (refined): {dir_refined_best:.2f}", 
+                 font=("Arial", 10, "bold")).pack(anchor=tk.W)
+        ttk.Label(refined_summary, text=f"Difference: {refined_score_diff:.3f}", 
+                 font=("Arial", 10, "bold"), 
+                 foreground="green" if refined_score_diff < 0.1 else "orange" if refined_score_diff < 0.5 else "red").pack(anchor=tk.W)
+        ttk.Label(refined_summary, text=f"Top {top_n_refined} overlap: {len(refined_overlap)}/{top_n_refined} ({len(refined_overlap)/top_n_refined*100:.1f}%)",
+                 font=("Arial", 10, "bold"),
+                 foreground="green" if len(refined_overlap) >= top_n_refined * 0.8 else "orange" if len(refined_overlap) >= top_n_refined * 0.5 else "red").pack(anchor=tk.W, pady=(5, 0))
+        
+        # Refined candidates comparison (most important)
+        comp_frame = ttk.LabelFrame(main, text=f"Refined Top {top_n_refined} Candidates (FINAL)", padding="10")
+        comp_frame.grid(row=4, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), pady=(0, 10))
+        comp_frame.columnconfigure(0, weight=1)
+        main.rowconfigure(4, weight=1)
+        
+        tree = ttk.Treeview(comp_frame, columns=("rank", "method", "dist", "stage", "match"), 
+                           show="headings", height=12)
+        tree.heading("rank", text="Rank")
+        tree.heading("method", text="Method")
+        tree.heading("dist", text="Distribution (STR/AGI/PER/INT/LUK)")
+        tree.heading("stage", text="Avg Stage")
+        tree.heading("match", text="In Both?")
+        tree.column("rank", width=50)
+        tree.column("method", width=100)
+        tree.column("dist", width=250)
+        tree.column("stage", width=100)
+        tree.column("match", width=80)
+        
+        # Add refined candidates from both
+        for i in range(min(top_n_refined, len(bf_refined))):
+            dist = bf_refined[i][0]
+            stage = bf_refined[i][1]
+            dist_str = " ".join(f"{d}" for d in dist)
+            in_both = "✓" if dist in {d[0] for d in dir_refined[:top_n_refined]} else "✗"
+            tree.insert("", tk.END, values=(i+1, "Brute-Force", dist_str, f"{stage:.2f}", in_both))
+        
+        for i in range(min(top_n_refined, len(dir_refined))):
+            dist = dir_refined[i][0]
+            stage = dir_refined[i][1]
+            dist_str = " ".join(f"{d}" for d in dist)
+            in_both = "✓" if dist in {d[0] for d in bf_refined[:top_n_refined]} else "✗"
+            tree.insert("", tk.END, values=(i+1, "Dirichlet", dist_str, f"{stage:.2f}", in_both))
+        
+        tree.pack(fill=tk.BOTH, expand=True)
+        
+        ttk.Button(main, text="Close", command=win.destroy).grid(row=5, column=0, pady=(10, 0))
     
     def _show_fragment_farmer_results(self, frag_per_hour_samples, skill_points_display, num_points,
                                      target_frag, optimal_stage, metrics_samples):
