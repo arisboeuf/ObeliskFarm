@@ -5327,16 +5327,29 @@ class ArchaeologySimulatorWindow:
         # This represents how many ADDITIONAL skill points to allocate optimally
         num_points = self.shared_planner_points.get() if hasattr(self, 'shared_planner_points') else 20
         
-        screening_sims = max(50, min(500, self.mc_screening_n_var.get())) if hasattr(self, 'mc_screening_n_var') else 200
-        refinement_sims = max(100, min(2000, self.mc_refinement_n_var.get())) if hasattr(self, 'mc_refinement_n_var') else 500
+        # Get MC simulation N values (shared by MC Fragment Farmer and MC Stage Optimizer)
+        # These are read from the shared UI controls for Screening N and Refinement N
+        # For calculation: enforce minimums (50 for screening, 100 for refinement)
+        # For display: show actual values from UI
+        screening_n_display = self.mc_screening_n_var.get() if hasattr(self, 'mc_screening_n_var') else 200
+        refinement_n_display = self.mc_refinement_n_var.get() if hasattr(self, 'mc_refinement_n_var') else 500
+        screening_sims = max(50, min(500, screening_n_display))
+        refinement_sims = max(100, min(2000, refinement_n_display))
         
         # Show loading dialog
         loading_window = self._show_loading_dialog(
             f"Running MC Fragment Farmer ({target_frag.upper()})...\n"
-            f"Screening N={screening_sims}, Refinement N={refinement_sims}. Testing skill distributions..."
+            f"Screening N={screening_n_display}, Refinement N={refinement_n_display}. Testing skill distributions..."
         )
         
         def run_in_thread():
+            # Capture screening_sims and refinement_sims from outer scope to ensure they're available in thread
+            # Also capture display values to show actual UI values in progress messages
+            local_screening_sims = screening_sims
+            local_refinement_sims = refinement_sims
+            local_screening_n_display = screening_n_display
+            local_refinement_n_display = refinement_n_display
+            
             # Always start at Floor 1 (unbiased) - this is critical for proper simulation
             starting_floor = 1
             
@@ -5390,10 +5403,10 @@ class ArchaeologySimulatorWindow:
             # Phase 1: Quick screening of all distributions
             try:
                 if self.window.winfo_exists():
-                    self.window.after(0, lambda: 
+                    self.window.after(0, lambda n=local_screening_n_display, t=total_combinations: 
                                      self._safe_update_progress_label(loading_window, 
-                                                                      f"Phase 1: Screening (N={screening_sims})... (0/{total_combinations})",
-                                                                      current=0, total=total_combinations))
+                                                                      f"Phase 1: Screening (N={n})... (0/{t})",
+                                                                      current=0, total=t))
             except (tk.TclError, RuntimeError):
                 pass
             
@@ -5408,7 +5421,7 @@ class ArchaeologySimulatorWindow:
                 if combination_count % 10 == 0 or combination_count == total_combinations:
                     try:
                         if self.window.winfo_exists():
-                            self.window.after(0, lambda c=combination_count, t=total_combinations, n=screening_sims: 
+                            self.window.after(0, lambda c=combination_count, t=total_combinations, n=local_screening_n_display: 
                                              self._safe_update_progress_label(loading_window, 
                                                                               f"Phase 1: Screening (N={n})... ({c}/{t})",
                                                                               current=c, total=t))
@@ -5430,7 +5443,7 @@ class ArchaeologySimulatorWindow:
                 # Quick screening: Run few MC simulations
                 frag_per_hour_samples = []
                 
-                for _ in range(screening_sims):
+                for _ in range(local_screening_sims):
                     result = simulator.simulate_run(
                         new_stats, starting_floor, use_crit=True,
                         enrage_enabled=enrage_enabled, flurry_enabled=flurry_enabled,
@@ -5467,9 +5480,9 @@ class ArchaeologySimulatorWindow:
             
             try:
                 if self.window.winfo_exists():
-                    self.window.after(0, lambda: 
+                    self.window.after(0, lambda n=local_refinement_n_display: 
                                      self._safe_update_progress_label(loading_window, 
-                                                                      f"Phase 2: Refining top {num_refinement} candidates... (0/{num_refinement})",
+                                                                      f"Phase 2: Refining top {num_refinement} candidates (N={n})... (0/{num_refinement})",
                                                                       current=0, total=num_refinement))
             except (tk.TclError, RuntimeError):
                 pass
@@ -5484,9 +5497,9 @@ class ArchaeologySimulatorWindow:
                     progress_pct = int(((refine_idx + 1) / num_refinement) * 100)
                     try:
                         if self.window.winfo_exists():
-                            self.window.after(0, lambda p=progress_pct, c=refine_idx+1, t=num_refinement: 
+                            self.window.after(0, lambda p=progress_pct, c=refine_idx+1, t=num_refinement, n=local_refinement_n_display: 
                                              self._safe_update_progress_label(loading_window, 
-                                                                              f"Phase 2: Refining {p}% ({c}/{t})"))
+                                                                              f"Phase 2: Refining {p}% (N={n})... ({c}/{t})"))
                     except (tk.TclError, RuntimeError):
                         cancel_event.set()
                         return
@@ -5500,7 +5513,7 @@ class ArchaeologySimulatorWindow:
                 # Run full MC simulations for accurate estimate
                 frag_per_hour_samples = []
                 
-                for _ in range(refinement_sims):
+                for _ in range(local_refinement_sims):
                     result = simulator.simulate_run(
                         new_stats, starting_floor, use_crit=True,
                         enrage_enabled=enrage_enabled, flurry_enabled=flurry_enabled,
@@ -5677,6 +5690,8 @@ class ArchaeologySimulatorWindow:
         # This represents how many ADDITIONAL skill points to allocate optimally
         num_points = self.shared_planner_points.get() if hasattr(self, 'shared_planner_points') else 20
         
+        # Get MC simulation N values (shared by MC Fragment Farmer and MC Stage Optimizer)
+        # These are read from the shared UI controls for Screening N and Refinement N
         screening_sims = max(50, min(500, self.mc_screening_n_var.get())) if hasattr(self, 'mc_screening_n_var') else 200
         refinement_sims = max(100, min(2000, self.mc_refinement_n_var.get())) if hasattr(self, 'mc_refinement_n_var') else 500
         

@@ -1116,16 +1116,28 @@ class BudgetOptimizerPanel:
             ("5x Currencies:", lambda: f"{player.x5_money}%", "💎", None),
         ])
         
-        # Add simulation button after stats
+        # Add simulation buttons after stats
         sim_button_frame = tk.Frame(self.stats_container, background="#2C2C2C")
         sim_button_frame.pack(fill=tk.X, pady=(10, 5))
         
-        sim_button = tk.Button(sim_button_frame, text="🎲 Run Simulation", 
+        # Button container for side-by-side buttons
+        button_container = tk.Frame(sim_button_frame, background="#2C2C2C")
+        button_container.pack(pady=5)
+        
+        sim_button = tk.Button(button_container, text="🎲 Run Simulation", 
                               font=("Arial", 9, "bold"), bg="#4CAF50", fg="white",
                               command=lambda: self._run_stats_simulation(player, result.enemy_stats if hasattr(result, 'enemy_stats') else None),
                               relief=tk.RAISED, borderwidth=2, padx=10, pady=5,
                               cursor="hand2")
-        sim_button.pack(pady=5)
+        sim_button.pack(side=tk.LEFT, padx=5)
+        
+        # Real Life Simulation button
+        realtime_button = tk.Button(button_container, text="🎮 Real Life Simulation", 
+                                    font=("Arial", 9, "bold"), bg="#2196F3", fg="white",
+                                    command=lambda: self._open_realtime_simulation(player, result.enemy_stats if hasattr(result, 'enemy_stats') else None),
+                                    relief=tk.RAISED, borderwidth=2, padx=10, pady=5,
+                                    cursor="hand2")
+        realtime_button.pack(side=tk.LEFT, padx=5)
         
         # Create stat rows - centered and compact
         for label, value_func, icon, tooltip_text in stat_rows:
@@ -1206,6 +1218,18 @@ class BudgetOptimizerPanel:
                                   background="#2C2C2C", foreground="white",
                                   anchor="e", width=18)
             value_label.pack(side=tk.LEFT)
+    
+    def _open_realtime_simulation(self, player_stats, enemy_stats=None):
+        """Open Real Life Simulation window"""
+        from .gui_realtime import RealLifeSimulationWindow
+        from .stats import EnemyStats as BaseEnemyStats
+        
+        # Use provided enemy stats or default
+        if enemy_stats is None:
+            enemy_stats = BaseEnemyStats()
+        
+        # Open the real-time simulation window
+        RealLifeSimulationWindow(self.window, player_stats, enemy_stats)
     
     def _run_stats_simulation(self, player_stats, enemy_stats=None):
         """Run a simulation with current player stats"""

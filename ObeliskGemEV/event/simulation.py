@@ -189,6 +189,197 @@ def simulate_event_run(player: PlayerStats, enemy: EnemyStats) -> Tuple[int, int
     return wave, final_subwave, time
 
 
+def simulate_event_run_realtime(player: PlayerStats, enemy: EnemyStats):
+    """
+    Generator function for real-time event simulation.
+    Yields events for visualization: attacks, damage, movement, wave changes.
+    
+    Yields dicts with event type and data:
+    - {'type': 'wave_start', 'wave': int, 'subwave': int, 'enemy_hp': int}
+    - {'type': 'player_attack', 'damage': float, 'is_crit': bool, 'enemy_hp': int, 'player_hp': int, 'time': float}
+    - {'type': 'enemy_attack', 'damage': float, 'is_crit': bool, 'is_blocked': bool, 'enemy_hp': int, 'player_hp': int, 'time': float}
+    - {'type': 'enemy_killed', 'enemy_hp': int, 'player_hp': int, 'time': float}
+    - {'type': 'walking', 'time': float}
+    - {'type': 'run_end', 'wave': int, 'subwave': int, 'time': float}
+    """
+    # Safety checks
+    if player.game_speed <= 0:
+        player.game_speed = 1.0
+    if player.walk_speed <= 0:
+        player.walk_speed = 1.0
+    if player.atk_speed <= 0:
+        player.atk_speed = 1.0
+    
+    player_hp = player.health
+    time = 0.0
+    p_atk_prog = 0.0
+    e_atk_prog = 0.0
+    
+    wave = 0
+    final_subwave = 0
+    max_waves = 1000
+    
+    while player_hp > 0 and wave < max_waves:
+        wave += 1
+        for subwave in range(5, 0, -1):
+            if player_hp <= 0:
+                break
+            
+            # Enemy stats scale with wave
+            enemy_hp = enemy.base_health + enemy.health_scaling * wave
+            
+            # Yield wave start event (before combat starts, so time is before this wave)
+            yield {
+                'type': 'wave_start',
+                'wave': wave,
+                'subwave': subwave,
+                'enemy_hp': enemy_hp,
+                'player_hp': player_hp,
+                'time': time / player.game_speed,
+                'time_delta': 0.0,  # No time passed for wave start
+                'player_attack_progress': p_atk_prog,
+                'enemy_attack_progress': e_atk_prog
+            }
+            
+            # Safety limit for combat loop
+            combat_iterations = 0
+            max_combat_iterations = 10000
+            
+            while enemy_hp > 0 and player_hp > 0 and combat_iterations < max_combat_iterations:
+                combat_iterations += 1
+                # Calculate time until next attack for each
+                p_atk_time_left = (1 - p_atk_prog) / player.atk_speed
+                e_atk_time_left = (1 - e_atk_prog) / (enemy.atk_speed + wave * 0.02)
+                
+                if p_atk_time_left > e_atk_time_left:
+                    # Enemy attacks first
+                    p_atk_prog += (e_atk_time_left / (enemy.atk_speed + wave * 0.02)) * player.atk_speed
+                    e_atk_prog -= 1
+                    
+                    # Calculate enemy damage
+                    dmg = max(1, round_number(enemy.atk + wave * enemy.atk_scaling))
+                    is_crit = False
+                    is_blocked = False
+                    
+                    # Enemy crit check
+                    enemy_crit_chance = enemy.crit + wave
+                    if enemy_crit_chance > 0 and random.random() * 100 <= enemy_crit_chance:
+                        enemy_crit_mult = enemy.crit_dmg + enemy.crit_dmg_scaling * wave
+                        if enemy_crit_mult > 1:
+                            dmg = round_number(dmg * enemy_crit_mult)
+                            is_crit = True
+                    
+                    # Block check
+                    if player.block_chance > 0 and random.random() <= player.block_chance:
+                        dmg = 0
+                        is_blocked = True
+                    
+                    player_hp -= dmg
+                    time += enemy.default_atk_time * (e_atk_time_left / (enemy.atk_speed + wave * 0.02))
+                    
+                    # Calculate time delta for this attack
+                    attack_time_delta = enemy.default_atk_time * (e_atk_time_left / (enemy.atk_speed + wave * 0.02)) / player.game_speed
+                    
+                    # Yield enemy attack event
+                    yield {
+                        'type': 'enemy_attack',
+                        'damage': dmg,
+                        'is_crit': is_crit,
+                        'is_blocked': is_blocked,
+                        'enemy_hp': enemy_hp,
+                        'player_hp': max(0, player_hp),
+                        'time': time / player.game_speed,
+                        'time_delta': attack_time_delta,
+                        'player_attack_progress': p_atk_prog,
+                        'enemy_attack_progress': 0.0  # Reset after attack
+                    }
+                else:
+                    # Player attacks first
+                    e_atk_prog += (p_atk_time_left / player.atk_speed) * (enemy.atk_speed + wave * 0.02)
+                    p_atk_prog -= 1
+                    
+                    dmg = player.atk
+                    is_crit = False
+                    
+                    # Player crit check
+                    if player.crit > 0 and random.random() * 100 <= player.crit:
+                        dmg = round_number(player.atk * player.crit_dmg)
+                        is_crit = True
+                    
+                    enemy_hp -= dmg
+                    time += player.default_atk_time * (p_atk_time_left / player.atk_speed)
+                    
+                    # Calculate time delta for this attack
+                    attack_time_delta = player.default_atk_time * (p_atk_time_left / player.atk_speed) / player.game_speed
+                    
+                    # Yield player attack event
+                    yield {
+                        'type': 'player_attack',
+                        'damage': dmg,
+                        'is_crit': is_crit,
+                        'enemy_hp': max(0, enemy_hp),
+                        'player_hp': player_hp,
+                        'time': time / player.game_speed,
+                        'time_delta': attack_time_delta,
+                        'player_attack_progress': 0.0,  # Reset after attack
+                        'enemy_attack_progress': e_atk_prog
+                    }
+                    
+                    # Check if enemy killed
+                    if enemy_hp <= 0:
+                        # Calculate walk time immediately
+                        walk_time = player.default_walk_time / max(player.walk_speed, 0.01)
+                        walk_time_delta = walk_time / player.game_speed
+                        time += walk_time
+                        
+                        yield {
+                            'type': 'enemy_killed',
+                            'enemy_hp': 0,
+                            'player_hp': player_hp,
+                            'time': time / player.game_speed,
+                            'time_delta': 0.0,  # Instant event
+                            'start_walking': player_hp > 0 and subwave > 1,  # Start walking if not last enemy
+                            'walk_duration': walk_time_delta if (player_hp > 0 and subwave > 1) else 0.0,
+                            'player_attack_progress': p_atk_prog,
+                            'enemy_attack_progress': e_atk_prog
+                        }
+                        # If we should start walking, don't yield another walking event
+                        if player_hp > 0 and subwave > 1:
+                            break  # Exit combat loop, walking already started in enemy_killed
+            
+            # Walk time between enemies (only if enemy wasn't killed in combat)
+            # This handles the case where we exit combat without killing (shouldn't happen normally)
+            if enemy_hp > 0:
+                walk_time = player.default_walk_time / max(player.walk_speed, 0.01)
+                walk_time_delta = walk_time / player.game_speed
+                time += walk_time
+                
+                # Yield walking event (only if not dead and not last enemy)
+                if player_hp > 0 and subwave > 1:
+                    yield {
+                        'type': 'walking',
+                        'time': time / player.game_speed,
+                        'time_delta': walk_time_delta,
+                        'walk_duration': walk_time_delta,
+                        'player_attack_progress': p_atk_prog,
+                        'enemy_attack_progress': e_atk_prog
+                    }
+            
+            if player_hp <= 0 and final_subwave == 0:
+                final_subwave = subwave
+    
+    # Apply game speed multiplier to total time
+    final_time = time / player.game_speed
+    
+    # Yield run end event
+    yield {
+        'type': 'run_end',
+        'wave': wave,
+        'subwave': final_subwave,
+        'time': final_time
+    }
+
+
 def run_full_simulation(player: PlayerStats, enemy: EnemyStats, 
                         runs: int = 1000) -> Tuple[List[Tuple[int, int, float]], float, float]:
     """
