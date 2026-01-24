@@ -103,9 +103,9 @@ class MonteCarloCritSimulator:
         if is_crit:
             crit_damage_mult = stats.get('crit_damage', 1.5)
             if is_enrage:
-                # Enrage crit damage bonus includes fragment upgrades (additive)
+                # Enrage crit: multiplier on current crit (ingame), e.g. +104% → crit * (1 + 1.04)
                 enrage_crit_damage_bonus = stats.get('enrage_crit_damage_bonus', self.ENRAGE_CRIT_DAMAGE_BONUS)
-                crit_damage_mult += enrage_crit_damage_bonus
+                crit_damage_mult *= (1 + enrage_crit_damage_bonus)
             # Crit damage is multiplicative
             damage = int(base_damage * crit_damage_mult)
         else:

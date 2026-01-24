@@ -36,7 +36,7 @@ effective_damage = max(1, floor(total_damage - (block_armor - armor_pen)))
 
 Enrage provides a buff every 60 seconds that affects the next 5 hits:
 - **+20% Damage** (multiplicative with base)
-- **+100% Crit Damage** (additive, so 1.5x becomes 2.5x)
+- **+100% Crit Damage** (multiplicative on current crit: crit × (1 + 100%) = 2×, so 1.5× → 3×)
 
 **Effective uptime**: 5/60 = 8.33% of all hits
 
@@ -58,8 +58,7 @@ Each Archaeology level grants 1 skill point to allocate:
 
 **MULTIPLIKATIV (Multiplikator auf Basis):**
 - **INT Armor Pen**: Basis wird zuerst gerundet, dann mit `(1 + INT * 0.03)` multipliziert
-- **STR Crit Damage**: Basis Crit Damage `* (1 + STR * 0.03)`
-- **Fragment Crit Damage**: Crit Damage Base `* (1 + Fragment Upgrade %)` (z.B. +3% = *1.03)
+- **Crit Damage**: Basis 1.5× `* (1 + STR×0.03 + Fragment %)` — STR und Fragment **additiv** im gleichen Mult
 - **INT XP Gain**: `(Base + Gem + Fragment Upgrades) * (1 + INT * 0.05)`
 - **Fragment XP Multiplier**: Wenn vorhanden, multipliziert XP Base
 
@@ -74,7 +73,7 @@ Each Archaeology level grants 1 skill point to allocate:
 
 **WICHTIG:**
 - Armor Pen wird **ZUERST gerundet**, **DANN** mit INT multipliziert
-- Crit Damage Fragment Upgrades sind **MULTIPLIKATIV** (nicht additiv!)
+- Crit Damage: STR-% und Fragment-% **addieren** im gleichen Mult (nicht nacheinander multiplizieren)
 - INT XP Gain multipliziert die gesamte XP Base (inkl. Upgrades)
 
 ### Upgrades

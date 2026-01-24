@@ -668,8 +668,7 @@ class ArchaeologySimulatorWindow:
         
         MULTIPLIKATIV (Multiplikator auf Basis):
         - INT Armor Pen: Basis wird zuerst gerundet, dann mit (1 + INT * 0.03) multipliziert
-        - STR Crit Damage: Basis Crit Damage * (1 + STR * 0.03)
-        - Fragment Crit Damage: Crit Damage Base * (1 + Fragment Upgrade %)
+        - Crit Damage: Basis 1.5 * (1 + STR*0.03 + Fragment %) — STR und Fragment ADDITIV im gleichen Mult
         - INT XP Gain: (Base + Gem + Fragment Upgrades) * (1 + INT * 0.05)
         - Fragment XP Multiplier: Wenn vorhanden, multipliziert XP Base
         
@@ -684,7 +683,7 @@ class ArchaeologySimulatorWindow:
         
         WICHTIG:
         - Armor Pen wird ZUERST gerundet, DANN mit INT multipliziert
-        - Crit Damage Fragment Upgrades sind MULTIPLIKATIV (nicht additiv!)
+        - Crit Damage: STR-% und Fragment-% addieren im gleichen Mult (nicht nacheinander multiplizieren)
         - INT XP Gain multipliziert die gesamte XP Base (inkl. Upgrades)
         """
         str_pts = self.skill_points['strength']
@@ -739,12 +738,10 @@ class ArchaeologySimulatorWindow:
                       agi_pts * self.SKILL_BONUSES['agility']['crit_chance'] +
                       luck_pts * self.SKILL_BONUSES['luck']['crit_chance'] +
                       frag_bonuses.get('crit_chance', 0))
-        # STR crit damage bonus is a MULTIPLIER on base crit damage, not additive
-        str_crit_mult = 1 + str_pts * self.SKILL_BONUSES['strength']['crit_damage']
-        crit_damage_base = self.base_crit_damage * str_crit_mult
-        # Fragment upgrades give crit damage as a MULTIPLIER (e.g., +3% = *1.03)
-        crit_damage_mult = 1 + frag_bonuses.get('crit_damage', 0)
-        crit_damage = crit_damage_base * crit_damage_mult
+        # STR crit damage (+3%/pt) and fragment crit damage (+1% or +2%/lvl) ADD in one multiplier (ingame)
+        # e.g. STR 5 + crit_c1 lv9: 1.5 * (1 + 0.15 + 0.09) = 1.86x (not 1.5*1.15*1.09 = 1.88x)
+        total_crit_mult = 1 + str_pts * self.SKILL_BONUSES['strength']['crit_damage'] + frag_bonuses.get('crit_damage', 0)
+        crit_damage = self.base_crit_damage * total_crit_mult
         one_hit_chance = luck_pts * self.SKILL_BONUSES['luck']['one_hit_chance']
         
         # Super crit and ultra crit from fragment upgrades
@@ -826,6 +823,7 @@ class ArchaeologySimulatorWindow:
             'ultra_crit_chance': min(1.0, ultra_crit_chance),
             'one_hit_chance': min(1.0, one_hit_chance),
             'xp_mult': xp_mult,
+            'xp_gain_total': xp_mult * arch_xp_mult,  # combined for display (incl. Arch XP upgrades)
             'fragment_mult': fragment_mult,
             # Mod chances
             'exp_mod_chance': min(1.0, exp_mod_chance),
@@ -988,9 +986,10 @@ class ArchaeologySimulatorWindow:
             effective_armor = max(0, block_armor - stats['armor_pen'])
             effective_dmg_enrage = max(1, enrage_total_damage - effective_armor)
             
-            # Enrage crit damage: normal crit damage + enrage_crit_damage_bonus (includes fragment upgrades)
+            # Enrage crit: multiplier on current crit (ingame), e.g. +104% → crit * (1 + 1.04)
+            # Tooltip "+104% crit dmg" → 1.64x becomes ~3.35x (not additive 2.68x)
             enrage_crit_damage_bonus = stats.get('enrage_crit_damage_bonus', self.ENRAGE_CRIT_DAMAGE_BONUS)
-            enrage_crit_damage = crit_damage + enrage_crit_damage_bonus
+            enrage_crit_damage = crit_damage * (1 + enrage_crit_damage_bonus)
             
             # Average damage per hit for normal hits (with crits)
             avg_dmg_normal = effective_dmg_base * (1 + crit_chance * (crit_damage - 1))
@@ -1605,7 +1604,7 @@ class ArchaeologySimulatorWindow:
         
         self.stat_labels = {}
         stat_names = [
-            ("Exp Gain:", "xp_mult"),
+            ("Exp Gain:", "xp_gain_total"),
             ("Fragment Gain:", "fragment_mult"),
             ("Damage:", "total_damage"),
             ("Armor Pen:", "armor_pen"),
@@ -3250,7 +3249,7 @@ class ArchaeologySimulatorWindow:
                 "• Stamina: Base 100 + AGI×5 + Gem upgrade×2",
                 "    → Determines blocks you can hit per run",
                 "• Crit %: AGI×1% + LUK×2%",
-                "• Crit Dmg: Base 1.5× × (1 + STR×3%)",
+                "• Crit Dmg: Base 1.5× × (1 + STR×3% + Fragment %)",
                 "• One-Hit %: LUK×0.04% (instant kill chance)",
             ]
             for line in combat_lines:
@@ -3335,7 +3334,7 @@ class ArchaeologySimulatorWindow:
                 'bonuses': [
                     ('+1 Flat Damage', 'Added to base damage before % bonus'),
                     ('+1% Damage Bonus', 'Multiplies total flat damage'),
-                    ('+3% Crit Damage', 'Multiplies base crit (1.5× × 1.03 per STR)'),
+                    ('+3% Crit Damage', 'Adds 3% per STR to crit mult (same bracket as Fragment %)'),
                 ],
                 'example': 'At 10 STR: +10 flat dmg, +10% dmg, 1.5×1.30=1.95× crit',
                 'tip': 'Best for: Raw damage output. Scales well with flat damage upgrades.',
@@ -4432,7 +4431,7 @@ class ArchaeologySimulatorWindow:
         self.stat_labels['crit_chance'].config(text=f"{stats['crit_chance']*100:.2f}%")
         self.stat_labels['crit_damage'].config(text=f"{stats['crit_damage']:.2f}x")
         self.stat_labels['one_hit_chance'].config(text=f"{stats['one_hit_chance']*100:.2f}%")
-        self.stat_labels['xp_mult'].config(text=f"{stats['xp_mult']:.2f}x")
+        self.stat_labels['xp_gain_total'].config(text=f"{stats['xp_gain_total']:.2f}x")
         self.stat_labels['fragment_mult'].config(text=f"{stats['fragment_mult']:.2f}x")
         
         # Update allocations
