@@ -349,6 +349,12 @@ class BudgetOptimizerPanel:
                             command=self.calculate_optimal_upgrades)
         calc_btn.pack(pady=3)
         
+        # Max combinations label
+        self.max_combinations_label = tk.Label(input_frame, text="Max Combinations: Calculating...", 
+                                               font=("Arial", 8), background="#E8F5E9",
+                                               foreground="#666666")
+        self.max_combinations_label.pack(pady=(0, 3))
+        
         # === RESULTS (fixed at top, no scrolling) ===
         results_frame = tk.Frame(middle_column, background="#E8F5E9", relief=tk.RIDGE, borderwidth=2)
         results_frame.pack(fill=tk.BOTH, expand=True, padx=3, pady=2)
@@ -1600,20 +1606,29 @@ class BudgetOptimizerPanel:
             if not loading_window or not loading_window.winfo_exists():
                 return
             
-            percentage = int((current_run / total_runs) * 100) if total_runs > 0 else 0
+            # Prevent recursive calls
+            if hasattr(self, '_updating_mc_progress') and self._updating_mc_progress:
+                return
+            self._updating_mc_progress = True
             
-            # Update status
-            self.mc_status_label.config(text=f"Run {current_run}/{total_runs}")
-            
-            # Update wave info
-            wave_text = f"Current Run: Wave {current_wave:.1f} | Best So Far: Wave {best_wave:.1f}"
-            self.mc_wave_label.config(text=wave_text)
-            
-            # Update progress bar
-            self.mc_progress_bar['value'] = percentage
-            self.mc_progress_label.config(text=f"{percentage}%")
-            
-            loading_window.update()
+            try:
+                percentage = int((current_run / total_runs) * 100) if total_runs > 0 else 0
+                
+                # Update status
+                self.mc_status_label.config(text=f"Run {current_run}/{total_runs}")
+                
+                # Update wave info
+                wave_text = f"Current Run: Wave {current_wave:.1f} | Best So Far: Wave {best_wave:.1f}"
+                self.mc_wave_label.config(text=wave_text)
+                
+                # Update progress bar
+                self.mc_progress_bar['value'] = percentage
+                self.mc_progress_label.config(text=f"{percentage}%")
+                
+                # Use update_idletasks instead of update to avoid processing all events
+                loading_window.update_idletasks()
+            finally:
+                self._updating_mc_progress = False
         except (tk.TclError, RuntimeError, AttributeError):
             pass
     
@@ -1694,6 +1709,9 @@ class BudgetOptimizerPanel:
             prestige = self.budget_prestige_var.get()
             max_combinations = self._calculate_max_combinations(budget, prestige)
             
+            if not hasattr(self, 'max_combinations_label') or not self.max_combinations_label:
+                return
+            
             if max_combinations is None:
                 self.max_combinations_label.config(text="Max Combinations: Too many to calculate")
             elif max_combinations > 1e15:
@@ -1702,7 +1720,8 @@ class BudgetOptimizerPanel:
                 formatted = format_number(max_combinations)
                 self.max_combinations_label.config(text=f"Max Combinations: ~{formatted}")
         except Exception as e:
-            self.max_combinations_label.config(text="Max Combinations: Error calculating")
+            if hasattr(self, 'max_combinations_label') and self.max_combinations_label:
+                self.max_combinations_label.config(text="Max Combinations: Error calculating")
     
     def _calculate_max_combinations(self, budget: dict, prestige: int):
         """Calculate approximate maximum number of possible upgrade combinations
