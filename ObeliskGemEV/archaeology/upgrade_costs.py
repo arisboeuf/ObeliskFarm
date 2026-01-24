@@ -5,6 +5,8 @@ Data from: https://shminer.miraheze.org/wiki/Archaeology
 Each upgrade has costs per level that scale with a 1.2x multiplier.
 """
 
+from typing import Optional
+
 # Fragment upgrade costs indexed by upgrade_key
 # Format: upgrade_key -> list of costs per level (index 0 = level 1 cost)
 FRAGMENT_UPGRADE_COSTS = {
@@ -127,7 +129,7 @@ FRAGMENT_UPGRADE_COSTS = {
 }
 
 
-def get_upgrade_cost(upgrade_key: str, level: int) -> float | None:
+def get_upgrade_cost(upgrade_key: str, level: int) -> Optional[float]:
     """
     Get the cost to upgrade from current level to level+1.
     

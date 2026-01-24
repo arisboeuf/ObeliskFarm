@@ -12,7 +12,7 @@ import math
 from PIL import Image, ImageTk
 
 from .block_spawn_rates import get_block_mix_for_stage, get_stage_range_label, STAGE_RANGES, get_normalized_spawn_rates, spawn_block_for_slot, get_total_spawn_probability, get_available_blocks_at_stage
-from .block_stats import get_block_at_floor, get_block_mix_for_floor, BlockData, BLOCK_TYPES
+from .block_stats import get_block_at_floor, get_block_mix_for_floor, BlockData, BLOCK_TYPES, get_block_data
 from .upgrade_costs import get_upgrade_cost, get_total_cost, get_max_level
 from .monte_carlo_crit import run_crit_analysis, MonteCarloCritSimulator, debug_single_run
 
@@ -508,7 +508,9 @@ class ArchaeologySimulatorWindow:
             'skill_points': self.skill_points,
             'gem_upgrades': self.gem_upgrades,
             'fragment_upgrade_levels': getattr(self, 'fragment_upgrade_levels', {}),
-            'block_cards': self.block_cards,
+            # Convert tuple keys to strings for JSON compatibility: (block_type, tier) -> "block_type,tier"
+            'block_cards': {f"{bt},{t}": level for (bt, t), level in self.block_cards.items()},
+            'misc_card_level': getattr(self, 'misc_card_level', 0),
             'enrage_enabled': self.enrage_enabled.get() if hasattr(self, 'enrage_enabled') else True,
             'flurry_enabled': self.flurry_enabled.get() if hasattr(self, 'flurry_enabled') else True,
             'quake_enabled': self.quake_enabled.get() if hasattr(self, 'quake_enabled') else True,
@@ -548,14 +550,35 @@ class ArchaeologySimulatorWindow:
             # Load fragment upgrade levels
             self.fragment_upgrade_levels = state.get('fragment_upgrade_levels', {})
             
-            # Load block cards
-            self.block_cards = state.get('block_cards', {
-                'dirt': 0, 'common': 0, 'rare': 0, 'epic': 0, 'legendary': 0, 'mythic': 0
-            })
-            # Ensure all block types are present
-            for bt in ['dirt', 'common', 'rare', 'epic', 'legendary', 'mythic']:
-                if bt not in self.block_cards:
-                    self.block_cards[bt] = 0
+            # Load block cards - migrate from old format (block_type -> level) to new format ((block_type, tier) -> level)
+            old_block_cards = state.get('block_cards', {})
+            self.block_cards = {}
+            
+            # Initialize all combinations
+            for block_type in BLOCK_TYPES:
+                for tier in [1, 2, 3]:
+                    if get_block_data(tier, block_type):  # Only if this tier exists
+                        key = (block_type, tier)
+                        # Check if old format exists (migration)
+                        if isinstance(old_block_cards, dict):
+                            # Try new format first: "block_type,tier" string key
+                            string_key = f"{block_type},{tier}"
+                            if string_key in old_block_cards:
+                                self.block_cards[key] = old_block_cards[string_key]
+                            # Try old format: block_type as key (for backward compatibility)
+                            elif block_type in old_block_cards:
+                                # Migrate: apply old card level to all tiers (backward compatibility)
+                                self.block_cards[key] = old_block_cards[block_type]
+                            # Try tuple key format (if somehow still in old tuple format)
+                            elif key in old_block_cards:
+                                self.block_cards[key] = old_block_cards[key]
+                            else:
+                                self.block_cards[key] = 0
+                        else:
+                            self.block_cards[key] = 0
+            
+            # Load misc card
+            self.misc_card_level = state.get('misc_card_level', 0)
             
             # Update enrage checkbox
             if hasattr(self, 'enrage_enabled'):
@@ -657,11 +680,19 @@ class ArchaeologySimulatorWindow:
         }
         # Fragment upgrades (new system)
         self.fragment_upgrade_levels = {}
-        # Block cards: 0 = none, 1 = normal card, 2 = gilded card
-        # Card: -10% HP, +10% XP; Gilded: -20% HP, +20% XP
-        self.block_cards = {
-            'dirt': 0, 'common': 0, 'rare': 0, 'epic': 0, 'legendary': 0, 'mythic': 0
-        }
+        # Block cards: separate cards for each tier (T1, T2, T3) per block type
+        # Format: (block_type, tier) -> card_level (0 = none, 1 = normal, 2 = gilded, 3 = polychrome)
+        # Card: -10% HP, +10% XP; Gilded: -20% HP, +20% XP; Polychrome: -35% HP, +35% XP
+        self.block_cards = {}
+        # Initialize all combinations
+        for block_type in BLOCK_TYPES:
+            for tier in [1, 2, 3]:
+                if get_block_data(tier, block_type):  # Only if this tier exists for this block type
+                    self.block_cards[(block_type, tier)] = 0
+        
+        # Misc card: 0 = none, 1 = normal card, 2 = gilded card, 3 = polychrome card
+        # Reduces ability cooldowns: Normal = -3%, Gilded = -6%, Polychrome = -10%
+        self.misc_card_level = 0
     
     def _get_calculation_stage(self):
         """
@@ -885,25 +916,77 @@ class ArchaeologySimulatorWindow:
         effective = max(1, int(stats['total_damage'] - effective_armor))
         return effective
     
-    def get_block_hp_with_card(self, block_hp, block_type):
-        """Apply card HP reduction: Card = -10%, Gilded = -20%"""
-        card_level = self.block_cards.get(block_type, 0)
+    def get_block_hp_with_card(self, block_hp, block_type, tier=None):
+        """Apply card HP reduction: Card = -10%, Gilded = -20%, Polychrome = -35% (+15% from upgrade → -50%)
+        Args:
+            block_hp: Base HP of the block
+            block_type: Type of block (dirt, common, rare, etc.)
+            tier: Tier of the block (1, 2, or 3). If None, uses tier from block_data if available.
+        """
+        if tier is None:
+            # Fallback: try to find any card for this block type (backward compatibility)
+            # This shouldn't happen in normal usage, but handle it gracefully
+            for t in [1, 2, 3]:
+                card_level = self.block_cards.get((block_type, t), 0)
+                if card_level > 0:
+                    break
+            else:
+                return block_hp
+        else:
+            card_level = self.block_cards.get((block_type, tier), 0)
+        
         if card_level == 1:
             return int(block_hp * 0.90)
         elif card_level == 2:
             return int(block_hp * 0.80)
+        elif card_level == 3:
+            # Polychrome: -35% base. Stage 34 upgrade adds +15% → -50% total
+            frag_bonuses = self._get_fragment_upgrade_bonuses()
+            poly_bonus = frag_bonuses.get('polychrome_bonus', 0)  # 0.15 when upgrade at 1
+            hp_reduce = 0.35 + poly_bonus  # 0.35 + 0.15 = 0.50
+            return int(block_hp * (1.0 - hp_reduce))
         return block_hp
     
-    def get_block_xp_multiplier(self, block_type):
-        """Get XP multiplier from card: Card = +10%, Gilded = +20%"""
-        card_level = self.block_cards.get(block_type, 0)
+    def get_block_xp_multiplier(self, block_type, tier=None):
+        """Get XP multiplier from card: Card = +10%, Gilded = +20%, Polychrome = +35% (+15% from upgrade → +50%)
+        Args:
+            block_type: Type of block (dirt, common, rare, etc.)
+            tier: Tier of the block (1, 2, or 3). If None, uses tier from block_data if available.
+        """
+        if tier is None:
+            # Fallback: try to find any card for this block type (backward compatibility)
+            for t in [1, 2, 3]:
+                card_level = self.block_cards.get((block_type, t), 0)
+                if card_level > 0:
+                    break
+            else:
+                return 1.0
+        else:
+            card_level = self.block_cards.get((block_type, tier), 0)
+        
         if card_level == 1:
             return 1.10
         elif card_level == 2:
             return 1.20
+        elif card_level == 3:
+            # Polychrome: +35% base. Stage 34 upgrade adds +15% → +50% total
+            frag_bonuses = self._get_fragment_upgrade_bonuses()
+            poly_bonus = frag_bonuses.get('polychrome_bonus', 0)  # 0.15 when upgrade at 1
+            xp_bonus = 0.35 + poly_bonus  # 0.35 + 0.15 = 0.50
+            return 1.0 + xp_bonus
         return 1.0
     
-    def calculate_damage_breakpoints(self, block_hp, block_armor, stats, block_type=None):
+    def get_ability_cooldown_multiplier(self):
+        """Get ability cooldown multiplier from misc card: Normal = -3%, Gilded = -6%, Polychrome = -10%"""
+        if self.misc_card_level == 1:
+            return 0.97  # -3%
+        elif self.misc_card_level == 2:
+            return 0.94  # -6%
+        elif self.misc_card_level == 3:
+            return 0.90  # -10%
+        return 1.0
+    
+    def calculate_damage_breakpoints(self, block_hp, block_armor, stats, block_type=None, tier=None):
         """
         Calculate damage breakpoints for a specific block.
         Returns info about current hits, avg hits with crits, and next breakpoint.
@@ -914,20 +997,20 @@ class ArchaeologySimulatorWindow:
           - At 11 dmg: 2 hits (ceil(20/11) = 2) 
           - At 20 dmg: 1 hit (ceil(20/20) = 1) <-- breakpoint at 20
         
-        If block_type is provided, card HP reduction is applied.
+        If block_type and tier are provided, card HP reduction is applied.
         """
         import math
         
         # Apply card HP reduction if block_type is provided
         if block_type:
-            block_hp = self.get_block_hp_with_card(block_hp, block_type)
+            block_hp = self.get_block_hp_with_card(block_hp, block_type, tier=tier)
         
         effective_armor = max(0, block_armor - stats['armor_pen'])
         current_eff_dmg = self.calculate_effective_damage(stats, block_armor)
         current_hits = math.ceil(block_hp / current_eff_dmg) if current_eff_dmg > 0 else float('inf')
         
         # Calculate average hits with crits (using calculate_hits_to_kill logic)
-        avg_hits = self.calculate_hits_to_kill(stats, block_hp, block_armor)
+        avg_hits = self.calculate_hits_to_kill(stats, block_hp, block_armor, block_type=block_type, tier=tier)
         
         # Find next breakpoint: the minimum damage that results in one fewer hit
         # If current_hits = n, we need dmg such that ceil(hp/dmg) = n-1
@@ -962,14 +1045,14 @@ class ArchaeologySimulatorWindow:
             'dmg_needed': dmg_needed,
         }
     
-    def calculate_hits_to_kill(self, stats, block_hp, block_armor, block_type=None):
+    def calculate_hits_to_kill(self, stats, block_hp, block_armor, block_type=None, tier=None):
         """
         Calculate expected hits to kill a block, accounting for:
         - Base damage with armor penetration
         - Critical hits (always included - MC handles exact simulation)
         - One-hit chance
         - Enrage ability (5 charges every 60s with +20% dmg, +100% crit dmg) - if enabled
-        - Card HP reduction (if block_type provided)
+        - Card HP reduction (if block_type and tier provided)
         
         Note: MC simulations handle crits exactly, so this is just for deterministic estimates.
         """
@@ -977,7 +1060,7 @@ class ArchaeologySimulatorWindow:
         
         # Apply card HP reduction if block_type is provided
         if block_type:
-            block_hp = self.get_block_hp_with_card(block_hp, block_type)
+            block_hp = self.get_block_hp_with_card(block_hp, block_type, tier=tier)
         
         # Calculate effective damage (base, no enrage)
         effective_dmg_base = self.calculate_effective_damage(stats, block_armor)
@@ -985,14 +1068,37 @@ class ArchaeologySimulatorWindow:
         # Always include crit calculations (MC handles exact simulation)
         crit_chance = stats['crit_chance']
         crit_damage = stats['crit_damage']
+        super_crit_chance = stats.get('super_crit_chance', 0)
+        super_crit_damage = stats.get('super_crit_damage', 0)
         one_hit_chance = stats['one_hit_chance']
+        
+        # Helper function to calculate average damage with crits and super crits
+        def calc_avg_dmg_with_crits(base_dmg, crit_dmg_mult):
+            """
+            Calculate average damage accounting for:
+            - Normal hits: (1 - crit_chance) * base_dmg
+            - Normal crits: crit_chance * (1 - super_crit_chance) * base_dmg * crit_dmg_mult
+            - Super crits: crit_chance * super_crit_chance * base_dmg * crit_dmg_mult * (1 + super_crit_damage)
+            
+            Super crits only occur when a crit procs, and multiply the crit damage further.
+            """
+            # Expected damage multiplier
+            # = 1 - crit_chance + crit_chance * (1 - super_crit_chance) * crit_dmg_mult + crit_chance * super_crit_chance * crit_dmg_mult * (1 + super_crit_damage)
+            # = 1 - crit_chance + crit_chance * crit_dmg_mult * [(1 - super_crit_chance) + super_crit_chance * (1 + super_crit_damage)]
+            # = 1 - crit_chance + crit_chance * crit_dmg_mult * [1 - super_crit_chance + super_crit_chance + super_crit_chance * super_crit_damage]
+            # = 1 - crit_chance + crit_chance * crit_dmg_mult * [1 + super_crit_chance * super_crit_damage]
+            # = 1 + crit_chance * (crit_dmg_mult * (1 + super_crit_chance * super_crit_damage) - 1)
+            crit_mult_with_super = crit_dmg_mult * (1 + super_crit_chance * super_crit_damage)
+            return base_dmg * (1 + crit_chance * (crit_mult_with_super - 1))
         
         # Check if Enrage is enabled
         enrage_active = getattr(self, 'enrage_enabled', None)
         if enrage_active is not None and enrage_active.get():
             # Enrage: 5 hits out of every 60 have +20% damage and +100% crit damage
-            # Proportion of enrage hits: 5/60 = 0.0833...
-            enrage_proportion = self.ENRAGE_CHARGES / self.ENRAGE_COOLDOWN
+            # Apply misc card cooldown reduction
+            effective_enrage_cooldown = self.ENRAGE_COOLDOWN * self.get_ability_cooldown_multiplier()
+            # Proportion of enrage hits: 5 / effective_cooldown
+            enrage_proportion = self.ENRAGE_CHARGES / effective_enrage_cooldown
             normal_proportion = 1.0 - enrage_proportion
             
             # Enrage effective damage: base damage * (1 + enrage_damage_bonus) (floored), then subtract armor
@@ -1008,18 +1114,18 @@ class ArchaeologySimulatorWindow:
             enrage_crit_damage_bonus = stats.get('enrage_crit_damage_bonus', self.ENRAGE_CRIT_DAMAGE_BONUS)
             enrage_crit_damage = crit_damage * (1 + enrage_crit_damage_bonus)
             
-            # Average damage per hit for normal hits (with crits)
-            avg_dmg_normal = effective_dmg_base * (1 + crit_chance * (crit_damage - 1))
+            # Average damage per hit for normal hits (with crits and super crits)
+            avg_dmg_normal = calc_avg_dmg_with_crits(effective_dmg_base, crit_damage)
             
-            # Average damage per hit for enrage hits (with boosted crits)
-            avg_dmg_enrage = effective_dmg_enrage * (1 + crit_chance * (enrage_crit_damage - 1))
+            # Average damage per hit for enrage hits (with boosted crits and super crits)
+            avg_dmg_enrage = calc_avg_dmg_with_crits(effective_dmg_enrage, enrage_crit_damage)
             
             # Weighted average damage per hit
             avg_dmg_per_hit = (normal_proportion * avg_dmg_normal + 
                               enrage_proportion * avg_dmg_enrage)
         else:
-            # No Enrage - just normal damage with crits
-            avg_dmg_per_hit = effective_dmg_base * (1 + crit_chance * (crit_damage - 1))
+            # No Enrage - just normal damage with crits and super crits
+            avg_dmg_per_hit = calc_avg_dmg_with_crits(effective_dmg_base, crit_damage)
         
         # Expected hits without one-hit
         hits_without_onehit = block_hp / avg_dmg_per_hit
@@ -1045,8 +1151,8 @@ class ArchaeologySimulatorWindow:
             block_data = block_mix.get(block_type)
             if not block_data:
                 continue
-            # Pass block_type to apply card HP reduction
-            hits = self.calculate_hits_to_kill(stats, block_data.health, block_data.armor, block_type)
+            # Pass block_type and tier to apply card HP reduction
+            hits = self.calculate_hits_to_kill(stats, block_data.health, block_data.armor, block_type, tier=block_data.tier)
             weighted_hits += spawn_chance * hits
         
         if weighted_hits > 0:
@@ -1086,7 +1192,10 @@ class ArchaeologySimulatorWindow:
             
             # Calculate effective values
             stamina_on_cast = self.FLURRY_STAMINA_BONUS + flurry_stamina_bonus
-            effective_cooldown = max(10, self.FLURRY_COOLDOWN + flurry_cooldown_reduction)  # min 10s
+            # Apply misc card cooldown reduction (percentage) after flat reduction
+            base_cooldown = self.FLURRY_COOLDOWN + flurry_cooldown_reduction
+            cooldown_multiplier = self.get_ability_cooldown_multiplier()
+            effective_cooldown = max(10, base_cooldown * cooldown_multiplier)  # min 10s
             
             # Stamina gained per hit (assuming ~1 hit per second)
             flurry_stamina_per_hit = stamina_on_cast / effective_cooldown
@@ -1113,8 +1222,8 @@ class ArchaeologySimulatorWindow:
                 block_data = block_mix.get(block_type)
                 if not block_data:
                     continue
-                # Pass block_type to apply card HP reduction
-                hits = self.calculate_hits_to_kill(stats, block_data.health, block_data.armor, block_type)
+                # Pass block_type and tier to apply card HP reduction
+                hits = self.calculate_hits_to_kill(stats, block_data.health, block_data.armor, block_type, tier=block_data.tier)
                 avg_hits_per_block += spawn_chance * hits
             
             # Net stamina cost per block = hits - stamina gained from mod
@@ -1190,8 +1299,8 @@ class ArchaeologySimulatorWindow:
                 # Block base XP
                 block_xp = block_data.xp
                 
-                # Apply card XP bonus
-                card_mult = self.get_block_xp_multiplier(block_type)
+                # Apply card XP bonus (use tier from block_data)
+                card_mult = self.get_block_xp_multiplier(block_type, tier=block_data.tier)
                 block_xp *= card_mult
                 
                 # Weight by spawn chance
@@ -1295,8 +1404,8 @@ class ArchaeologySimulatorWindow:
         # Add stamina from Flurry
         flurry_active = getattr(self, 'flurry_enabled', None)
         if flurry_active and flurry_active.get():
-            flurry_cooldown = self.FLURRY_COOLDOWN + frag_bonuses.get('flurry_cooldown', 0)
-            flurry_cooldown = max(10, flurry_cooldown)
+            base_flurry_cooldown = self.FLURRY_COOLDOWN + frag_bonuses.get('flurry_cooldown', 0)
+            flurry_cooldown = max(10, base_flurry_cooldown * self.get_ability_cooldown_multiplier())
             flurry_stamina = self.FLURRY_STAMINA_BONUS + frag_bonuses.get('flurry_stamina', 0)
             # Estimate run duration first without flurry to see how many activations
             base_duration = total_hits  # 1 hit = 1 second base
@@ -1323,8 +1432,8 @@ class ArchaeologySimulatorWindow:
             # Actually Flurry is +100% attack speed = 2x speed for some period
             # Let's estimate: during the run, we get multiple flurry activations
             # Each activation speeds up some hits
-            flurry_cooldown = self.FLURRY_COOLDOWN + frag_bonuses.get('flurry_cooldown', 0)
-            flurry_cooldown = max(10, flurry_cooldown)
+            base_flurry_cooldown = self.FLURRY_COOLDOWN + frag_bonuses.get('flurry_cooldown', 0)
+            flurry_cooldown = max(10, base_flurry_cooldown * self.get_ability_cooldown_multiplier())
             activations = base_duration_seconds / flurry_cooldown
             # Assume flurry lasts ~10 seconds at 2x speed = saves 10 seconds per activation
             # This is an approximation
@@ -2060,65 +2169,184 @@ class ArchaeologySimulatorWindow:
         
         self.card_labels = {}
         
-        # Create cards in a grid layout (2 per row)
-        current_row = None
-        col_index = 0
-        
-        for i, block_type in enumerate(BLOCK_TYPES):
-            # Create new row every 2 cards
-            if col_index == 0:
-                current_row = tk.Frame(self.cards_container, background="#E8F5E9")
-                current_row.pack(fill=tk.X, pady=1)
-            
-            # Card frame (half width for 2 per row) - no border for cleaner look
-            card_frame = tk.Frame(current_row, background="#E8F5E9")
-            card_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=2)
-            
+        # Create cards - separate row for each block type and tier combination
+        for block_type in BLOCK_TYPES:
             color = self.BLOCK_COLORS.get(block_type, '#888888')
             
-            # Block icon if available
-            if hasattr(self, 'block_icons') and block_type in self.block_icons:
-                tk.Label(card_frame, image=self.block_icons[block_type], 
-                        background="#E8F5E9").pack(side=tk.LEFT, padx=(2, 2))
-            
-            # Block name
-            name_label = tk.Label(card_frame, text=f"{block_type.capitalize()}", 
-                                 font=("Arial", 8, "bold"), foreground=color,
-                                 background="#E8F5E9", anchor=tk.W)
-            name_label.pack(side=tk.LEFT, padx=(0, 2))
-            
-            # Card button (normal card: -10% HP, +10% XP)
-            card_btn = tk.Label(card_frame, text="Card", font=("Arial", 7),
+            # Create a row for each tier that exists for this block type
+            for tier in [1, 2, 3]:
+                block_data = get_block_data(tier, block_type)
+                if not block_data:
+                    continue  # Skip if this tier doesn't exist for this block type
+                
+                # Main card row frame - centered content
+                card_row = tk.Frame(self.cards_container, background="#E8F5E9")
+                card_row.pack(fill=tk.X, pady=1)
+                
+                # Center container for all content
+                center_frame = tk.Frame(card_row, background="#E8F5E9")
+                center_frame.pack(expand=True)
+                
+                # Block icon if available
+                if hasattr(self, 'block_icons') and block_type in self.block_icons:
+                    tk.Label(center_frame, image=self.block_icons[block_type], 
+                            background="#E8F5E9").pack(side=tk.LEFT, padx=(0, 5))
+                
+                # Block name and tier
+                name_label = tk.Label(center_frame, text=f"{block_type.capitalize()} T{tier}", 
+                                     font=("Arial", 8, "bold"), foreground=color,
+                                     background="#E8F5E9", anchor=tk.W)
+                name_label.pack(side=tk.LEFT, padx=(0, 8))
+                
+                # Card buttons - right next to name
+                right_frame = tk.Frame(center_frame, background="#E8F5E9")
+                right_frame.pack(side=tk.LEFT)
+                
+                # Card button (normal card: -10% HP, +10% XP)
+                card_btn = tk.Label(right_frame, text="Card", font=("Arial", 7),
+                                   cursor="hand2", foreground="#888888", background="#E8F5E9",
+                                   padx=3, relief=tk.RAISED, borderwidth=1)
+                card_btn.pack(side=tk.LEFT, padx=(0, 2))
+                card_btn.bind("<Button-1>", lambda e, bt=block_type, t=tier: self._toggle_card(bt, t, 1))
+                
+                # Gilded card button (gilded: -20% HP, +20% XP)
+                gilded_btn = tk.Label(right_frame, text="Gild", font=("Arial", 7),
+                                     cursor="hand2", foreground="#888888", background="#E8F5E9",
+                                     padx=3, relief=tk.RAISED, borderwidth=1)
+                gilded_btn.pack(side=tk.LEFT, padx=(0, 2))
+                gilded_btn.bind("<Button-1>", lambda e, bt=block_type, t=tier: self._toggle_card(bt, t, 2))
+                
+                # Polychrome card button (polychrome: -35% HP, +35% XP)
+                polychrome_btn = tk.Label(right_frame, text="Poly", font=("Arial", 7),
+                                         cursor="hand2", foreground="#888888", background="#E8F5E9",
+                                         padx=3, relief=tk.RAISED, borderwidth=1)
+                polychrome_btn.pack(side=tk.LEFT)
+                polychrome_btn.bind("<Button-1>", lambda e, bt=block_type, t=tier: self._toggle_card(bt, t, 3))
+                
+                self.card_labels[(block_type, tier)] = {
+                    'row': card_row,
+                    'name': name_label,
+                    'card_btn': card_btn,
+                    'gilded_btn': gilded_btn,
+                    'polychrome_btn': polychrome_btn,
+                }
+        
+        # Misc Card row (for ability cooldown reduction)
+        misc_card_separator = tk.Frame(self.cards_container, background="#E8F5E9", height=2)
+        misc_card_separator.pack(fill=tk.X, pady=(5, 3))
+        
+        misc_card_row = tk.Frame(self.cards_container, background="#E8F5E9")
+        misc_card_row.pack(fill=tk.X, pady=1)
+        
+        # Center container for all content
+        misc_center_frame = tk.Frame(misc_card_row, background="#E8F5E9")
+        misc_center_frame.pack(expand=True)
+        
+        # Label with help tooltip
+        misc_left_frame = tk.Frame(misc_center_frame, background="#E8F5E9")
+        misc_left_frame.pack(side=tk.LEFT)
+        
+        tk.Label(misc_left_frame, text="Misc Card (Ability Cooldown):", 
+                font=("Arial", 8, "bold"), foreground="#666666",
+                background="#E8F5E9", anchor=tk.W).pack(side=tk.LEFT)
+        
+        # Help ? label with tooltip
+        misc_help = tk.Label(misc_left_frame, text="?", font=("Arial", 9, "bold"), 
+                            cursor="hand2", foreground="#B8860B", background="#E8F5E9")
+        misc_help.pack(side=tk.LEFT, padx=(5, 8))
+        self._create_misc_card_help_tooltip(misc_help)
+        
+        # Card buttons - right next to label
+        misc_right_frame = tk.Frame(misc_center_frame, background="#E8F5E9")
+        misc_right_frame.pack(side=tk.LEFT)
+        
+        # Card button (normal card: -3% cooldown)
+        misc_card_btn = tk.Label(misc_right_frame, text="Card", font=("Arial", 7),
                                cursor="hand2", foreground="#888888", background="#E8F5E9",
-                               padx=2, relief=tk.RAISED, borderwidth=1)
-            card_btn.pack(side=tk.LEFT, padx=(0, 1))
-            card_btn.bind("<Button-1>", lambda e, bt=block_type: self._toggle_card(bt, 1))
-            
-            # Gilded card button (gilded: -20% HP, +20% XP)
-            gilded_btn = tk.Label(card_frame, text="Gild", font=("Arial", 7),
+                               padx=3, relief=tk.RAISED, borderwidth=1)
+        misc_card_btn.pack(side=tk.LEFT, padx=(0, 2))
+        misc_card_btn.bind("<Button-1>", lambda e: self._toggle_misc_card(1))
+        
+        # Gilded card button (gilded: -6% cooldown)
+        misc_gilded_btn = tk.Label(misc_right_frame, text="Gild", font=("Arial", 7),
                                  cursor="hand2", foreground="#888888", background="#E8F5E9",
-                                 padx=2, relief=tk.RAISED, borderwidth=1)
-            gilded_btn.pack(side=tk.LEFT, padx=(0, 1))
-            gilded_btn.bind("<Button-1>", lambda e, bt=block_type: self._toggle_card(bt, 2))
+                                 padx=3, relief=tk.RAISED, borderwidth=1)
+        misc_gilded_btn.pack(side=tk.LEFT, padx=(0, 2))
+        misc_gilded_btn.bind("<Button-1>", lambda e: self._toggle_misc_card(2))
+        
+        # Polychrome card button (polychrome: -10% cooldown)
+        misc_polychrome_btn = tk.Label(misc_right_frame, text="Poly", font=("Arial", 7),
+                                     cursor="hand2", foreground="#888888", background="#E8F5E9",
+                                     padx=3, relief=tk.RAISED, borderwidth=1)
+        misc_polychrome_btn.pack(side=tk.LEFT)
+        misc_polychrome_btn.bind("<Button-1>", lambda e: self._toggle_misc_card(3))
+        
+        self.misc_card_labels = {
+            'card_btn': misc_card_btn,
+            'gilded_btn': misc_gilded_btn,
+            'polychrome_btn': misc_polychrome_btn,
+        }
+    
+    def _create_misc_card_help_tooltip(self, widget):
+        """Creates a tooltip explaining the Misc Card feature"""
+        def on_enter(event):
+            tooltip = tk.Toplevel()
+            tooltip.wm_overrideredirect(True)
             
-            # Gilded improvement indicator (smaller)
-            gilded_improve_label = tk.Label(card_frame, text="", font=("Arial", 7),
-                                           foreground="#B8860B", background="#E8F5E9",
-                                           width=5, anchor=tk.W)
-            gilded_improve_label.pack(side=tk.LEFT)
+            tooltip_width = 280
+            tooltip_height = 280
+            screen_width = tooltip.winfo_screenwidth()
+            screen_height = tooltip.winfo_screenheight()
+            x, y = calculate_tooltip_position(event, tooltip_width, tooltip_height, screen_width, screen_height)
+            tooltip.wm_geometry(f"+{x}+{y}")
             
-            self.card_labels[block_type] = {
-                'row': card_frame,
-                'name': name_label,
-                'card_btn': card_btn,
-                'gilded_btn': gilded_btn,
-                'gilded_improve': gilded_improve_label,
-            }
+            outer_frame = tk.Frame(tooltip, background="#9C27B0", relief=tk.FLAT)
+            outer_frame.pack(padx=2, pady=2)
             
-            # Move to next column, wrap to new row if needed
-            col_index += 1
-            if col_index >= 2:
-                col_index = 0
+            inner_frame = tk.Frame(outer_frame, background="#FFFFFF")
+            inner_frame.pack(padx=1, pady=1)
+            
+            content = tk.Frame(inner_frame, background="#FFFFFF", padx=10, pady=8)
+            content.pack()
+            
+            tk.Label(content, text="Misc Card (Ability Cooldown)", font=("Arial", 10, "bold"),
+                    background="#FFFFFF", foreground="#9C27B0").pack(anchor="w")
+            
+            lines = [
+                "",
+                "Reduces cooldown for all abilities:",
+                "  Enrage, Flurry, Quake",
+                "",
+                "Card (Normal):",
+                "  -3% Ability Cooldown",
+                "",
+                "Gilded Card:",
+                "  -6% Ability Cooldown",
+                "",
+                "Polychrome Card:",
+                "  -10% Ability Cooldown",
+                "",
+                "The reduction is applied as a",
+                "percentage multiplier to the",
+                "base cooldown (after fragment",
+                "upgrade reductions).",
+                "",
+                "Click to toggle. Click same to remove.",
+            ]
+            
+            for line in lines:
+                tk.Label(content, text=line, font=("Arial", 9),
+                        background="#FFFFFF", justify=tk.LEFT).pack(anchor="w")
+            
+            widget.tooltip = tooltip
+        
+        def on_leave(event):
+            if hasattr(widget, 'tooltip'):
+                widget.tooltip.destroy()
+                del widget.tooltip
+        
+        widget.bind("<Enter>", on_enter)
+        widget.bind("<Leave>", on_leave)
     
     def _create_cards_help_tooltip(self, widget):
         """Creates a tooltip explaining the Cards feature"""
@@ -2157,8 +2385,18 @@ class ArchaeologySimulatorWindow:
                 "  -20% Block HP", 
                 "  +20% XP from block",
                 "",
-                "The +X.XX% shows improvement in",
-                "floors/run if you upgrade to Gilded.",
+                "Polychrome Card:",
+                "  -35% Block HP",
+                "  +35% XP from block",
+                "",
+                "Stage 34 Upgrade (Polychrome +15%):",
+                "  Adds +15% to Polychrome block cards",
+                "  → -50% HP, +50% XP when upgraded",
+                "",
+                "Misc Card (Ability Cooldown):",
+                "  Normal: -3% cooldown",
+                "  Gilded: -6% cooldown",
+                "  Polychrome: -10% cooldown",
                 "",
                 "Click to toggle. Click same to remove.",
             ]
@@ -4339,34 +4577,89 @@ class ArchaeologySimulatorWindow:
         widget.bind("<Enter>", on_enter)
         widget.bind("<Leave>", on_leave)
     
-    def _toggle_card(self, block_type, card_level):
-        """Toggle card status for a block type. 
-        card_level: 1 = normal card, 2 = gilded card
+    def _toggle_card(self, block_type, tier, card_level):
+        """Toggle card status for a block type and tier. 
+        Args:
+            block_type: Type of block (dirt, common, rare, etc.)
+            tier: Tier of the block (1, 2, or 3)
+            card_level: 1 = normal card, 2 = gilded card, 3 = polychrome card
         Clicking the same card again removes it.
         """
-        current = self.block_cards.get(block_type, 0)
+        key = (block_type, tier)
+        current = self.block_cards.get(key, 0)
         if current == card_level:
             # Toggle off
-            self.block_cards[block_type] = 0
+            self.block_cards[key] = 0
         else:
             # Set to this card level
-            self.block_cards[block_type] = card_level
+            self.block_cards[key] = card_level
         
         # Update card button visuals
         self._update_card_buttons()
         
         # Recalculate everything
         self.update_display()
+        self.save_state()
+    
+    def _toggle_misc_card(self, card_level):
+        """Toggle misc card status for ability cooldown reduction.
+        card_level: 1 = normal card (-3%), 2 = gilded card (-6%), 3 = polychrome card (-10%)
+        Clicking the same card again removes it.
+        """
+        current = getattr(self, 'misc_card_level', 0)
+        if current == card_level:
+            # Toggle off
+            self.misc_card_level = 0
+        else:
+            # Set to this card level
+            self.misc_card_level = card_level
+        
+        # Update misc card button visuals
+        self._update_misc_card_buttons()
+        
+        # Recalculate everything
+        self.update_display()
+        self.save_state()
+    
+    def _update_misc_card_buttons(self):
+        """Update the visual state of misc card buttons based on current card level"""
+        if not hasattr(self, 'misc_card_labels'):
+            return
+        
+        card_level = getattr(self, 'misc_card_level', 0)
+        card_btn = self.misc_card_labels.get('card_btn')
+        gilded_btn = self.misc_card_labels.get('gilded_btn')
+        polychrome_btn = self.misc_card_labels.get('polychrome_btn')
+        
+        if card_btn:
+            if card_level == 1:
+                card_btn.config(foreground="#FFFFFF", background="#4CAF50", relief=tk.SUNKEN)
+            else:
+                card_btn.config(foreground="#888888", background="#E8F5E9", relief=tk.RAISED)
+        
+        if gilded_btn:
+            if card_level == 2:
+                gilded_btn.config(foreground="#FFFFFF", background="#FFD700", relief=tk.SUNKEN)
+            else:
+                gilded_btn.config(foreground="#888888", background="#E8F5E9", relief=tk.RAISED)
+        
+        if polychrome_btn:
+            if card_level == 3:
+                polychrome_btn.config(foreground="#FFFFFF", background="#9C27B0", relief=tk.SUNKEN)
+            else:
+                polychrome_btn.config(foreground="#888888", background="#E8F5E9", relief=tk.RAISED)
     
     def _update_card_buttons(self):
         """Update the visual state of all card buttons based on current card levels"""
         if not hasattr(self, 'card_labels'):
             return
         
-        for block_type, labels in self.card_labels.items():
-            card_level = self.block_cards.get(block_type, 0)
+        for key, labels in self.card_labels.items():
+            # key is now (block_type, tier) tuple
+            card_level = self.block_cards.get(key, 0)
             card_btn = labels.get('card_btn')
             gilded_btn = labels.get('gilded_btn')
+            polychrome_btn = labels.get('polychrome_btn')
             
             if card_btn:
                 if card_level == 1:
@@ -4379,34 +4672,12 @@ class ArchaeologySimulatorWindow:
                     gilded_btn.config(foreground="#FFFFFF", background="#FFD700", relief=tk.SUNKEN)
                 else:
                     gilded_btn.config(foreground="#888888", background="#E8F5E9", relief=tk.RAISED)
-    
-    def _calculate_gilded_improvement(self, block_type, stats, spawn_rate):
-        """
-        Calculate the % improvement in floors/run from upgrading to gilded card.
-        This shows the value of gilding a card (costs gems).
-        
-        Returns: percentage improvement in floors/run
-        """
-        # Get current floors/run
-        calc_stage = self._get_calculation_stage()
-        current_floors = self.calculate_floors_per_run(stats, calc_stage)
-        if current_floors <= 0:
-            return 0.0
-        
-        # Temporarily set this block to gilded and recalculate
-        old_card_level = self.block_cards.get(block_type, 0)
-        self.block_cards[block_type] = 2  # Gilded
-        
-        gilded_floors = self.calculate_floors_per_run(stats, calc_stage)
-        
-        # Restore original card level
-        self.block_cards[block_type] = old_card_level
-        
-        # Calculate percentage improvement
-        if current_floors > 0:
-            improvement = ((gilded_floors - current_floors) / current_floors) * 100
-            return improvement
-        return 0.0
+            
+            if polychrome_btn:
+                if card_level == 3:
+                    polychrome_btn.config(foreground="#FFFFFF", background="#9C27B0", relief=tk.SUNKEN)
+                else:
+                    polychrome_btn.config(foreground="#888888", background="#E8F5E9", relief=tk.RAISED)
     
     def _create_block_breakpoint_tooltip(self, widget, block_type):
         """Creates a dynamic tooltip for a block's breakpoint row"""
@@ -4444,6 +4715,8 @@ class ArchaeologySimulatorWindow:
                 card_text = " [Card]"
             elif card_level == 2:
                 card_text = " [Gilded]"
+            elif card_level == 3:
+                card_text = " [Polychrome]"
             
             tk.Label(content_frame, text=f"{block_type.capitalize()} Block{card_text}", 
                     font=("Arial", 10, "bold"), foreground=color, 
@@ -4511,48 +4784,11 @@ class ArchaeologySimulatorWindow:
     
     def update_cards_display(self):
         """Update the cards display in the middle column"""
-        if not hasattr(self, 'card_labels'):
-            return
+        # Just update all card buttons - the _update_card_buttons method handles the new structure
+        self._update_card_buttons()
         
-        stats = self.get_total_stats()
-        calc_stage = self._get_calculation_stage()
-        spawn_rates = get_normalized_spawn_rates(calc_stage)
-        
-        for block_type in BLOCK_TYPES:
-            if block_type not in self.card_labels:
-                continue
-            
-            labels = self.card_labels[block_type]
-            spawn_rate = spawn_rates.get(block_type, 0)
-            card_level = self.block_cards.get(block_type, 0)
-            
-            # Update card button states
-            card_btn = labels.get('card_btn')
-            gilded_btn = labels.get('gilded_btn')
-            
-            if card_btn:
-                if card_level == 1:
-                    card_btn.config(foreground="#FFFFFF", background="#4CAF50", relief=tk.SUNKEN)
-                else:
-                    card_btn.config(foreground="#888888", background="#E8F5E9", relief=tk.RAISED)
-            
-            if gilded_btn:
-                if card_level == 2:
-                    gilded_btn.config(foreground="#FFFFFF", background="#FFD700", relief=tk.SUNKEN)
-                else:
-                    gilded_btn.config(foreground="#888888", background="#E8F5E9", relief=tk.RAISED)
-            
-            # Calculate and display gilded improvement (only if normal card is present, not if no card or already gilded)
-            gilded_improve_label = labels.get('gilded_improve')
-            if gilded_improve_label:
-                if card_level == 1 and spawn_rate > 0:
-                    gilded_improvement = self._calculate_gilded_improvement(block_type, stats, spawn_rate)
-                    if gilded_improvement > 0.005:
-                        gilded_improve_label.config(text=f"+{gilded_improvement:.2f}%", foreground="#B8860B")
-                    else:
-                        gilded_improve_label.config(text="~0%", foreground="#AAAAAA")
-                else:
-                    gilded_improve_label.config(text="")
+        # Update misc card buttons
+        self._update_misc_card_buttons()
     
     def update_avg_block_stats(self):
         """Calculate and display weighted average block stats for current stage"""
