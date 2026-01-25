@@ -32,7 +32,11 @@ effective_damage = max(1, floor(total_damage - (block_armor - armor_pen)))
 
 **Important**: Damage is always an integer (floored), creating breakpoints where +1 damage can significantly increase DPS.
 
-### Enrage Ability
+### Abilities
+
+Three abilities are available in Archaeology:
+
+#### Enrage Ability
 
 Enrage provides a buff every 60 seconds that affects the next 5 hits:
 - **+20% Damage** (multiplicative with base)
@@ -41,6 +45,47 @@ Enrage provides a buff every 60 seconds that affects the next 5 hits:
 **Effective uptime**: 5/60 = 8.33% of all hits
 
 Note: The Crit Damage bonus only matters if you have Crit Chance. At 0% crit, Enrage is only +1.67% average DPS.
+
+#### Flurry Ability
+
+Flurry provides a buff every 120 seconds:
+- **+100% Attack Speed** (QoL only - stamina drains faster too, no floors/run advantage)
+- **+5 Stamina** (one-time bonus on activation)
+
+**Cooldown**: 120 seconds (reducible with fragment upgrades and misc card)
+
+#### Quake Ability
+
+Quake provides AOE damage every 180 seconds:
+- **5 Charges** every 180 seconds
+- **20% Damage** to all other blocks on the floor (not the block you're currently attacking)
+- Each hit on your target block triggers Quake splash damage to all other blocks
+
+**Critical Rules for Quake:**
+
+1. **Base Damage Only**: Quake uses ONLY base damage (`stats['total_damage']`), **NOT** affected by:
+   - ❌ Enrage damage bonus (+20%)
+   - ✅ But CAN crit (see below)
+
+2. **Splash Can Crit**: Quake splash damage **CAN crit**, but:
+   - Each block rolls **separately** for crits
+   - Some blocks may crit while others don't on the same attack
+   - Each hit rolls independently (if you hit 3 times, each block rolls 3 times)
+
+3. **Splash Target**: Splash damage only hits **other blocks**, not the block you're currently attacking
+
+4. **Armor Ignore**: Quake damage ignores armor (applied directly to HP)
+
+**Example:**
+- You have 58 base damage
+- You attack Block 1 with 3 hits while Quake is active
+- Block 2: Hit 1 crits (12 × 1.5 = 18), Hit 2 normal (12), Hit 3 crits (18) → Total: 48 damage
+- Block 3: Hit 1 normal (12), Hit 2 normal (12), Hit 3 normal (12) → Total: 36 damage
+- Block 1 (target): No Quake splash (you're attacking it directly)
+
+**Edge Case**: If only 1 block remains on the floor and Quake activates, the charge is consumed but no splash damage occurs (no other blocks to hit).
+
+**Cooldown**: 180 seconds (reducible with fragment upgrades and misc card)
 
 ### Skills
 

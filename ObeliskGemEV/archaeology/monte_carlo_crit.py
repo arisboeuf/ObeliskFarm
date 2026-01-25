@@ -81,13 +81,13 @@ class MonteCarloCritSimulator:
     
     def calculate_quake_damage(self, stats: Dict) -> int:
         """
-        Calculate quake damage (20% of base damage, ignores armor).
+        Calculate base quake damage (20% of base damage, ignores armor).
         
-        IMPORTANT: Quake uses ONLY base damage - no Enrage bonus, no crits.
-        This matches game behavior where Quake AOE damage is unaffected by
-        Enrage or crit multipliers.
+        IMPORTANT: Quake uses ONLY base damage - no Enrage bonus.
+        However, Quake splash CAN crit - each block rolls separately for crits.
+        This function returns the base quake damage (before crit multiplier).
         """
-        total_damage = stats['total_damage']  # Base damage only
+        total_damage = stats['total_damage']  # Base damage only, no Enrage bonus
         return max(1, int(total_damage * 0.20))
     
     def simulate_hit_damage(self, stats: Dict, block_armor: int, 
@@ -406,22 +406,38 @@ class MonteCarloCritSimulator:
                     total_xp += xp_gain
                 
                 # Quake: each hit on this block deals 20% damage to all other blocks
-                # IMPORTANT: Quake uses ONLY base damage (no Enrage bonus, no crits)
+                # IMPORTANT: Quake uses ONLY base damage (no Enrage bonus), BUT can crit
+                # Each block rolls separately for crits - some may crit while others don't
                 if quake_state is not None:
                     # Check if quake is active (charges available)
                     is_quake_active = quake_state['charges_remaining'] > 0
                     
                     if is_quake_active:
-                        # Calculate quake damage per hit (20% of BASE damage only, no Enrage, no crits)
+                        # Calculate base quake damage per hit (20% of BASE damage only, no Enrage bonus)
                         # Use stats['total_damage'] directly - this is base damage without any bonuses
                         base_damage = stats['total_damage']  # Base damage only, no Enrage bonus
-                        quake_damage_per_hit = int(base_damage * self.QUAKE_DAMAGE_MULTIPLIER)
+                        base_quake_damage_per_hit = int(base_damage * self.QUAKE_DAMAGE_MULTIPLIER)
+                        
+                        # Get crit stats for quake splash (can crit, but uses base damage)
+                        crit_chance = stats.get('crit_chance', 0) if use_crit else 0
+                        crit_damage_mult = stats.get('crit_damage', 1.5) if use_crit else 1.0
                         
                         # Apply quake damage to all other blocks
+                        # Each block rolls separately for crits
                         for other_idx, (other_type, other_data, other_hp) in enumerate(floor_blocks):
                             if other_idx != block_idx and other_hp > 0:
-                                # Apply quake damage (20% to all blocks)
-                                quake_damage_total = quake_damage_per_hit * hits
+                                # Calculate total quake damage for this block across all hits
+                                # Each hit can crit independently, so we need to simulate per hit
+                                quake_damage_total = 0
+                                for hit in range(hits):
+                                    # Roll for crit on this hit for this block
+                                    is_crit = use_crit and crit_chance > 0 and random.random() < crit_chance
+                                    if is_crit:
+                                        quake_damage_this_hit = int(base_quake_damage_per_hit * crit_damage_mult)
+                                    else:
+                                        quake_damage_this_hit = base_quake_damage_per_hit
+                                    quake_damage_total += quake_damage_this_hit
+                                
                                 # Quake damage ignores armor
                                 floor_blocks[other_idx] = (other_type, other_data, max(0, other_hp - quake_damage_total))
                         
