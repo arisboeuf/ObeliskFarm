@@ -163,7 +163,8 @@ def simulate_event_run(player: PlayerStats, enemy: EnemyStats) -> Tuple[int, int
                         dmg = 0
                     
                     player_hp -= dmg
-                    time += enemy.default_atk_time * (e_atk_time_left / (enemy.atk_speed + wave * 0.02))
+                    # Time for attack = time_left / atk_speed (atk_speed is attacks per second)
+                    time += e_atk_time_left / (enemy.atk_speed + wave * 0.02)
                 else:
                     # Player attacks first
                     e_atk_prog += (p_atk_time_left / player.atk_speed) * (enemy.atk_speed + wave * 0.02)
@@ -176,7 +177,8 @@ def simulate_event_run(player: PlayerStats, enemy: EnemyStats) -> Tuple[int, int
                         dmg = round_number(player.atk * player.crit_dmg)
                     
                     enemy_hp -= dmg
-                    time += player.default_atk_time * (p_atk_time_left / player.atk_speed)
+                    # Time for attack = time_left / atk_speed (atk_speed is attacks per second)
+                    time += p_atk_time_left / player.atk_speed
             
             # Walk time between enemies
             time += player.default_walk_time / player.walk_speed
@@ -254,7 +256,16 @@ def simulate_event_run_realtime(player: PlayerStats, enemy: EnemyStats):
                 if p_atk_time_left > e_atk_time_left:
                     # Enemy attacks first
                     p_atk_prog += (e_atk_time_left / (enemy.atk_speed + wave * 0.02)) * player.atk_speed
-                    e_atk_prog -= 1
+                    # Reset enemy attack progress (should be >= 1 when enemy attacks)
+                    if e_atk_prog >= 1.0:
+                        e_atk_prog -= 1.0
+                    else:
+                        e_atk_prog = 0.0
+                    # Clamp to ensure it's in 0-1 range
+                    if e_atk_prog < 0:
+                        e_atk_prog = 0
+                    if e_atk_prog > 1.0:
+                        e_atk_prog = 1.0
                     
                     # Calculate enemy damage
                     dmg = max(1, round_number(enemy.atk + wave * enemy.atk_scaling))
@@ -275,10 +286,11 @@ def simulate_event_run_realtime(player: PlayerStats, enemy: EnemyStats):
                         is_blocked = True
                     
                     player_hp -= dmg
-                    time += enemy.default_atk_time * (e_atk_time_left / (enemy.atk_speed + wave * 0.02))
+                    # Time for attack = time_left / atk_speed (atk_speed is attacks per second)
+                    time += e_atk_time_left / (enemy.atk_speed + wave * 0.02)
                     
                     # Calculate time delta for this attack
-                    attack_time_delta = enemy.default_atk_time * (e_atk_time_left / (enemy.atk_speed + wave * 0.02)) / player.game_speed
+                    attack_time_delta = (e_atk_time_left / (enemy.atk_speed + wave * 0.02)) / player.game_speed
                     
                     # Yield enemy attack event
                     yield {
@@ -296,7 +308,22 @@ def simulate_event_run_realtime(player: PlayerStats, enemy: EnemyStats):
                 else:
                     # Player attacks first
                     e_atk_prog += (p_atk_time_left / player.atk_speed) * (enemy.atk_speed + wave * 0.02)
-                    p_atk_prog -= 1
+                    # Clamp e_atk_prog to 0-1 range (can exceed 1 if player is very slow)
+                    if e_atk_prog > 1.0:
+                        e_atk_prog = 1.0
+                    if e_atk_prog < 0:
+                        e_atk_prog = 0
+                    
+                    # Reset player attack progress (should be >= 1 when player attacks)
+                    if p_atk_prog >= 1.0:
+                        p_atk_prog -= 1.0
+                    else:
+                        p_atk_prog = 0.0
+                    # Clamp to ensure it's in 0-1 range
+                    if p_atk_prog < 0:
+                        p_atk_prog = 0
+                    if p_atk_prog > 1.0:
+                        p_atk_prog = 1.0
                     
                     dmg = player.atk
                     is_crit = False
@@ -307,10 +334,11 @@ def simulate_event_run_realtime(player: PlayerStats, enemy: EnemyStats):
                         is_crit = True
                     
                     enemy_hp -= dmg
-                    time += player.default_atk_time * (p_atk_time_left / player.atk_speed)
+                    # Time for attack = time_left / atk_speed (atk_speed is attacks per second)
+                    time += p_atk_time_left / player.atk_speed
                     
                     # Calculate time delta for this attack
-                    attack_time_delta = player.default_atk_time * (p_atk_time_left / player.atk_speed) / player.game_speed
+                    attack_time_delta = (p_atk_time_left / player.atk_speed) / player.game_speed
                     
                     # Yield player attack event
                     yield {
@@ -327,24 +355,60 @@ def simulate_event_run_realtime(player: PlayerStats, enemy: EnemyStats):
                     
                     # Check if enemy killed
                     if enemy_hp <= 0:
-                        # Calculate walk time immediately
+                        # Enemy killed event should have the same time as the player attack
+                        kill_time = time / player.game_speed
+                        
+                        # Calculate walk time for walking event (if needed)
                         walk_time = player.default_walk_time / max(player.walk_speed, 0.01)
                         walk_time_delta = walk_time / player.game_speed
-                        time += walk_time
                         
                         yield {
                             'type': 'enemy_killed',
                             'enemy_hp': 0,
                             'player_hp': player_hp,
-                            'time': time / player.game_speed,
+                            'time': kill_time,  # Same time as the killing attack
                             'time_delta': 0.0,  # Instant event
                             'start_walking': player_hp > 0 and subwave > 1,  # Start walking if not last enemy
                             'walk_duration': walk_time_delta if (player_hp > 0 and subwave > 1) else 0.0,
                             'player_attack_progress': p_atk_prog,
                             'enemy_attack_progress': e_atk_prog
                         }
-                        # If we should start walking, don't yield another walking event
+                        # If we should start walking, yield movement events (0%, 50%, 100%) and reset player attack progress
                         if player_hp > 0 and subwave > 1:
+                            # Only add walk_time to simulation time if we're actually walking
+                            time += walk_time
+                            # Yield 0% movement event (start of walk)
+                            yield {
+                                'type': 'walking_0pct',
+                                'time': kill_time,
+                                'time_delta': 0.0,  # Instant event
+                                'walk_duration': walk_time_delta,
+                                'player_attack_progress': 0.0,  # Reset after walk start
+                                'enemy_attack_progress': e_atk_prog
+                            }
+                            # Yield 50% movement event
+                            walk_mid_time = kill_time + walk_time_delta / 2.0
+                            yield {
+                                'type': 'walking_50pct',
+                                'time': walk_mid_time,
+                                'time_delta': walk_time_delta / 2.0,
+                                'walk_duration': walk_time_delta,
+                                'player_attack_progress': 0.0,
+                                'enemy_attack_progress': e_atk_prog
+                            }
+                            # Yield 100% movement event (end of walk)
+                            walk_end_time = kill_time + walk_time_delta
+                            yield {
+                                'type': 'walking_100pct',
+                                'time': walk_end_time,
+                                'time_delta': walk_time_delta / 2.0,  # Second half of walk
+                                'walk_duration': walk_time_delta,
+                                'player_attack_progress': 0.0,
+                                'enemy_attack_progress': e_atk_prog
+                            }
+                            # Reset player attack progress after walk (new combat starts)
+                            # Enemy attack progress is preserved (enemy is waiting)
+                            p_atk_prog = 0.0
                             break  # Exit combat loop, walking already started in enemy_killed
             
             # Walk time between enemies (only if enemy wasn't killed in combat)
@@ -352,18 +416,45 @@ def simulate_event_run_realtime(player: PlayerStats, enemy: EnemyStats):
             if enemy_hp > 0:
                 walk_time = player.default_walk_time / max(player.walk_speed, 0.01)
                 walk_time_delta = walk_time / player.game_speed
-                time += walk_time
                 
-                # Yield walking event (only if not dead and not last enemy)
+                # Yield walking events (only if not dead and not last enemy)
                 if player_hp > 0 and subwave > 1:
+                    # Calculate walk start time BEFORE adding walk_time
+                    walk_start_time = time / player.game_speed
+                    # Only add walk_time to simulation time if we're actually walking
+                    time += walk_time
+                    # Yield 0% movement event (start of walk)
                     yield {
-                        'type': 'walking',
-                        'time': time / player.game_speed,
-                        'time_delta': walk_time_delta,
+                        'type': 'walking_0pct',
+                        'time': walk_start_time,
+                        'time_delta': 0.0,  # Instant event
                         'walk_duration': walk_time_delta,
                         'player_attack_progress': p_atk_prog,
                         'enemy_attack_progress': e_atk_prog
                     }
+                    # Yield 50% movement event
+                    walk_mid_time = walk_start_time + walk_time_delta / 2.0
+                    yield {
+                        'type': 'walking_50pct',
+                        'time': walk_mid_time,
+                        'time_delta': walk_time_delta / 2.0,
+                        'walk_duration': walk_time_delta,
+                        'player_attack_progress': 0.0,  # Reset after walk start
+                        'enemy_attack_progress': e_atk_prog
+                    }
+                    # Yield 100% movement event (end of walk)
+                    walk_end_time = walk_start_time + walk_time_delta
+                    yield {
+                        'type': 'walking_100pct',
+                        'time': walk_end_time,
+                        'time_delta': walk_time_delta / 2.0,  # Second half of walk
+                        'walk_duration': walk_time_delta,
+                        'player_attack_progress': 0.0,
+                        'enemy_attack_progress': e_atk_prog
+                    }
+                    # Reset player attack progress after walk (new combat starts)
+                    # Enemy attack progress is preserved (enemy is waiting)
+                    p_atk_prog = 0.0
             
             if player_hp <= 0 and final_subwave == 0:
                 final_subwave = subwave
@@ -526,9 +617,12 @@ def calculate_effective_hp(player: PlayerStats, enemy: EnemyStats, wave: int) ->
     actual_avg_dmg = actual_enemy_atk * (1.0 + actual_enemy_crit_chance * (actual_enemy_crit_dmg - 1.0))
     
     # Calculate base enemy damage (without debuffs) for comparison
-    base_enemy_atk = 2.5 + wave * 0.6  # From ENEMY_BASE_STATS
-    base_enemy_crit = 0 + wave  # Base crit = wave
-    base_enemy_crit_dmg = 1.0 + wave * 0.05  # Base crit dmg scaling
+    # Use base EnemyStats values (before any debuffs are applied)
+    from .stats import EnemyStats as BaseEnemyStats
+    base_enemy = BaseEnemyStats()
+    base_enemy_atk = base_enemy.atk + wave * base_enemy.atk_scaling
+    base_enemy_crit = base_enemy.crit + wave
+    base_enemy_crit_dmg = base_enemy.crit_dmg + base_enemy.crit_dmg_scaling * wave
     
     base_enemy_crit_chance = max(0, base_enemy_crit / 100.0)
     base_avg_dmg = base_enemy_atk * (1.0 + base_enemy_crit_chance * (base_enemy_crit_dmg - 1.0))
@@ -637,8 +731,8 @@ def calculate_damage_breakpoints(player: PlayerStats, enemy: EnemyStats,
             continue  # Already at or past this breakpoint
         
         # Calculate time saved per enemy
-        # Time per hit = default_atk_time / atk_speed
-        time_per_hit = player.default_atk_time / player.atk_speed
+        # Time per hit = 1.0 / atk_speed (atk_speed is attacks per second)
+        time_per_hit = 1.0 / player.atk_speed
         time_saved = time_per_hit  # Save one hit worth of time
         
         # Create unique key
@@ -702,7 +796,8 @@ def calculate_breakpoint_efficiency(breakpoints: List[Dict], player: PlayerStats
             
             if new_hits < current_hits:
                 hits_saved = current_hits - new_hits
-                time_per_hit = player.default_atk_time / player.atk_speed
+                # Time per hit = 1.0 / atk_speed (atk_speed is attacks per second)
+                time_per_hit = 1.0 / player.atk_speed
                 total_time_saved += hits_saved * time_per_hit * 5  # 5 enemies per wave
                 waves_affected += 1
         

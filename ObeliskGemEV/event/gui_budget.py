@@ -1067,10 +1067,12 @@ class BudgetOptimizerPanel:
             # Calculate multipliers
             block_mult = 1.0 / (1.0 - player.block_chance) if player.block_chance < 1.0 else float('inf')
             
-            # Calculate base enemy damage (no debuffs)
-            base_enemy_atk = 2.5 + next_prestige_wave * 0.6
-            base_enemy_crit = 0 + next_prestige_wave
-            base_enemy_crit_dmg = 1.0 + next_prestige_wave * 0.05
+            # Calculate base enemy damage (no debuffs) - use base EnemyStats
+            from .stats import EnemyStats as BaseEnemyStats
+            base_enemy = BaseEnemyStats()
+            base_enemy_atk = base_enemy.atk + next_prestige_wave * base_enemy.atk_scaling
+            base_enemy_crit = base_enemy.crit + next_prestige_wave
+            base_enemy_crit_dmg = base_enemy.crit_dmg + base_enemy.crit_dmg_scaling * next_prestige_wave
             base_enemy_crit_chance = max(0, base_enemy_crit / 100.0)
             base_avg_dmg = base_enemy_atk * (1.0 + base_enemy_crit_chance * (base_enemy_crit_dmg - 1.0))
             
