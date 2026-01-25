@@ -155,6 +155,7 @@ Impact: Tooltips now follow DESIGN_GUIDELINES.md standards.
    - Keep header < 50 chars
    - Include component name
    - Explain rationale thoroughly
+   - **CRITICAL: Always use `required_permissions: ['all']` for git commands** to avoid lock file permission issues
 
 4. **Never:**
    - Commit without [TAG]
