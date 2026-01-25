@@ -2547,6 +2547,18 @@ class ArchaeologySimulatorWindow:
             tk.Label(content, text="Misc Card (Ability Cooldown)", font=("Arial", 10, "bold"),
                     background="#FFFFFF", foreground="#9C27B0").pack(anchor="w")
             
+            # Get current misc card level
+            misc_card_level = getattr(self, 'misc_card_level', 0)
+            misc_card_status = ""
+            if misc_card_level == 1:
+                misc_card_status = "✓ ACTIVE: Card (Normal)"
+            elif misc_card_level == 2:
+                misc_card_status = "✓ ACTIVE: Gilded Card"
+            elif misc_card_level == 3:
+                misc_card_status = "✓ ACTIVE: Polychrome Card"
+            else:
+                misc_card_status = "(Not active)"
+            
             lines = [
                 "",
                 "Reduces cooldown for all abilities:",
@@ -2573,6 +2585,13 @@ class ArchaeologySimulatorWindow:
                 tk.Label(content, text=line, font=("Arial", 9),
                         background="#FFFFFF", justify=tk.LEFT).pack(anchor="w")
             
+            # Add current status
+            tk.Label(content, text="", background="#FFFFFF").pack()
+            status_color = "#2E7D32" if misc_card_level > 0 else "#888888"
+            tk.Label(content, text=f"Current Status: {misc_card_status}", 
+                    font=("Arial", 9, "bold"), background="#FFFFFF", 
+                    foreground=status_color).pack(anchor="w")
+            
             widget.tooltip = tooltip
         
         def on_leave(event):
@@ -2583,14 +2602,40 @@ class ArchaeologySimulatorWindow:
         widget.bind("<Enter>", on_enter)
         widget.bind("<Leave>", on_leave)
     
+    def _get_active_cards_summary(self):
+        """Get a summary of active cards for display in tooltips"""
+        active_block_cards = []
+        for (block_type, tier), level in self.block_cards.items():
+            if level > 0:
+                card_type = ["", "Card", "Gilded", "Polychrome"][level]
+                active_block_cards.append(f"{block_type.capitalize()} T{tier}: {card_type}")
+        
+        misc_card_level = getattr(self, 'misc_card_level', 0)
+        misc_card_text = ""
+        if misc_card_level > 0:
+            misc_card_type = ["", "Card", "Gilded", "Polychrome"][misc_card_level]
+            misc_card_text = f"Misc: {misc_card_type}"
+        
+        return active_block_cards, misc_card_text
+    
     def _create_cards_help_tooltip(self, widget):
         """Creates a tooltip explaining the Cards feature"""
         def on_enter(event):
             tooltip = tk.Toplevel()
             tooltip.wm_overrideredirect(True)
             
-            tooltip_width = 280
-            tooltip_height = 320
+            # Get active cards summary
+            active_block_cards, misc_card_text = self._get_active_cards_summary()
+            
+            # Calculate tooltip height based on active cards
+            base_height = 320
+            if active_block_cards:
+                base_height += len(active_block_cards) * 12 + 20
+            if misc_card_text:
+                base_height += 15
+            
+            tooltip_width = 320
+            tooltip_height = min(base_height, 600)  # Cap at 600
             screen_width = tooltip.winfo_screenwidth()
             screen_height = tooltip.winfo_screenheight()
             x, y = calculate_tooltip_position(event, tooltip_width, tooltip_height, screen_width, screen_height)
@@ -2639,6 +2684,28 @@ class ArchaeologySimulatorWindow:
             for line in lines:
                 tk.Label(content, text=line, font=("Arial", 9),
                         background="#FFFFFF", justify=tk.LEFT).pack(anchor="w")
+            
+            # Add active cards section
+            if active_block_cards or misc_card_text:
+                tk.Label(content, text="", background="#FFFFFF").pack()
+                tk.Label(content, text="Active Cards:", font=("Arial", 9, "bold"),
+                        background="#FFFFFF", foreground="#2E7D32").pack(anchor="w")
+                
+                if active_block_cards:
+                    for card_info in active_block_cards:
+                        tk.Label(content, text=f"  ✓ {card_info}", font=("Arial", 9),
+                                background="#FFFFFF", foreground="#2E7D32",
+                                justify=tk.LEFT).pack(anchor="w")
+                
+                if misc_card_text:
+                    tk.Label(content, text=f"  ✓ {misc_card_text}", font=("Arial", 9),
+                            background="#FFFFFF", foreground="#2E7D32",
+                            justify=tk.LEFT).pack(anchor="w")
+                
+                if not active_block_cards and not misc_card_text:
+                    tk.Label(content, text="  (No cards active)", font=("Arial", 9),
+                            background="#FFFFFF", foreground="#888888",
+                            justify=tk.LEFT).pack(anchor="w")
             
             widget.tooltip = tooltip
         
@@ -4145,6 +4212,39 @@ class ArchaeologySimulatorWindow:
         )
         mc_fragment_farmer_button.pack(fill=tk.X, pady=(5, 3))
         
+        # === MC XP/h MAXIMIZER ===
+        mc_xp_maximizer_section = tk.Frame(col_frame, background="#B39DDB", relief=tk.RIDGE, borderwidth=2)
+        mc_xp_maximizer_section.pack(fill=tk.X, padx=5, pady=(0, 10))
+        
+        mc_xp_maximizer_header = tk.Frame(mc_xp_maximizer_section, background="#B39DDB")
+        mc_xp_maximizer_header.pack(fill=tk.X, padx=5, pady=(5, 0))
+        
+        tk.Label(mc_xp_maximizer_header, text="MC XP/h Maximizer", font=("Arial", 10, "bold"), 
+                background="#B39DDB", foreground="#4A148C").pack(side=tk.LEFT)
+        
+        mc_xp_maximizer_help = tk.Label(mc_xp_maximizer_header, text="?", font=("Arial", 9, "bold"), 
+                                          cursor="hand2", foreground="#4A148C", background="#B39DDB")
+        mc_xp_maximizer_help.pack(side=tk.LEFT, padx=(5, 0))
+        self._create_xp_maximizer_help_tooltip(mc_xp_maximizer_help)
+        
+        xp_maximizer_inner = tk.Frame(mc_xp_maximizer_section, background="#EDE7F6", padx=8, pady=5)
+        xp_maximizer_inner.pack(fill=tk.X)
+        
+        # MC XP/h Maximizer button
+        mc_xp_maximizer_button = tk.Button(
+            xp_maximizer_inner,
+            text="MC XP/h Maximizer",
+            command=self.run_mc_xp_maximizer,
+            font=("Arial", 9),
+            bg="#673AB7",
+            fg="#FFFFFF",
+            activebackground="#9575CD",
+            activeforeground="#FFFFFF",
+            relief=tk.RAISED,
+            borderwidth=2
+        )
+        mc_xp_maximizer_button.pack(fill=tk.X, pady=(5, 3))
+        
         # === Shared MC options (Screening N, Refinement N – buttons only, no typing) ===
         mc_shared_frame = tk.Frame(col_frame, background="#F3E5F5", relief=tk.FLAT)
         mc_shared_frame.pack(fill=tk.X, padx=5, pady=(0, 5))
@@ -4383,6 +4483,9 @@ class ArchaeologySimulatorWindow:
             tk.Label(content, text="Fragment Farm Planner", font=("Arial", 10, "bold"),
                     background="#FFFFFF", foreground="#7B1FA2").pack(anchor="w")
             
+            # Get active cards summary
+            active_block_cards, misc_card_text = self._get_active_cards_summary()
+            
             lines = [
                 "",
                 "Optimize skill points for fragment farming.",
@@ -4404,6 +4507,32 @@ class ArchaeologySimulatorWindow:
             for line in lines:
                 tk.Label(content, text=line, font=("Arial", 9),
                         background="#FFFFFF", justify=tk.LEFT).pack(anchor="w")
+            
+            # Add active cards section
+            if active_block_cards or misc_card_text:
+                tk.Label(content, text="", background="#FFFFFF").pack()
+                tk.Label(content, text="Active Cards (used in MC):", font=("Arial", 9, "bold"),
+                        background="#FFFFFF", foreground="#7B1FA2").pack(anchor="w")
+                
+                if active_block_cards:
+                    for card_info in active_block_cards[:8]:  # Limit to 8 for space
+                        tk.Label(content, text=f"  ✓ {card_info}", font=("Arial", 8),
+                                background="#FFFFFF", foreground="#7B1FA2",
+                                justify=tk.LEFT).pack(anchor="w")
+                    if len(active_block_cards) > 8:
+                        tk.Label(content, text=f"  ... and {len(active_block_cards) - 8} more", 
+                                font=("Arial", 8), background="#FFFFFF", foreground="#888888",
+                                justify=tk.LEFT).pack(anchor="w")
+                
+                if misc_card_text:
+                    tk.Label(content, text=f"  ✓ {misc_card_text}", font=("Arial", 8),
+                            background="#FFFFFF", foreground="#7B1FA2",
+                            justify=tk.LEFT).pack(anchor="w")
+                
+                if not active_block_cards and not misc_card_text:
+                    tk.Label(content, text="  (No cards active)", font=("Arial", 8),
+                            background="#FFFFFF", foreground="#888888",
+                            justify=tk.LEFT).pack(anchor="w")
             
             widget.tooltip = tooltip
         
@@ -4516,6 +4645,9 @@ class ArchaeologySimulatorWindow:
             tk.Label(content, text="MC Stage Optimizer", font=("Arial", 10, "bold"),
                     background="#FFFFFF", foreground="#9C27B0").pack(anchor="w")
             
+            # Get active cards summary
+            active_block_cards, misc_card_text = self._get_active_cards_summary()
+            
             lines = [
                 "",
                 "Find the optimal skill distribution to reach",
@@ -4558,6 +4690,124 @@ class ArchaeologySimulatorWindow:
             for line in lines:
                 tk.Label(content, text=line, font=("Arial", 9),
                         background="#FFFFFF", justify=tk.LEFT).pack(anchor="w")
+            
+            # Add active cards section
+            if active_block_cards or misc_card_text:
+                tk.Label(content, text="", background="#FFFFFF").pack()
+                tk.Label(content, text="Active Cards (used in MC):", font=("Arial", 9, "bold"),
+                        background="#FFFFFF", foreground="#9C27B0").pack(anchor="w")
+                
+                if active_block_cards:
+                    for card_info in active_block_cards[:8]:  # Limit to 8 for space
+                        tk.Label(content, text=f"  ✓ {card_info}", font=("Arial", 8),
+                                background="#FFFFFF", foreground="#9C27B0",
+                                justify=tk.LEFT).pack(anchor="w")
+                    if len(active_block_cards) > 8:
+                        tk.Label(content, text=f"  ... and {len(active_block_cards) - 8} more", 
+                                font=("Arial", 8), background="#FFFFFF", foreground="#888888",
+                                justify=tk.LEFT).pack(anchor="w")
+                
+                if misc_card_text:
+                    tk.Label(content, text=f"  ✓ {misc_card_text}", font=("Arial", 8),
+                            background="#FFFFFF", foreground="#9C27B0",
+                            justify=tk.LEFT).pack(anchor="w")
+                
+                if not active_block_cards and not misc_card_text:
+                    tk.Label(content, text="  (No cards active)", font=("Arial", 8),
+                            background="#FFFFFF", foreground="#888888",
+                            justify=tk.LEFT).pack(anchor="w")
+            
+            widget.tooltip = tooltip
+        
+        def on_leave(event):
+            if hasattr(widget, 'tooltip'):
+                widget.tooltip.destroy()
+                del widget.tooltip
+        
+        widget.bind("<Enter>", on_enter)
+        widget.bind("<Leave>", on_leave)
+    
+    def _create_xp_maximizer_help_tooltip(self, widget):
+        """Creates a tooltip explaining the MC XP/h Maximizer feature"""
+        def on_enter(event):
+            tooltip = tk.Toplevel()
+            tooltip.wm_overrideredirect(True)
+            
+            tooltip_width = 380
+            tooltip_height = 320
+            screen_width = tooltip.winfo_screenwidth()
+            screen_height = tooltip.winfo_screenheight()
+            x, y = calculate_tooltip_position(event, tooltip_width, tooltip_height, screen_width, screen_height)
+            tooltip.wm_geometry(f"+{x}+{y}")
+            
+            outer_frame = tk.Frame(tooltip, background="#673AB7", relief=tk.FLAT)
+            outer_frame.pack(padx=2, pady=2)
+            
+            inner_frame = tk.Frame(outer_frame, background="#FFFFFF")
+            inner_frame.pack(padx=1, pady=1)
+            
+            content = tk.Frame(inner_frame, background="#FFFFFF", padx=10, pady=8)
+            content.pack()
+            
+            tk.Label(content, text="MC XP/h Maximizer", font=("Arial", 10, "bold"),
+                    background="#FFFFFF", foreground="#673AB7").pack(anchor="w")
+            
+            # Get active cards summary
+            active_block_cards, misc_card_text = self._get_active_cards_summary()
+            
+            lines = [
+                "",
+                "Find the optimal skill distribution to",
+                "maximize XP per hour.",
+                "",
+                "Uses Monte Carlo simulation to test all",
+                "possible skill distributions and finds the",
+                "one that produces the highest average",
+                "XP per hour.",
+                "",
+                "Requirements:",
+                "  - STR must always be included (STR > 0)",
+                "  - Uses Archaeology Level for skill points",
+                "",
+                "The simulation starts at Stage 1 and finds",
+                "the optimal stage for XP farming for each",
+                "build configuration.",
+                "",
+                "Results show:",
+                "  - Optimal skill distribution",
+                "  - Performance metrics (XP/h, Fragments/h)",
+                "  - XP/h distribution histogram",
+            ]
+            
+            for line in lines:
+                tk.Label(content, text=line, font=("Arial", 9),
+                        background="#FFFFFF", justify=tk.LEFT).pack(anchor="w")
+            
+            # Add active cards section
+            if active_block_cards or misc_card_text:
+                tk.Label(content, text="", background="#FFFFFF").pack()
+                tk.Label(content, text="Active Cards (used in MC):", font=("Arial", 9, "bold"),
+                        background="#FFFFFF", foreground="#673AB7").pack(anchor="w")
+                
+                if active_block_cards:
+                    for card_info in active_block_cards[:8]:  # Limit to 8 for space
+                        tk.Label(content, text=f"  ✓ {card_info}", font=("Arial", 8),
+                                background="#FFFFFF", foreground="#673AB7",
+                                justify=tk.LEFT).pack(anchor="w")
+                    if len(active_block_cards) > 8:
+                        tk.Label(content, text=f"  ... and {len(active_block_cards) - 8} more", 
+                                font=("Arial", 8), background="#FFFFFF", foreground="#888888",
+                                justify=tk.LEFT).pack(anchor="w")
+                
+                if misc_card_text:
+                    tk.Label(content, text=f"  ✓ {misc_card_text}", font=("Arial", 8),
+                            background="#FFFFFF", foreground="#673AB7",
+                            justify=tk.LEFT).pack(anchor="w")
+                
+                if not active_block_cards and not misc_card_text:
+                    tk.Label(content, text="  (No cards active)", font=("Arial", 8),
+                            background="#FFFFFF", foreground="#888888",
+                            justify=tk.LEFT).pack(anchor="w")
             
             widget.tooltip = tooltip
         
@@ -4991,21 +5241,27 @@ class ArchaeologySimulatorWindow:
         
         if card_btn:
             if card_level == 1:
-                card_btn.config(foreground="#FFFFFF", background="#4CAF50", relief=tk.SUNKEN)
+                card_btn.config(text="✓ Card", foreground="#FFFFFF", background="#4CAF50", 
+                              relief=tk.SUNKEN, borderwidth=2, font=("Arial", 7, "bold"))
             else:
-                card_btn.config(foreground="#888888", background="#E8F5E9", relief=tk.RAISED)
+                card_btn.config(text="Card", foreground="#888888", background="#E8F5E9", 
+                              relief=tk.RAISED, borderwidth=1, font=("Arial", 7))
         
         if gilded_btn:
             if card_level == 2:
-                gilded_btn.config(foreground="#FFFFFF", background="#FFD700", relief=tk.SUNKEN)
+                gilded_btn.config(text="✓ Gild", foreground="#000000", background="#FFD700", 
+                               relief=tk.SUNKEN, borderwidth=2, font=("Arial", 7, "bold"))
             else:
-                gilded_btn.config(foreground="#888888", background="#E8F5E9", relief=tk.RAISED)
+                gilded_btn.config(text="Gild", foreground="#888888", background="#E8F5E9", 
+                               relief=tk.RAISED, borderwidth=1, font=("Arial", 7))
         
         if polychrome_btn:
             if card_level == 3:
-                polychrome_btn.config(foreground="#FFFFFF", background="#9C27B0", relief=tk.SUNKEN)
+                polychrome_btn.config(text="✓ Poly", foreground="#FFFFFF", background="#9C27B0", 
+                                    relief=tk.SUNKEN, borderwidth=2, font=("Arial", 7, "bold"))
             else:
-                polychrome_btn.config(foreground="#888888", background="#E8F5E9", relief=tk.RAISED)
+                polychrome_btn.config(text="Poly", foreground="#888888", background="#E8F5E9", 
+                                    relief=tk.RAISED, borderwidth=1, font=("Arial", 7))
     
     def _update_card_buttons(self):
         """Update the visual state of all card buttons based on current card levels"""
@@ -5021,21 +5277,27 @@ class ArchaeologySimulatorWindow:
             
             if card_btn:
                 if card_level == 1:
-                    card_btn.config(foreground="#FFFFFF", background="#4CAF50", relief=tk.SUNKEN)
+                    card_btn.config(text="✓ Card", foreground="#FFFFFF", background="#4CAF50", 
+                                  relief=tk.SUNKEN, borderwidth=2, font=("Arial", 7, "bold"))
                 else:
-                    card_btn.config(foreground="#888888", background="#E8F5E9", relief=tk.RAISED)
+                    card_btn.config(text="Card", foreground="#888888", background="#E8F5E9", 
+                                  relief=tk.RAISED, borderwidth=1, font=("Arial", 7))
             
             if gilded_btn:
                 if card_level == 2:
-                    gilded_btn.config(foreground="#FFFFFF", background="#FFD700", relief=tk.SUNKEN)
+                    gilded_btn.config(text="✓ Gild", foreground="#000000", background="#FFD700", 
+                                   relief=tk.SUNKEN, borderwidth=2, font=("Arial", 7, "bold"))
                 else:
-                    gilded_btn.config(foreground="#888888", background="#E8F5E9", relief=tk.RAISED)
+                    gilded_btn.config(text="Gild", foreground="#888888", background="#E8F5E9", 
+                                    relief=tk.RAISED, borderwidth=1, font=("Arial", 7))
             
             if polychrome_btn:
                 if card_level == 3:
-                    polychrome_btn.config(foreground="#FFFFFF", background="#9C27B0", relief=tk.SUNKEN)
+                    polychrome_btn.config(text="✓ Poly", foreground="#FFFFFF", background="#9C27B0", 
+                                        relief=tk.SUNKEN, borderwidth=2, font=("Arial", 7, "bold"))
                 else:
-                    polychrome_btn.config(foreground="#888888", background="#E8F5E9", relief=tk.RAISED)
+                    polychrome_btn.config(text="Poly", foreground="#888888", background="#E8F5E9", 
+                                         relief=tk.RAISED, borderwidth=1, font=("Arial", 7))
     
     def _create_block_breakpoint_tooltip(self, widget, block_type):
         """Creates a dynamic tooltip for a block's breakpoint row"""
@@ -5432,6 +5694,44 @@ class ArchaeologySimulatorWindow:
                 best_stage = test_stage
         
         return (best_stage, best_frag_per_hour)
+    
+    def find_optimal_stage_for_xp(self, stats: dict, max_stage_to_test: int = 100) -> tuple:
+        """
+        Find the optimal starting stage for maximum XP per hour.
+        
+        Tests different stages to find where the build can farm XP most efficiently.
+        
+        Args:
+            stats: Current stats dictionary
+            max_stage_to_test: Maximum stage to test (default 100)
+        
+        Returns:
+            tuple: (optimal_stage, xp_per_hour_at_optimal_stage)
+        """
+        best_stage = 1
+        best_xp_per_hour = 0.0
+        
+        # Test stages efficiently (sample every 5-10 stages)
+        stages_to_test = [1]
+        interval = max(1, max_stage_to_test // 20)  # Test ~20 stages max
+        for stage in range(interval + 1, min(max_stage_to_test + 1, 101), interval):
+            stages_to_test.append(stage)
+        if stages_to_test[-1] != max_stage_to_test and max_stage_to_test <= 100:
+            stages_to_test.append(max_stage_to_test)
+        
+        for test_stage in stages_to_test:
+            # Calculate XP/hour at this stage
+            xp_per_run = self.calculate_xp_per_run(stats, test_stage)
+            floors = self.calculate_floors_per_run(stats, test_stage)
+            run_duration = self.calculate_run_duration(stats, test_stage)
+            runs_per_hour = 3600 / run_duration if run_duration > 0 else 0
+            xp_per_hour = xp_per_run * runs_per_hour
+            
+            if xp_per_hour > best_xp_per_hour:
+                best_xp_per_hour = xp_per_hour
+                best_stage = test_stage
+        
+        return (best_stage, best_xp_per_hour)
     
     def calculate_frag_forecast(self, levels_ahead: int, target_frag_type: str):
         """
@@ -6064,6 +6364,393 @@ class ArchaeologySimulatorWindow:
                         self._show_fragment_farmer_results(
                             frag_per_hour_samples, skill_points_display, num_points,
                             target_frag, final_optimal_stage, metrics_samples
+                        )
+                    ))
+            except (tk.TclError, RuntimeError):
+                # Window destroyed, just restore skill points
+                self.skill_points = original_points.copy()
+        
+        # Run in separate thread to avoid blocking UI
+        thread = threading.Thread(target=run_in_thread, daemon=True)
+        thread.start()
+    
+    def run_mc_xp_maximizer(self):
+        """Run Monte Carlo simulations to find optimal skill distribution for maximum XP per hour.
+        
+        Tests different skill distributions using brute-force approach and finds the optimal stage
+        for XP farming. Runs MC simulations starting at Stage 1 (always unbiased).
+        Breakpoints are automatically considered in the MC simulation.
+        
+        Shows a single histogram with XP/hour distribution for the best skill setup.
+        """
+        import threading
+        
+        # Save original skill points BEFORE reset (so we know what the user currently has)
+        original_points = self.skill_points.copy()
+        
+        # Get Archaeology Level (shared across all planners)
+        # This represents how many ADDITIONAL skill points to allocate optimally
+        num_points = self.shared_planner_points.get() if hasattr(self, 'shared_planner_points') else 20
+        
+        # Get MC simulation N values (shared by MC Fragment Farmer and MC Stage Optimizer)
+        # These are read from the shared UI controls for Screening N and Refinement N
+        # For calculation: enforce minimums (50 for screening, 100 for refinement)
+        # For display: show actual values from UI
+        screening_n_display = self.mc_screening_n_var.get() if hasattr(self, 'mc_screening_n_var') else 200
+        refinement_n_display = self.mc_refinement_n_var.get() if hasattr(self, 'mc_refinement_n_var') else 500
+        screening_sims = max(50, min(500, screening_n_display))
+        refinement_sims = max(100, min(2000, refinement_n_display))
+        
+        # Show loading dialog
+        loading_window = self._show_loading_dialog(
+            f"Running MC XP/h Maximizer...\n"
+            f"Screening N={screening_n_display}, Refinement N={refinement_n_display}. Testing skill distributions..."
+        )
+        
+        def run_in_thread():
+            # Capture screening_sims and refinement_sims from outer scope to ensure they're available in thread
+            # Also capture display values to show actual UI values in progress messages
+            local_screening_sims = screening_sims
+            local_refinement_sims = refinement_sims
+            local_screening_n_display = screening_n_display
+            local_refinement_n_display = refinement_n_display
+            
+            # Always start at Floor 1 (unbiased) - this is critical for proper simulation
+            starting_floor = 1
+            
+            # Start with original skill points (current distribution)
+            # We will add num_points additional points optimally
+            self.skill_points = original_points.copy()
+            
+            enrage_enabled = self.enrage_enabled.get() if hasattr(self, 'enrage_enabled') else True
+            flurry_enabled = self.flurry_enabled.get() if hasattr(self, 'flurry_enabled') else True
+            quake_enabled = self.quake_enabled.get() if hasattr(self, 'quake_enabled') else True
+            block_cards = self.block_cards if hasattr(self, 'block_cards') else None
+            
+            # Use brute-force approach to test ALL possible skill distributions
+            # This ensures we find the truly optimal distribution, not just a greedy approximation
+            skills = ['strength', 'agility', 'perception', 'intellect', 'luck']
+            best_distribution = {s: 0 for s in skills}
+            best_xp_per_hour_avg = 0.0
+            best_optimal_stage = 1
+            best_stats = None
+            
+            cancel_event = loading_window.loading_refs['cancel_event']
+            
+            from .monte_carlo_crit import MonteCarloCritSimulator
+            simulator = MonteCarloCritSimulator()
+            
+            # Use Dirichlet-based sampling for efficient space-filling design
+            # Instead of testing all C(n+k-1, k-1) combinations, we sample uniformly from the simplex
+            # Use 4× more samples for better coverage (same as Fragment Farmer)
+            base_n_samples = max(500, num_points * 20)
+            n_samples = base_n_samples * 4
+            
+            # Two-phase optimization approach:
+            # Phase 1: Quick screening with few sims to identify promising candidates
+            # Phase 2: Local refinement - generate new samples in promising regions
+            top_candidates_ratio = 0.05  # Keep top 5% for refinement
+            
+            combination_count = 0
+            candidate_scores = []  # List of (dist_tuple, avg_xp_per_hour, optimal_stage, stats)
+            
+            # Phase 1: Quick screening using Dirichlet sampling
+            try:
+                if self.window.winfo_exists():
+                    self.window.after(0, lambda n=local_screening_n_display, t=n_samples: 
+                                     self._safe_update_progress_label(loading_window, 
+                                                                      f"Phase 1: Screening (N={n}, {t} samples)... (0/{t})",
+                                                                      current=0, total=t))
+            except (tk.TclError, RuntimeError):
+                pass
+            
+            original_str = original_points.get('strength', 0)
+            for dist_tuple in generate_dirichlet_samples(
+                num_points, len(skills), n_samples,
+                require_str=True, original_str=original_str
+            ):
+                if cancel_event.is_set():
+                    self.skill_points = original_points.copy()
+                    return
+                
+                combination_count += 1
+                
+                # Update progress every 10 combinations for smoother progress
+                if combination_count % 10 == 0 or combination_count == n_samples:
+                    try:
+                        if self.window.winfo_exists():
+                            self.window.after(0, lambda c=combination_count, t=n_samples, n=local_screening_n_display: 
+                                             self._safe_update_progress_label(loading_window, 
+                                                                              f"Phase 1: Screening (N={n})... ({c}/{t})",
+                                                                              current=c, total=t))
+                    except (tk.TclError, RuntimeError):
+                        cancel_event.set()
+                        return
+                
+                # Apply distribution temporarily (on top of original_points)
+                for skill, points in zip(skills, dist_tuple):
+                    self.skill_points[skill] = original_points.get(skill, 0) + points
+                
+                new_stats = self.get_total_stats()
+                
+                # Find optimal stage for this build (for XP)
+                optimal_stage, _ = self.find_optimal_stage_for_xp(new_stats)
+                
+                # Quick screening: Run few MC simulations
+                xp_per_hour_samples = []
+                
+                for _ in range(local_screening_sims):
+                    result = simulator.simulate_run(
+                        new_stats, starting_floor, use_crit=True,
+                        enrage_enabled=enrage_enabled, flurry_enabled=flurry_enabled,
+                        quake_enabled=quake_enabled, block_cards=block_cards, return_metrics=True
+                    )
+                    
+                    xp_per_run = result.get('xp_per_run', 0.0)
+                    run_duration_seconds = result.get('run_duration_seconds', 1.0)
+                    runs_per_hour = 3600 / run_duration_seconds if run_duration_seconds > 0 else 0
+                    xp_per_hour = xp_per_run * runs_per_hour
+                    xp_per_hour_samples.append(xp_per_hour)
+                
+                avg_xp_per_hour = sum(xp_per_hour_samples) / len(xp_per_hour_samples) if xp_per_hour_samples else 0
+                
+                # Store candidate for potential refinement
+                candidate_scores.append((dist_tuple, avg_xp_per_hour, optimal_stage, new_stats.copy()))
+                
+                # Revert changes
+                self.skill_points = original_points.copy()
+            
+            if cancel_event.is_set():
+                return
+            
+            # Sort candidates by performance (best first)
+            candidate_scores.sort(key=lambda x: x[1], reverse=True)
+            
+            # Phase 2: Local refinement - generate new samples in promising regions
+            num_refinement_anchors = max(1, int(len(candidate_scores) * top_candidates_ratio))
+            top_anchors = candidate_scores[:num_refinement_anchors]
+            
+            # Generate local samples around top candidates
+            n_samples_per_anchor = max(5, min(15, local_refinement_sims // 50))  # Same as Fragment Farmer
+            local_radius = 2  # ±2 points per skill around anchor
+            
+            # Calculate total refinement samples
+            total_refinement_samples = num_refinement_anchors * n_samples_per_anchor
+            
+            try:
+                if self.window.winfo_exists():
+                    self.window.after(0, lambda n=local_refinement_n_display: 
+                                     self._safe_update_progress_label(loading_window, 
+                                                                      f"Phase 2: Local refinement ({total_refinement_samples} new samples around {num_refinement_anchors} anchors, N={n})... (0/{total_refinement_samples})",
+                                                                      current=0, total=total_refinement_samples))
+            except (tk.TclError, RuntimeError):
+                pass
+            
+            refinement_scores = []
+            refine_count = 0
+            
+            for refine_sample in generate_local_refinement_samples(
+                top_anchors, num_points, len(skills), n_samples_per_anchor,
+                local_radius=local_radius, require_str=True, original_str=original_str
+            ):
+                if cancel_event.is_set():
+                    self.skill_points = original_points.copy()
+                    return
+                
+                refine_count += 1
+                if refine_count % 10 == 0 or refine_count == total_refinement_samples:
+                    try:
+                        if self.window.winfo_exists():
+                            self.window.after(0, lambda c=refine_count, t=total_refinement_samples, n=local_refinement_n_display: 
+                                             self._safe_update_progress_label(loading_window, 
+                                                                              f"Phase 2: Local refinement (N={n})... ({c}/{t})",
+                                                                              current=c, total=t))
+                    except (tk.TclError, RuntimeError):
+                        cancel_event.set()
+                        return
+                
+                # Apply distribution temporarily
+                for skill, points in zip(skills, refine_sample):
+                    self.skill_points[skill] = original_points.get(skill, 0) + points
+                
+                new_stats = self.get_total_stats()
+                
+                # Find optimal stage for this build (for XP)
+                optimal_stage, _ = self.find_optimal_stage_for_xp(new_stats)
+                
+                # Run MC simulations for refinement estimate
+                xp_per_hour_samples = []
+                
+                for _ in range(local_refinement_sims):
+                    result = simulator.simulate_run(
+                        new_stats, starting_floor, use_crit=True,
+                        enrage_enabled=enrage_enabled, flurry_enabled=flurry_enabled,
+                        quake_enabled=quake_enabled, block_cards=block_cards, return_metrics=True
+                    )
+                    
+                    xp_per_run = result.get('xp_per_run', 0.0)
+                    run_duration_seconds = result.get('run_duration_seconds', 1.0)
+                    runs_per_hour = 3600 / run_duration_seconds if run_duration_seconds > 0 else 0
+                    xp_per_hour = xp_per_run * runs_per_hour
+                    xp_per_hour_samples.append(xp_per_hour)
+                
+                avg_xp_per_hour = sum(xp_per_hour_samples) / len(xp_per_hour_samples) if xp_per_hour_samples else 0
+                
+                # Store refinement candidate
+                refinement_scores.append((refine_sample, avg_xp_per_hour, optimal_stage, new_stats.copy()))
+                
+                # Revert changes
+                self.skill_points = original_points.copy()
+            
+            if cancel_event.is_set():
+                try:
+                    if self.window.winfo_exists():
+                        self.window.after(0, lambda: self._close_loading_dialog(loading_window))
+                except (tk.TclError, RuntimeError):
+                    pass
+                return
+            
+            # Sort refinement results and find best
+            refinement_scores.sort(key=lambda x: x[1], reverse=True)
+            
+            # Combine screening top candidates with refinement results for final comparison
+            best_from_refinement = refinement_scores[0] if refinement_scores else None
+            best_from_screening = candidate_scores[0] if candidate_scores else None
+            
+            # Determine overall best
+            if best_from_refinement and best_from_screening:
+                if best_from_refinement[1] >= best_from_screening[1]:
+                    best_dist_tuple, best_xp_per_hour_avg, best_optimal_stage, best_stats = best_from_refinement
+                else:
+                    best_dist_tuple, best_xp_per_hour_avg, _, _ = best_from_screening
+                    best_optimal_stage = best_from_screening[2]
+                    best_stats = best_from_screening[3]
+            elif best_from_refinement:
+                best_dist_tuple, best_xp_per_hour_avg, best_optimal_stage, best_stats = best_from_refinement
+            elif best_from_screening:
+                best_dist_tuple, best_xp_per_hour_avg, _, _ = best_from_screening
+                best_optimal_stage = best_from_screening[2]
+                best_stats = best_from_screening[3]
+            else:
+                return
+            
+            best_distribution = {s: p for s, p in zip(skills, best_dist_tuple)}
+            
+            if cancel_event.is_set():
+                try:
+                    if self.window.winfo_exists():
+                        self.window.after(0, lambda: self._close_loading_dialog(loading_window))
+                except (tk.TclError, RuntimeError):
+                    pass
+                return
+            
+            # Phase 3: Run full MC simulation (1000 runs) with best distribution
+            # Apply best distribution
+            for skill, points in best_distribution.items():
+                self.skill_points[skill] = original_points.get(skill, 0) + points
+            
+            final_stats = self.get_total_stats()
+            
+            # Verify optimal stage (might have changed slightly)
+            final_optimal_stage, _ = self.find_optimal_stage_for_xp(final_stats)
+            
+            # Run 1000 MC simulations starting at Stage 1
+            xp_per_hour_samples = []
+            metrics_samples = []  # List of dicts with xp_per_run, total_fragments, floors_cleared, run_duration_seconds
+            total_sims = 1000
+            sim_count = 0
+            
+            try:
+                if self.window.winfo_exists():
+                    self.window.after(0, lambda: 
+                                     self._safe_update_progress_label(loading_window, 
+                                                                      f"Phase 3: Running {total_sims} final simulations... (0/{total_sims})",
+                                                                      current=0, total=total_sims))
+            except (tk.TclError, RuntimeError):
+                pass
+            
+            for i in range(total_sims):
+                if cancel_event.is_set():
+                    # Restore original skill points
+                    self.skill_points = original_points.copy()
+                    try:
+                        if self.window.winfo_exists():
+                            self.window.after(0, lambda: self._close_loading_dialog(loading_window))
+                    except (tk.TclError, RuntimeError):
+                        pass
+                    return
+                
+                # Run simulation starting at Stage 1 (always unbiased)
+                # Breakpoints are automatically considered in simulate_run
+                result = simulator.simulate_run(
+                    final_stats, starting_floor, use_crit=True,  # Use crit
+                    enrage_enabled=enrage_enabled, flurry_enabled=flurry_enabled,
+                    quake_enabled=quake_enabled, block_cards=block_cards, return_metrics=True
+                )
+                
+                # Calculate XP per hour using MC metrics
+                xp_per_run = result.get('xp_per_run', 0.0)
+                run_duration_seconds = result.get('run_duration_seconds', 1.0)
+                
+                runs_per_hour = 3600 / run_duration_seconds if run_duration_seconds > 0 else 0
+                xp_per_hour = xp_per_run * runs_per_hour
+                xp_per_hour_samples.append(xp_per_hour)
+                
+                # Collect metrics for this run
+                metrics_samples.append({
+                    'xp_per_run': result.get('xp_per_run', 0.0),
+                    'total_fragments': result.get('total_fragments', 0.0),
+                    'fragments': result.get('fragments', {}).copy(),  # Store fragments by type
+                    'floors_cleared': result.get('floors_cleared', 0.0),
+                    'run_duration_seconds': run_duration_seconds,
+                })
+                
+                # Update progress
+                sim_count += 1
+                current_count = sim_count
+                try:
+                    if self.window.winfo_exists():
+                        self.window.after(0, lambda c=current_count, t=total_sims: 
+                                         self._update_loading_progress(loading_window, c, t))
+                except (tk.TclError, RuntimeError):
+                    # Window destroyed, cancel
+                    cancel_event.set()
+                    return
+            
+            # Restore original skill points
+            self.skill_points = original_points.copy()
+            
+            if cancel_event.is_set():
+                self.window.after(0, lambda: self._close_loading_dialog(loading_window))
+                return
+            
+            # Get skill points for display
+            skill_points_display = {}
+            for skill in skills:
+                current = original_points.get(skill, 0)
+                added = best_distribution.get(skill, 0)
+                skill_points_display[skill] = current + added
+            
+            # Restore original skill points after MC simulation (don't reset to 0)
+            # Use a closure to capture original_points
+            def restore_and_update():
+                self.skill_points = original_points.copy()
+                self.update_display()
+            try:
+                if self.window.winfo_exists():
+                    self.window.after(0, restore_and_update)
+            except (tk.TclError, RuntimeError):
+                # Window destroyed, just restore skill points directly
+                self.skill_points = original_points.copy()
+            
+            # Close loading dialog and show results
+            try:
+                if self.window.winfo_exists():
+                    self.window.after(0, lambda: (
+                        self._close_loading_dialog(loading_window),
+                        self._show_xp_maximizer_results(
+                            xp_per_hour_samples, skill_points_display, num_points,
+                            final_optimal_stage, metrics_samples
                         )
                     ))
             except (tk.TclError, RuntimeError):
@@ -7020,6 +7707,215 @@ Fragments/h: {fragments_per_hour:.2f}"""
             ax.set_ylabel('Frequency', fontsize=10, fontweight='bold')
             ax.set_title('Distribution of Maximum Stage Reached (1000 MC simulations)', 
                         fontsize=11, fontweight='bold')
+            ax.grid(axis='y', alpha=0.3, linestyle='--')
+            
+            # Layout - adjust padding for better fit
+            fig.tight_layout(pad=2.0)
+            
+            # Create canvas
+            canvas = FigureCanvasTkAgg(fig, hist_frame)
+            canvas.draw()
+            canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        else:
+            # No data
+            ttk.Label(hist_frame, text="No simulation data available", 
+                     foreground="gray").pack(pady=20)
+        
+        # Close button
+        button_frame = ttk.Frame(main_frame)
+        button_frame.grid(row=button_row, column=0, columnspan=2, pady=(10, 0))
+        
+        close_btn = ttk.Button(button_frame, text="Close", command=result_window.destroy)
+        close_btn.pack()
+    
+    def _show_xp_maximizer_results(self, xp_per_hour_samples, skill_points_display, num_points,
+                                  optimal_stage, metrics_samples):
+        """Show histogram window with XP/hour distribution and optimal skill setup"""
+        try:
+            import matplotlib
+            matplotlib.use('TkAgg')
+            from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+            from matplotlib.figure import Figure
+            import numpy as np
+            MATPLOTLIB_AVAILABLE = True
+        except ImportError:
+            MATPLOTLIB_AVAILABLE = False
+            tk.messagebox.showerror("Error", "Matplotlib is required for histogram display.")
+            return
+        
+        # Create window in normal GUI style (not Matrix)
+        result_window = tk.Toplevel(self.window)
+        result_window.title("MC XP/h Maximizer Results")
+        result_window.transient(self.window)
+        
+        # Set window to fullscreen (maximized)
+        result_window.state('zoomed')  # Maximize on Windows
+        result_window.resizable(True, True)
+        
+        # Main container
+        main_frame = ttk.Frame(result_window, padding="10")
+        main_frame.pack(fill=tk.BOTH, expand=True)
+        main_frame.columnconfigure(0, weight=1)
+        
+        # Title
+        stage_label = get_stage_range_label(optimal_stage)
+        title_label = ttk.Label(main_frame, 
+                               text=f"MC XP/h Maximizer Results - 1000 simulations\n"
+                                    f"Optimal Stage: {stage_label} (Stage {optimal_stage})", 
+                               font=("Arial", 12, "bold"))
+        title_label.grid(row=0, column=0, columnspan=2, pady=(0, 10), sticky=tk.W)
+        
+        # Statistics frame
+        stats_frame = ttk.LabelFrame(main_frame, text="XP Statistics", padding="10")
+        stats_frame.grid(row=1, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 10))
+        
+        if xp_per_hour_samples:
+            mean_val = np.mean(xp_per_hour_samples)
+            median_val = np.median(xp_per_hour_samples)
+            std_val = np.std(xp_per_hour_samples)
+            min_val = np.min(xp_per_hour_samples)
+            max_val = np.max(xp_per_hour_samples)
+            
+            stats_text = f"""Mean: {mean_val:.1f} XP/h
+Median: {median_val:.1f} XP/h
+Std Dev: {std_val:.1f} XP/h
+Min: {min_val:.1f} XP/h
+Max: {max_val:.1f} XP/h"""
+            
+            stats_label = ttk.Label(stats_frame, text=stats_text, font=("Courier", 9), 
+                                   justify=tk.LEFT)
+            stats_label.pack(anchor=tk.W)
+        else:
+            ttk.Label(stats_frame, text="No simulation data available", 
+                     foreground="gray").pack()
+        
+        # Metrics frame (XP/h, Fragments/h, Floors/run)
+        if metrics_samples:
+            metrics_frame = ttk.LabelFrame(main_frame, text="Performance Metrics", padding="10")
+            metrics_frame.grid(row=2, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 10))
+            
+            # Calculate averages
+            avg_floors_per_run = np.mean([m['floors_cleared'] for m in metrics_samples])
+            avg_xp_per_run = np.mean([m['xp_per_run'] for m in metrics_samples])
+            avg_total_fragments = np.mean([m['total_fragments'] for m in metrics_samples])
+            avg_run_duration = np.mean([m['run_duration_seconds'] for m in metrics_samples])
+            
+            # Calculate per hour
+            runs_per_hour = 3600 / avg_run_duration if avg_run_duration > 0 else 0
+            xp_per_hour = avg_xp_per_run * runs_per_hour
+            fragments_per_hour = avg_total_fragments * runs_per_hour
+            
+            # Calculate fragments per hour by type
+            frag_types = ['common', 'rare', 'epic', 'legendary', 'mythic']
+            avg_frags_by_type = {}
+            frags_per_hour_by_type = {}
+            for frag_type in frag_types:
+                avg_frags = np.mean([m.get('fragments', {}).get(frag_type, 0.0) for m in metrics_samples])
+                avg_frags_by_type[frag_type] = avg_frags
+                frags_per_hour_by_type[frag_type] = avg_frags * runs_per_hour
+            
+            metrics_text = f"""Floors/Run: {avg_floors_per_run:.2f}
+XP/h: {xp_per_hour:.1f}
+Fragments/h: {fragments_per_hour:.2f}"""
+            
+            metrics_label = ttk.Label(metrics_frame, text=metrics_text, font=("Courier", 9), 
+                                     justify=tk.LEFT)
+            metrics_label.pack(anchor=tk.W)
+            
+            # Fragments by type with icons
+            frag_display_frame = tk.Frame(metrics_frame)
+            frag_display_frame.pack(anchor=tk.W, pady=(5, 0))
+            
+            frag_icon_map = {
+                'common': 'fragmentcommon.png',
+                'rare': 'fragmentrare.png',
+                'epic': 'fragmentepic.png',
+                'legendary': 'fragmentlegendary.png',
+                'mythic': 'fragmentmythic.png',
+            }
+            
+            frag_labels = []
+            for frag_type in frag_types:
+                frag_per_hour = frags_per_hour_by_type.get(frag_type, 0.0)
+                if frag_per_hour > 0.001:  # Only show if > 0.001
+                    frag_item_frame = tk.Frame(frag_display_frame)
+                    frag_item_frame.pack(side=tk.LEFT, padx=(0, 15))
+                    
+                    # Try to load icon
+                    try:
+                        icon_path = get_resource_path(f"sprites/archaeology/{frag_icon_map[frag_type]}")
+                        if icon_path.exists():
+                            icon_image = Image.open(icon_path)
+                            icon_image = icon_image.resize((16, 16), Image.Resampling.LANCZOS)
+                            icon_photo = ImageTk.PhotoImage(icon_image)
+                            icon_label = tk.Label(frag_item_frame, image=icon_photo)
+                            icon_label.image = icon_photo  # Keep reference
+                            icon_label.pack(side=tk.LEFT, padx=(0, 3))
+                    except:
+                        pass
+                    
+                    # Fragment type and value
+                    frag_label = tk.Label(
+                        frag_item_frame,
+                        text=f"{frag_type.capitalize()}: {frag_per_hour:.2f}/h",
+                        font=("Arial", 9)
+                    )
+                    frag_label.pack(side=tk.LEFT)
+                    frag_labels.append(frag_item_frame)
+            
+            # Adjust row numbers for subsequent elements
+            skill_row = 3
+            hist_row = 4
+            button_row = 5
+        else:
+            skill_row = 2
+            hist_row = 3
+            button_row = 4
+        
+        # Set row weight for histogram row to allow expansion (but not too much)
+        main_frame.rowconfigure(hist_row, weight=1)
+        
+        # Skill distribution display
+        skill_frame = ttk.LabelFrame(main_frame, text="Optimal Skill Distribution", padding="5")
+        skill_frame.grid(row=skill_row, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 10))
+        
+        skill_text_parts = []
+        for skill in ['strength', 'agility', 'perception', 'intellect', 'luck']:
+            points = skill_points_display.get(skill, 0)
+            skill_short = skill[:3].upper()
+            skill_text_parts.append(f"{skill_short}: {points}")
+        
+        skill_label = ttk.Label(skill_frame, text=" | ".join(skill_text_parts), font=("Arial", 10, "bold"))
+        skill_label.pack()
+        
+        # Histogram frame (single histogram)
+        hist_frame = ttk.LabelFrame(main_frame, text="XP/Hour Distribution", padding="5")
+        hist_frame.grid(row=hist_row, column=0, columnspan=2, sticky=(tk.W, tk.E, tk.N, tk.S))
+        hist_frame.columnconfigure(0, weight=1)
+        hist_frame.rowconfigure(0, weight=1)
+        
+        if MATPLOTLIB_AVAILABLE and xp_per_hour_samples:
+            # Smaller figure size that fits nicely in the window (not too large)
+            fig = Figure(figsize=(5, 2.5), dpi=100)
+            ax = fig.add_subplot(111)
+            
+            # Create histogram
+            counts, bins, patches = ax.hist(xp_per_hour_samples, bins=30, color='#673AB7', 
+                                           edgecolor='#4A148C', linewidth=1.5, alpha=0.7)
+            
+            # Add mean line
+            mean_val = np.mean(xp_per_hour_samples)
+            ax.axvline(mean_val, color='red', linestyle='--', linewidth=2, label=f'Mean: {mean_val:.1f}')
+            
+            # Add median line
+            median_val = np.median(xp_per_hour_samples)
+            ax.axvline(median_val, color='orange', linestyle='--', linewidth=2, label=f'Median: {median_val:.1f}')
+            
+            ax.set_xlabel('XP/Hour', fontsize=10, fontweight='bold')
+            ax.set_ylabel('Frequency', fontsize=10, fontweight='bold')
+            ax.set_title('Distribution of XP/Hour (1000 MC simulations)', 
+                        fontsize=11, fontweight='bold')
+            ax.legend(loc='upper right', fontsize=9)
             ax.grid(axis='y', alpha=0.3, linestyle='--')
             
             # Layout - adjust padding for better fit
