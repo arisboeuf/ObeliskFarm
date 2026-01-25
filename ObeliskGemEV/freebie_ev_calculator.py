@@ -13,6 +13,7 @@ class GameParameters:
     # Basis-Parameter
     freebie_gems_base: float = 9.0
     freebie_timer_minutes: float = 7.0
+    freebie_claim_percentage: float = 100.0  # % der Freebies die pro Tag geclaimt werden
     
     # Skill Shards
     skill_shard_chance: float = 0.12  # 12%
@@ -154,12 +155,15 @@ class FreebieEVCalculator:
     def calculate_freebies_per_hour(self) -> float:
         """
         Berechnet die Anzahl Freebies pro Stunde (ohne Founder-Speed).
+        Berücksichtigt den Claim-Prozentsatz (wie viel % der Freebies pro Tag geclaimt werden).
         
         Returns:
-            Freebies pro Stunde
+            Freebies pro Stunde (mit Claim-Prozentsatz multipliziert)
         """
         minutes_per_hour = 60.0
-        return minutes_per_hour / self.params.freebie_timer_minutes
+        base_freebies_per_hour = minutes_per_hour / self.params.freebie_timer_minutes
+        # Multipliziere mit Claim-Prozentsatz (z.B. 100.0 = 100%, 50.0 = 50%)
+        return base_freebies_per_hour * (self.params.freebie_claim_percentage / 100.0)
     
     def calculate_gems_base_per_hour(self) -> float:
         """
@@ -276,9 +280,12 @@ class FreebieEVCalculator:
         
         # Zusätzliche Freebies durch Zeitersparnis
         normal_freebies_per_hour = self.calculate_freebies_per_hour()
-        effective_freebies_per_hour = 60.0 / (
+        # Berechne effektive Freebies pro Stunde (ohne Claim-Prozentsatz)
+        base_effective_freebies_per_hour = 60.0 / (
             self.params.freebie_timer_minutes * (effective_minutes_per_hour / 60.0)
         )
+        # Wende Claim-Prozentsatz auch auf effektive Freebies an
+        effective_freebies_per_hour = base_effective_freebies_per_hour * (self.params.freebie_claim_percentage / 100.0)
         
         additional_freebies = effective_freebies_per_hour - normal_freebies_per_hour
         
@@ -467,9 +474,12 @@ class FreebieEVCalculator:
         
         # Zusätzliche Freebies durch Zeitersparnis
         normal_freebies_per_hour = self.calculate_freebies_per_hour()
-        effective_freebies_per_hour = 60.0 / (
+        # Berechne effektive Freebies pro Stunde (ohne Claim-Prozentsatz)
+        base_effective_freebies_per_hour = 60.0 / (
             self.params.freebie_timer_minutes * (effective_minutes_per_hour / 60.0)
         )
+        # Wende Claim-Prozentsatz auch auf effektive Freebies an
+        effective_freebies_per_hour = base_effective_freebies_per_hour * (self.params.freebie_claim_percentage / 100.0)
         
         additional_freebies = effective_freebies_per_hour - normal_freebies_per_hour
         

@@ -638,6 +638,7 @@ class ObeliskGemEVGUI:
             "Base Values:\n"
             "• Freebie Gems: Fixed 9.0\n"
             "• Freebie Timer: 7.0 minutes\n"
+            "• Freebie Claim: % of freebies claimed per day (default: 100%)\n"
             "\n"
             "Special Drops:\n"
             "• Skill Shards: 12% chance, 12.5 Gems value\n"
@@ -661,6 +662,9 @@ class ObeliskGemEVGUI:
         row += 1
         
         self.create_entry(freebie_frame, "freebie_timer_minutes", "  Freebie Timer (Minutes):", row, "7.0", bg_color="#E3F2FD")
+        row += 1
+        
+        self.create_entry(freebie_frame, "freebie_claim_percentage", "  Freebie Claim (% per Day):", row, "100.0", bg_color="#E3F2FD")
         row += 1
         
         # Separator - kompakter
@@ -1274,6 +1278,7 @@ class ObeliskGemEVGUI:
         
         self.vars['freebie_gems_base']['var'].set(str(defaults.freebie_gems_base))
         self.vars['freebie_timer_minutes']['var'].set(str(defaults.freebie_timer_minutes))
+        self.vars['freebie_claim_percentage']['var'].set(str(defaults.freebie_claim_percentage))
         self.vars['skill_shard_chance']['var'].set(str(defaults.skill_shard_chance * 100))
         self.vars['skill_shard_value_gems']['var'].set(str(defaults.skill_shard_value_gems))
         # Stonks wird über Checkbox gesteuert, Standard-Werte sind fix
