@@ -12,15 +12,23 @@ import math
 import random
 from PIL import Image, ImageTk
 
+import sys
+import os
+
+# Relative imports for archaeology submodules
 from .block_spawn_rates import get_block_mix_for_stage, get_stage_range_label, STAGE_RANGES, get_normalized_spawn_rates, spawn_block_for_slot, get_total_spawn_probability, get_available_blocks_at_stage
 from .block_stats import get_block_at_floor, get_block_mix_for_floor, BlockData, BLOCK_TYPES, get_block_data
 from .upgrade_costs import get_upgrade_cost, get_total_cost, get_max_level
 from .monte_carlo_crit import run_crit_analysis, MonteCarloCritSimulator, debug_single_run
 
-import sys
-import os
-sys.path.insert(0, str(Path(__file__).parent.parent))
-from ui_utils import calculate_tooltip_position, get_resource_path
+# Import ui_utils - try relative first, fall back to absolute
+try:
+    from ..ui_utils import calculate_tooltip_position, get_resource_path
+except (ImportError, ValueError):
+    # When gui.py runs directly, archaeology is not a package, so use absolute import
+    import ui_utils
+    calculate_tooltip_position = ui_utils.calculate_tooltip_position
+    get_resource_path = ui_utils.get_resource_path
 
 
 def get_user_data_path() -> Path:
@@ -1040,6 +1048,12 @@ class ArchaeologySimulatorWindow:
         enrage_damage_bonus = self.ENRAGE_DAMAGE_BONUS + frag_bonuses.get('enrage_damage', 0)
         enrage_crit_damage_bonus = self.ENRAGE_CRIT_DAMAGE_BONUS + frag_bonuses.get('enrage_crit_damage', 0)
         
+        # Quake charges from fragment upgrades (base 5 + quake_attacks per level)
+        quake_charges = self.QUAKE_CHARGES + frag_bonuses.get('quake_attacks', 0)
+        
+        # Ability instacharge chance from fragment upgrades
+        ability_instacharge = frag_bonuses.get('ability_instacharge', 0)
+        
         return {
             'flat_damage': flat_damage,
             'total_damage': total_damage,
@@ -1068,6 +1082,16 @@ class ArchaeologySimulatorWindow:
             # Enrage bonuses (with fragment upgrades)
             'enrage_damage_bonus': enrage_damage_bonus,
             'enrage_crit_damage_bonus': enrage_crit_damage_bonus,
+            # Misc card level for ability cooldown reduction
+            'misc_card_level': getattr(self, 'misc_card_level', 0),
+            # Fragment upgrade cooldown reductions (for MC simulations)
+            'enrage_cooldown': frag_bonuses.get('enrage_cooldown', 0),
+            'flurry_cooldown': frag_bonuses.get('flurry_cooldown', 0),
+            'quake_cooldown': frag_bonuses.get('quake_cooldown', 0),
+            'ability_cooldown': frag_bonuses.get('ability_cooldown', 0),
+            # Quake charges and ability instacharge
+            'quake_charges': quake_charges,
+            'ability_instacharge': ability_instacharge,
         }
     
     def _get_fragment_upgrade_bonuses(self):
@@ -1276,8 +1300,16 @@ class ArchaeologySimulatorWindow:
         enrage_active = getattr(self, 'enrage_enabled', None)
         if enrage_active is not None and enrage_active.get():
             # Enrage: 5 hits out of every 60 have +20% damage and +100% crit damage
-            # Apply misc card cooldown reduction
-            effective_enrage_cooldown = self.ENRAGE_COOLDOWN * self.get_ability_cooldown_multiplier()
+            # Get fragment upgrade cooldown reductions
+            frag_bonuses = self._get_fragment_upgrade_bonuses()
+            enrage_cooldown_reduction = frag_bonuses.get('enrage_cooldown', 0)  # -1s per level
+            ability_cooldown_reduction = frag_bonuses.get('ability_cooldown', 0)  # -1s per level (all abilities)
+            
+            # Calculate base cooldown with flat reductions, then apply percentage from misc card
+            base_enrage_cooldown = self.ENRAGE_COOLDOWN + enrage_cooldown_reduction + ability_cooldown_reduction
+            cooldown_multiplier = self.get_ability_cooldown_multiplier()
+            effective_enrage_cooldown = base_enrage_cooldown * cooldown_multiplier
+            
             # Proportion of enrage hits: 5 / effective_cooldown
             enrage_proportion = self.ENRAGE_CHARGES / effective_enrage_cooldown
             normal_proportion = 1.0 - enrage_proportion
@@ -1369,14 +1401,15 @@ class ArchaeologySimulatorWindow:
             # Get flurry upgrades from fragment bonuses
             frag_bonuses = self._get_fragment_upgrade_bonuses()
             flurry_stamina_bonus = frag_bonuses.get('flurry_stamina', 0)
-            flurry_cooldown_reduction = frag_bonuses.get('flurry_cooldown', 0)
+            flurry_cooldown_reduction = frag_bonuses.get('flurry_cooldown', 0)  # -1s per level
+            ability_cooldown_reduction = frag_bonuses.get('ability_cooldown', 0)  # -1s per level (all abilities)
             
             # Calculate effective values
             stamina_on_cast = self.FLURRY_STAMINA_BONUS + flurry_stamina_bonus
-            # Apply misc card cooldown reduction (percentage) after flat reduction
-            base_cooldown = self.FLURRY_COOLDOWN + flurry_cooldown_reduction
+            # Apply flat fragment reductions, then percentage misc card reduction
+            base_cooldown = self.FLURRY_COOLDOWN + flurry_cooldown_reduction + ability_cooldown_reduction
             cooldown_multiplier = self.get_ability_cooldown_multiplier()
-            effective_cooldown = max(10, base_cooldown * cooldown_multiplier)  # min 10s
+            effective_cooldown = int(base_cooldown * cooldown_multiplier)
             
             # Stamina gained per hit (assuming ~1 hit per second)
             flurry_stamina_per_hit = stamina_on_cast / effective_cooldown
@@ -1585,8 +1618,8 @@ class ArchaeologySimulatorWindow:
         # Add stamina from Flurry
         flurry_active = getattr(self, 'flurry_enabled', None)
         if flurry_active and flurry_active.get():
-            base_flurry_cooldown = self.FLURRY_COOLDOWN + frag_bonuses.get('flurry_cooldown', 0)
-            flurry_cooldown = max(10, base_flurry_cooldown * self.get_ability_cooldown_multiplier())
+            base_flurry_cooldown = self.FLURRY_COOLDOWN + frag_bonuses.get('flurry_cooldown', 0) + frag_bonuses.get('ability_cooldown', 0)
+            flurry_cooldown = int(base_flurry_cooldown * self.get_ability_cooldown_multiplier())
             flurry_stamina = self.FLURRY_STAMINA_BONUS + frag_bonuses.get('flurry_stamina', 0)
             # Estimate run duration first without flurry to see how many activations
             base_duration = total_hits  # 1 hit = 1 second base
@@ -1613,8 +1646,8 @@ class ArchaeologySimulatorWindow:
             # Actually Flurry is +100% attack speed = 2x speed for some period
             # Let's estimate: during the run, we get multiple flurry activations
             # Each activation speeds up some hits
-            base_flurry_cooldown = self.FLURRY_COOLDOWN + frag_bonuses.get('flurry_cooldown', 0)
-            flurry_cooldown = max(10, base_flurry_cooldown * self.get_ability_cooldown_multiplier())
+            base_flurry_cooldown = self.FLURRY_COOLDOWN + frag_bonuses.get('flurry_cooldown', 0) + frag_bonuses.get('ability_cooldown', 0)
+            flurry_cooldown = int(base_flurry_cooldown * self.get_ability_cooldown_multiplier())
             activations = base_duration_seconds / flurry_cooldown
             # Assume flurry lasts ~10 seconds at 2x speed = saves 10 seconds per activation
             # This is an approximation
@@ -1944,9 +1977,18 @@ class ArchaeologySimulatorWindow:
         
         ttk.Separator(col_frame, orient='horizontal').pack(fill=tk.X, pady=5, padx=5)
         
-        # Abilities section
-        tk.Label(col_frame, text="Abilities", font=("Arial", 10, "bold"), 
-                background="#E3F2FD").pack(pady=(0, 3))
+        # Abilities section with help tooltip
+        abilities_header = tk.Frame(col_frame, background="#E3F2FD")
+        abilities_header.pack(fill=tk.X, pady=(0, 3))
+        
+        tk.Label(abilities_header, text="Abilities", font=("Arial", 10, "bold"), 
+                background="#E3F2FD").pack(side=tk.LEFT)
+        
+        # Help ? label with tooltip
+        abilities_help = tk.Label(abilities_header, text="?", font=("Arial", 9, "bold"), 
+                                 cursor="hand2", foreground="#1976D2", background="#E3F2FD")
+        abilities_help.pack(side=tk.LEFT, padx=(5, 0))
+        self._create_abilities_help_tooltip(abilities_help)
         
         abilities_frame = tk.Frame(col_frame, background="#E3F2FD")
         abilities_frame.pack(fill=tk.X, padx=8, pady=2)
@@ -1986,7 +2028,11 @@ class ArchaeologySimulatorWindow:
         
         self.enrage_icon_button = tk.Button(enrage_frame, **btn_kwargs)
         self.enrage_icon_button.pack()
-        self._create_ability_tooltip(self.enrage_icon_button, 'enrage')
+        
+        # Add checkmark indicator label (will be shown/hidden based on state)
+        self.enrage_check_label = tk.Label(enrage_frame, text="✓", font=("Arial", 12, "bold"),
+                                          foreground="#4CAF50", background="#E3F2FD")
+        self.enrage_check_label.pack(side=tk.LEFT, padx=(3, 0))
         
         # Flurry ability icon button
         flurry_frame = tk.Frame(abilities_frame, background="#E3F2FD")
@@ -2014,7 +2060,11 @@ class ArchaeologySimulatorWindow:
         
         self.flurry_icon_button = tk.Button(flurry_frame, **btn_kwargs)
         self.flurry_icon_button.pack()
-        self._create_ability_tooltip(self.flurry_icon_button, 'flurry')
+        
+        # Add checkmark indicator label
+        self.flurry_check_label = tk.Label(flurry_frame, text="✓", font=("Arial", 12, "bold"),
+                                          foreground="#4CAF50", background="#E3F2FD")
+        self.flurry_check_label.pack(side=tk.LEFT, padx=(3, 0))
         
         # Quake ability icon button
         quake_frame = tk.Frame(abilities_frame, background="#E3F2FD")
@@ -2042,7 +2092,11 @@ class ArchaeologySimulatorWindow:
         
         self.quake_icon_button = tk.Button(quake_frame, **btn_kwargs)
         self.quake_icon_button.pack()
-        self._create_ability_tooltip(self.quake_icon_button, 'quake')
+        
+        # Add checkmark indicator label
+        self.quake_check_label = tk.Label(quake_frame, text="✓", font=("Arial", 12, "bold"),
+                                         foreground="#4CAF50", background="#E3F2FD")
+        self.quake_check_label.pack(side=tk.LEFT, padx=(3, 0))
         
         # Update initial visual state
         self._update_ability_button_visual('enrage', True)
@@ -2728,26 +2782,63 @@ class ArchaeologySimulatorWindow:
     def _update_ability_button_visual(self, ability_name, enabled):
         """Update the visual appearance of an ability button"""
         button_map = {
-            'enrage': self.enrage_icon_button,
-            'flurry': self.flurry_icon_button,
-            'quake': self.quake_icon_button,
+            'enrage': (self.enrage_icon_button, getattr(self, 'enrage_check_label', None)),
+            'flurry': (self.flurry_icon_button, getattr(self, 'flurry_check_label', None)),
+            'quake': (self.quake_icon_button, getattr(self, 'quake_check_label', None)),
         }
         
-        button = button_map.get(ability_name)
-        if button:
+        button_info = button_map.get(ability_name)
+        if button_info:
+            button, check_label = button_info
             if enabled:
-                button.config(relief=tk.RAISED, borderwidth=2)
+                # Active: raised border with green highlight
+                button.config(relief=tk.RAISED, borderwidth=2, 
+                            highlightbackground="#4CAF50", highlightthickness=2)
+                # Show green checkmark
+                if check_label:
+                    check_label.config(text="✓", foreground="#4CAF50")
+                    check_label.lift()  # Bring to front
             else:
-                button.config(relief=tk.SUNKEN, borderwidth=2)
+                # Disabled: sunken border, grayed out
+                button.config(relief=tk.SUNKEN, borderwidth=2,
+                            highlightbackground="#9E9E9E", highlightthickness=2)
+                # Hide checkmark or show X
+                if check_label:
+                    check_label.config(text="✗", foreground="#F44336")
+                    check_label.lift()
     
-    def _create_ability_tooltip(self, widget, ability_name):
-        """Create a tooltip for an ability icon"""
+    def _create_abilities_help_tooltip(self, widget):
+        """Create a tooltip for the Abilities section showing all abilities with current cooldowns"""
         def on_enter(event):
             tooltip = tk.Toplevel()
             tooltip.wm_overrideredirect(True)
             
-            tooltip_width = 280
-            tooltip_height = 180
+            # Calculate effective cooldowns with misc card
+            misc_card_level = getattr(self, 'misc_card_level', 0)
+            cooldown_multiplier = self.get_ability_cooldown_multiplier()
+            
+            # Get enabled states
+            enrage_enabled = self.enrage_enabled.get() if hasattr(self, 'enrage_enabled') else True
+            flurry_enabled = self.flurry_enabled.get() if hasattr(self, 'flurry_enabled') else True
+            quake_enabled = self.quake_enabled.get() if hasattr(self, 'quake_enabled') else True
+            
+            # Get fragment upgrade cooldown reductions
+            frag_bonuses = self._get_fragment_upgrade_bonuses()
+            
+            # Calculate effective cooldowns (base + flat fragment reductions, then percentage misc card)
+            enrage_base = self.ENRAGE_COOLDOWN + frag_bonuses.get('enrage_cooldown', 0) + frag_bonuses.get('ability_cooldown', 0)
+            enrage_effective = int(enrage_base * cooldown_multiplier)
+            flurry_base = self.FLURRY_COOLDOWN + frag_bonuses.get('flurry_cooldown', 0) + frag_bonuses.get('ability_cooldown', 0)
+            flurry_effective = int(flurry_base * cooldown_multiplier)
+            quake_base = self.QUAKE_COOLDOWN + frag_bonuses.get('quake_cooldown', 0) + frag_bonuses.get('ability_cooldown', 0)
+            quake_effective = int(quake_base * cooldown_multiplier)
+            
+            # Get quake charges (base 5 + quake_attacks per level)
+            quake_charges = self.QUAKE_CHARGES + frag_bonuses.get('quake_attacks', 0)
+            
+            # Build tooltip content
+            tooltip_width = 300
+            tooltip_height = 320
             screen_width = tooltip.winfo_screenwidth()
             screen_height = tooltip.winfo_screenheight()
             x, y = calculate_tooltip_position(event, tooltip_width, tooltip_height, screen_width, screen_height)
@@ -2762,44 +2853,115 @@ class ArchaeologySimulatorWindow:
             content = tk.Frame(inner_frame, background="#FFFFFF", padx=10, pady=8)
             content.pack()
             
-            # Ability-specific info
-            if ability_name == 'enrage':
-                ability_title = "Enrage"
-                ability_info = [
-                    "5 Charges / 60s cooldown",
-                    "",
-                    "Next 5 Attacks:",
-                    "  +20% Damage",
-                    "  +100% Crit Damage",
-                ]
-            elif ability_name == 'flurry':
-                ability_title = "Flurry"
-                ability_info = [
-                    "5 Charges / 120s cooldown",
-                    "",
-                    "Effect:",
-                    "  +100% Attack Speed",
-                    "  +5 Stamina On Cast",
-                ]
-            elif ability_name == 'quake':
-                ability_title = "Quake"
-                ability_info = [
-                    "5 Charges / 180s cooldown",
-                    "",
-                    "Next 5 Attacks:",
-                    "  Deal 20% Damage",
-                    "  To All Blocks",
-                ]
+            # Title
+            tk.Label(content, text="Abilities", font=("Arial", 10, "bold"),
+                    background="#FFFFFF", foreground="#1976D2").pack(anchor="w", pady=(0, 5))
+            
+            # Enrage
+            enrage_status = "✓ Enabled" if enrage_enabled else "✗ Disabled"
+            enrage_status_color = "#4CAF50" if enrage_enabled else "#F44336"
+            tk.Label(content, text="Enrage", font=("Arial", 9, "bold"),
+                    background="#FFFFFF").pack(anchor="w", pady=(3, 0))
+            tk.Label(content, text=f"  Status: {enrage_status}", font=("Arial", 8),
+                    background="#FFFFFF", foreground=enrage_status_color).pack(anchor="w")
+            # Show base cooldown (after fragment flat reductions)
+            enrage_frag_reduction = frag_bonuses.get('enrage_cooldown', 0) + frag_bonuses.get('ability_cooldown', 0)
+            if enrage_frag_reduction > 0:
+                tk.Label(content, text=f"  Base: {self.ENRAGE_COOLDOWN}s → {enrage_base}s (Frag: -{enrage_frag_reduction}s)",
+                        font=("Arial", 8), background="#FFFFFF", foreground="#666666").pack(anchor="w")
             else:
-                ability_title = ability_name.capitalize()
-                ability_info = []
+                tk.Label(content, text=f"  Base: {self.ENRAGE_COOLDOWN}s",
+                        font=("Arial", 8), background="#FFFFFF").pack(anchor="w")
             
-            tk.Label(content, text=ability_title, font=("Arial", 10, "bold"),
-                    background="#FFFFFF", foreground="#1976D2").pack(anchor="w")
+            # Show effective cooldown with misc card
+            if misc_card_level > 0:
+                card_names = {1: "Card", 2: "Gilded", 3: "Polychrome"}
+                reduction_pct = {1: 3, 2: 6, 3: 10}
+                card_name = card_names.get(misc_card_level, "Card")
+                reduction = reduction_pct.get(misc_card_level, 0)
+                tk.Label(content, text=f"  Effective: {enrage_effective}s ({card_name}: -{reduction}%)",
+                        font=("Arial", 8), background="#FFFFFF", foreground="#2E7D32").pack(anchor="w")
+            else:
+                tk.Label(content, text=f"  Effective: {enrage_effective}s",
+                        font=("Arial", 8), background="#FFFFFF").pack(anchor="w")
+            tk.Label(content, text="  Effect: +20% Dmg, +100% Crit Dmg (5 hits)",
+                    font=("Arial", 8), background="#FFFFFF", foreground="#555555").pack(anchor="w")
             
-            for line in ability_info:
-                tk.Label(content, text=line, font=("Arial", 9),
-                        background="#FFFFFF", justify=tk.LEFT).pack(anchor="w")
+            # Flurry
+            tk.Label(content, text="", background="#FFFFFF", height=1).pack()  # Spacer
+            flurry_status = "✓ Enabled" if flurry_enabled else "✗ Disabled"
+            flurry_status_color = "#4CAF50" if flurry_enabled else "#F44336"
+            tk.Label(content, text="Flurry", font=("Arial", 9, "bold"),
+                    background="#FFFFFF").pack(anchor="w", pady=(3, 0))
+            tk.Label(content, text=f"  Status: {flurry_status}", font=("Arial", 8),
+                    background="#FFFFFF", foreground=flurry_status_color).pack(anchor="w")
+            # Show base cooldown (after fragment flat reductions)
+            flurry_frag_reduction = frag_bonuses.get('flurry_cooldown', 0) + frag_bonuses.get('ability_cooldown', 0)
+            if flurry_frag_reduction > 0:
+                tk.Label(content, text=f"  Base: {self.FLURRY_COOLDOWN}s → {flurry_base}s (Frag: -{flurry_frag_reduction}s)",
+                        font=("Arial", 8), background="#FFFFFF", foreground="#666666").pack(anchor="w")
+            else:
+                tk.Label(content, text=f"  Base: {self.FLURRY_COOLDOWN}s",
+                        font=("Arial", 8), background="#FFFFFF").pack(anchor="w")
+            
+            # Show effective cooldown with misc card
+            if misc_card_level > 0:
+                card_names = {1: "Card", 2: "Gilded", 3: "Polychrome"}
+                reduction_pct = {1: 3, 2: 6, 3: 10}
+                card_name = card_names.get(misc_card_level, "Card")
+                reduction = reduction_pct.get(misc_card_level, 0)
+                tk.Label(content, text=f"  Effective: {flurry_effective}s ({card_name}: -{reduction}%)",
+                        font=("Arial", 8), background="#FFFFFF", foreground="#2E7D32").pack(anchor="w")
+            else:
+                tk.Label(content, text=f"  Effective: {flurry_effective}s",
+                        font=("Arial", 8), background="#FFFFFF").pack(anchor="w")
+            tk.Label(content, text="  Effect: +100% Atk Speed, +5 Stamina",
+                    font=("Arial", 8), background="#FFFFFF", foreground="#555555").pack(anchor="w")
+            
+            # Quake
+            tk.Label(content, text="", background="#FFFFFF", height=1).pack()  # Spacer
+            quake_status = "✓ Enabled" if quake_enabled else "✗ Disabled"
+            quake_status_color = "#4CAF50" if quake_enabled else "#F44336"
+            tk.Label(content, text="Quake", font=("Arial", 9, "bold"),
+                    background="#FFFFFF").pack(anchor="w", pady=(3, 0))
+            tk.Label(content, text=f"  Status: {quake_status}", font=("Arial", 8),
+                    background="#FFFFFF", foreground=quake_status_color).pack(anchor="w")
+            # Show quake charges (with fragment upgrades)
+            if quake_charges > self.QUAKE_CHARGES:
+                tk.Label(content, text=f"  Charges: {self.QUAKE_CHARGES} → {quake_charges} (Frag: +{quake_charges - self.QUAKE_CHARGES})",
+                        font=("Arial", 8), background="#FFFFFF", foreground="#666666").pack(anchor="w")
+            else:
+                tk.Label(content, text=f"  Charges: {quake_charges}",
+                        font=("Arial", 8), background="#FFFFFF").pack(anchor="w")
+            # Show base cooldown (after fragment flat reductions)
+            quake_frag_reduction = frag_bonuses.get('quake_cooldown', 0) + frag_bonuses.get('ability_cooldown', 0)
+            if quake_frag_reduction > 0:
+                tk.Label(content, text=f"  Base: {self.QUAKE_COOLDOWN}s → {quake_base}s (Frag: -{quake_frag_reduction}s)",
+                        font=("Arial", 8), background="#FFFFFF", foreground="#666666").pack(anchor="w")
+            else:
+                tk.Label(content, text=f"  Base: {self.QUAKE_COOLDOWN}s",
+                        font=("Arial", 8), background="#FFFFFF").pack(anchor="w")
+            
+            # Show effective cooldown with misc card
+            if misc_card_level > 0:
+                card_names = {1: "Card", 2: "Gilded", 3: "Polychrome"}
+                reduction_pct = {1: 3, 2: 6, 3: 10}
+                card_name = card_names.get(misc_card_level, "Card")
+                reduction = reduction_pct.get(misc_card_level, 0)
+                tk.Label(content, text=f"  Effective: {quake_effective}s ({card_name}: -{reduction}%)",
+                        font=("Arial", 8), background="#FFFFFF", foreground="#2E7D32").pack(anchor="w")
+            else:
+                tk.Label(content, text=f"  Effective: {quake_effective}s",
+                        font=("Arial", 8), background="#FFFFFF").pack(anchor="w")
+            tk.Label(content, text="  Effect: 20% Dmg to All Blocks (5 hits)",
+                    font=("Arial", 8), background="#FFFFFF", foreground="#555555").pack(anchor="w")
+            
+            # Note about cooldown persistence
+            tk.Label(content, text="", background="#FFFFFF", height=1).pack()  # Spacer
+            tk.Label(content, text="Note: Cooldowns persist between", 
+                    font=("Arial", 7), background="#FFFFFF", foreground="#888888").pack(anchor="w")
+            tk.Label(content, text="simulation runs (realistic behavior).",
+                    font=("Arial", 7), background="#FFFFFF", foreground="#888888").pack(anchor="w")
             
             widget.tooltip = tooltip
         
@@ -7524,4 +7686,3 @@ Fragments/h: {fragments_per_hour:.2f}"""
         
         close_btn = ttk.Button(button_frame, text="Close", command=result_window.destroy)
         close_btn.pack()
-    

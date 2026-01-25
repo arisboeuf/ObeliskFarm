@@ -57,6 +57,20 @@ class MonteCarloCritSimulator:
         """Initialize simulator with optional random seed"""
         if seed is not None:
             random.seed(seed)
+        # Persistent ability states across runs (for realism)
+        self.persistent_enrage_state = None
+        self.persistent_flurry_cooldown = None
+        self.persistent_quake_state = None
+    
+    def get_ability_cooldown_multiplier(self, misc_card_level: int = 0) -> float:
+        """Get ability cooldown multiplier from misc card: Normal = -3%, Gilded = -6%, Polychrome = -10%"""
+        if misc_card_level == 1:
+            return 0.97  # -3%
+        elif misc_card_level == 2:
+            return 0.94  # -6%
+        elif misc_card_level == 3:
+            return 0.90  # -10%
+        return 1.0
     
     def calculate_effective_damage(self, stats: Dict, block_armor: int) -> int:
         """Calculate effective damage after armor penetration"""
@@ -115,7 +129,8 @@ class MonteCarloCritSimulator:
     
     def simulate_block_kill(self, stats: Dict, block_hp: int, block_armor: int,
                            block_type: Optional[str] = None, use_crit: bool = True,
-                           enrage_state: Optional[Dict] = None, block_cards: Optional[Dict] = None) -> Tuple[int, Dict]:
+                           enrage_state: Optional[Dict] = None, block_cards: Optional[Dict] = None,
+                           effective_enrage_cooldown: Optional[int] = None) -> Tuple[int, Dict]:
         """
         Simulate killing a single block, returning the number of hits needed and updated enrage state.
         
@@ -124,6 +139,7 @@ class MonteCarloCritSimulator:
         Args:
             enrage_state: Dict with 'charges_remaining' and 'cooldown' keys, or None if not tracking
             block_cards: Dict mapping block_type to card level (0=none, 1=card, 2=gilded)
+            effective_enrage_cooldown: Effective cooldown after misc card reduction (if None, uses base)
         
         Returns:
             (hits_needed, updated_enrage_state)
@@ -136,11 +152,20 @@ class MonteCarloCritSimulator:
             elif card_level == 2:
                 block_hp = int(block_hp * 0.80)  # Gilded: -20% HP
         
+        # Track if enrage was enabled (for return value)
+        enrage_was_enabled = enrage_state is not None
+        
         if enrage_state is None:
             enrage_state = {'charges_remaining': 0, 'cooldown': 0}
         
+        # Use effective cooldown if provided, otherwise use base
+        enrage_cooldown = effective_enrage_cooldown if effective_enrage_cooldown is not None else self.ENRAGE_COOLDOWN
+        
         hits = 0
         damage_dealt = 0
+        
+        # Get ability instacharge chance from stats
+        ability_instacharge = stats.get('ability_instacharge', 0)
         
         while damage_dealt < block_hp:
             # Check if enrage is available
@@ -149,10 +174,15 @@ class MonteCarloCritSimulator:
                 is_enrage = True
                 enrage_state['charges_remaining'] -= 1
             else:
-                enrage_state['cooldown'] -= 1
-                if enrage_state['cooldown'] <= 0:
+                # Check for ability instacharge (chance to instantly reset cooldown)
+                if enrage_state['cooldown'] > 0 and ability_instacharge > 0 and random.random() < ability_instacharge:
+                    enrage_state['cooldown'] = 0
                     enrage_state['charges_remaining'] = self.ENRAGE_CHARGES
-                    enrage_state['cooldown'] = self.ENRAGE_COOLDOWN
+                else:
+                    enrage_state['cooldown'] -= 1
+                    if enrage_state['cooldown'] <= 0:
+                        enrage_state['charges_remaining'] = self.ENRAGE_CHARGES
+                        enrage_state['cooldown'] = enrage_cooldown
             
             # Simulate hit
             hit_damage = self.simulate_hit_damage(stats, block_armor, is_enrage, use_crit)
@@ -163,7 +193,8 @@ class MonteCarloCritSimulator:
             if hits > 10000:
                 break
         
-        return hits, enrage_state
+        # Return None if enrage was disabled, otherwise return updated state
+        return hits, enrage_state if enrage_was_enabled else None
     
     def simulate_run(self, stats: Dict, starting_floor: int, 
                     use_crit: bool = True, enrage_enabled: bool = False,
@@ -209,18 +240,72 @@ class MonteCarloCritSimulator:
         stamina_mod_chance = stats.get('stamina_mod_chance', 0)
         stamina_mod_gain = stats.get('stamina_mod_gain', self.MOD_STAMINA_BONUS_AVG)
         
-        # Flurry tracking
+        # Get misc card level for cooldown reduction
+        misc_card_level = stats.get('misc_card_level', 0)
+        cooldown_multiplier = self.get_ability_cooldown_multiplier(misc_card_level)
+        
+        # Get fragment upgrade cooldown reductions (flat reductions, applied before percentage)
+        frag_bonuses = {
+            'enrage_cooldown': stats.get('enrage_cooldown', 0),  # -1s per level from enrage_buff
+            'flurry_cooldown': stats.get('flurry_cooldown', 0),  # -1s per level from flurry_buff
+            'quake_cooldown': stats.get('quake_cooldown', 0),  # -2s per level from quake_buff
+            'ability_cooldown': stats.get('ability_cooldown', 0),  # -1s per level from armor_pen_cd_l1 (all abilities)
+        }
+        
+        # Get quake charges from fragment upgrades (base 5 + quake_attacks per level)
+        quake_charges = stats.get('quake_charges', self.QUAKE_CHARGES)
+        
+        # Get ability instacharge chance
+        ability_instacharge = stats.get('ability_instacharge', 0)
+        
+        # Calculate base cooldowns with flat fragment reductions
+        # Order: base -> flat fragment reductions -> percentage misc card reduction
+        base_enrage_cooldown = self.ENRAGE_COOLDOWN + frag_bonuses['enrage_cooldown'] + frag_bonuses['ability_cooldown']
+        base_flurry_cooldown = self.FLURRY_COOLDOWN + frag_bonuses['flurry_cooldown'] + frag_bonuses['ability_cooldown']
+        base_quake_cooldown = self.QUAKE_COOLDOWN + frag_bonuses['quake_cooldown'] + frag_bonuses['ability_cooldown']
+        
+        # Apply percentage reduction from misc card
+        effective_enrage_cooldown = int(base_enrage_cooldown * cooldown_multiplier)
+        effective_flurry_cooldown = int(base_flurry_cooldown * cooldown_multiplier)
+        effective_quake_cooldown = int(base_quake_cooldown * cooldown_multiplier)
+        
+        # Flurry tracking - persist from previous run if available
         flurry_stamina_bonus = 0
-        flurry_cooldown = 0
         if flurry_enabled:
             flurry_stamina_bonus = self.FLURRY_STAMINA_BONUS
-            flurry_cooldown = self.FLURRY_COOLDOWN
+            # Use persistent cooldown if available, otherwise start with effective cooldown
+            if self.persistent_flurry_cooldown is not None:
+                flurry_cooldown = self.persistent_flurry_cooldown
+            else:
+                flurry_cooldown = effective_flurry_cooldown
+        else:
+            flurry_cooldown = None
         
-        # Enrage tracking (shared across all blocks in the run)
-        enrage_state = {'charges_remaining': 0, 'cooldown': 0} if enrage_enabled else None
+        # Enrage tracking - persist from previous run if available
+        if enrage_enabled:
+            if self.persistent_enrage_state is not None:
+                # Deep copy to avoid modifying the persistent state
+                enrage_state = {
+                    'charges_remaining': self.persistent_enrage_state['charges_remaining'],
+                    'cooldown': self.persistent_enrage_state['cooldown']
+                }
+            else:
+                enrage_state = {'charges_remaining': 0, 'cooldown': 0}
+        else:
+            enrage_state = None
         
-        # Quake tracking (shared across all blocks in the run)
-        quake_state = {'charges_remaining': 0, 'cooldown': 0} if quake_enabled else None
+        # Quake tracking - persist from previous run if available
+        if quake_enabled:
+            if self.persistent_quake_state is not None:
+                # Deep copy to avoid modifying the persistent state
+                quake_state = {
+                    'charges_remaining': self.persistent_quake_state['charges_remaining'],
+                    'cooldown': self.persistent_quake_state['cooldown']
+                }
+            else:
+                quake_state = {'charges_remaining': 0, 'cooldown': 0}
+        else:
+            quake_state = None
         
         if debug:
             # Extract key stats for display
@@ -268,10 +353,11 @@ class MonteCarloCritSimulator:
             
             # Second pass: kill blocks one by one
             for block_idx, (block_type, block_data, block_hp) in enumerate(floor_blocks):
-                # Simulate killing this block (pass enrage state and cards)
+                # Simulate killing this block (pass enrage state and cards, with effective cooldown)
                 hits, enrage_state = self.simulate_block_kill(
                     stats, block_hp, block_data.armor, 
-                    block_type, use_crit, enrage_state, block_cards
+                    block_type, use_crit, enrage_state, block_cards,
+                    effective_enrage_cooldown=effective_enrage_cooldown
                 )
                 stamina_for_floor += hits
                 total_hits += hits
@@ -316,13 +402,18 @@ class MonteCarloCritSimulator:
                         # Update quake charges
                         quake_state['charges_remaining'] -= 1
                         if quake_state['charges_remaining'] <= 0:
-                            quake_state['cooldown'] = self.QUAKE_COOLDOWN
+                            quake_state['cooldown'] = effective_quake_cooldown
                     else:
-                        # Update quake cooldown
-                        quake_state['cooldown'] -= hits
-                        if quake_state['cooldown'] <= 0:
-                            quake_state['charges_remaining'] = self.QUAKE_CHARGES
-                            quake_state['cooldown'] = self.QUAKE_COOLDOWN
+                        # Check for ability instacharge (chance to instantly reset cooldown)
+                        if quake_state['cooldown'] > 0 and ability_instacharge > 0 and random.random() < ability_instacharge:
+                            quake_state['cooldown'] = 0
+                            quake_state['charges_remaining'] = quake_charges
+                        else:
+                            # Update quake cooldown
+                            quake_state['cooldown'] -= hits
+                            if quake_state['cooldown'] <= 0:
+                                quake_state['charges_remaining'] = quake_charges
+                                quake_state['cooldown'] = effective_quake_cooldown
                 
                 # Calculate fragments from this block (only if not dirt)
                 if block_type != 'dirt' and block_type in fragments_by_type:
@@ -341,13 +432,21 @@ class MonteCarloCritSimulator:
             
             # Check flurry (approximate: 1 hit = 1 second)
             flurry_triggered = False
-            if flurry_enabled:
-                flurry_cooldown -= stamina_for_floor
-                if flurry_cooldown <= 0:
+            if flurry_enabled and flurry_cooldown is not None:
+                # Check for ability instacharge (chance to instantly reset cooldown)
+                if flurry_cooldown > 0 and ability_instacharge > 0 and random.random() < ability_instacharge:
+                    flurry_cooldown = 0
                     stamina_remaining = min(max_stamina, stamina_remaining + flurry_stamina_bonus)
-                    flurry_cooldown = self.FLURRY_COOLDOWN
+                    flurry_cooldown = effective_flurry_cooldown
                     flurry_triggered = True
                     stamina_mods_this_floor += flurry_stamina_bonus
+                else:
+                    flurry_cooldown -= stamina_for_floor
+                    if flurry_cooldown <= 0:
+                        stamina_remaining = min(max_stamina, stamina_remaining + flurry_stamina_bonus)
+                        flurry_cooldown = effective_flurry_cooldown
+                        flurry_triggered = True
+                        stamina_mods_this_floor += flurry_stamina_bonus
             
             # Format block types for display
             block_types_str = ", ".join([f"{bt}:{count}" for bt, count in sorted(block_types_spawned.items())])
@@ -371,6 +470,27 @@ class MonteCarloCritSimulator:
                     floors_cleared += stamina_remaining / stamina_for_floor
                 break
         
+        # Persist ability states for next run (realistic behavior)
+        if enrage_enabled and enrage_state is not None:
+            self.persistent_enrage_state = {
+                'charges_remaining': enrage_state['charges_remaining'],
+                'cooldown': enrage_state['cooldown']
+            }
+        elif not enrage_enabled:
+            self.persistent_enrage_state = None
+        
+        if flurry_enabled and flurry_cooldown is not None:
+            self.persistent_flurry_cooldown = flurry_cooldown
+        elif not flurry_enabled:
+            self.persistent_flurry_cooldown = None
+        
+        if quake_enabled and quake_state is not None:
+            self.persistent_quake_state = {
+                'charges_remaining': quake_state['charges_remaining'],
+                'cooldown': quake_state['cooldown']
+            }
+        elif not quake_enabled:
+            self.persistent_quake_state = None
         
         if return_metrics:
             # Calculate total fragments
