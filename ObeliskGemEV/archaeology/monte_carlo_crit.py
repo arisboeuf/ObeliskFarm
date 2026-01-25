@@ -363,6 +363,24 @@ class MonteCarloCritSimulator:
                 total_hits += hits
                 blocks_killed += 1
                 
+                # Check Flurry: cooldown reduces per hit (1 hit = 1 second)
+                # When cooldown reaches 0, Flurry triggers immediately
+                if flurry_enabled and flurry_cooldown is not None:
+                    # Check for ability instacharge before processing hits
+                    if flurry_cooldown > 0 and ability_instacharge > 0 and random.random() < ability_instacharge:
+                        flurry_cooldown = 0
+                        stamina_remaining = min(max_stamina, stamina_remaining + flurry_stamina_bonus)
+                        flurry_cooldown = effective_flurry_cooldown
+                        stamina_mods_this_floor += flurry_stamina_bonus
+                    else:
+                        # Reduce cooldown by number of hits (1 hit = 1 second)
+                        flurry_cooldown -= hits
+                        # If cooldown reaches 0 or below, trigger Flurry immediately
+                        if flurry_cooldown <= 0:
+                            stamina_remaining = min(max_stamina, stamina_remaining + flurry_stamina_bonus)
+                            flurry_cooldown = effective_flurry_cooldown
+                            stamina_mods_this_floor += flurry_stamina_bonus
+                
                 # Track XP from this block (only if not dirt)
                 if block_type != 'dirt':
                     base_xp = block_data.xp
@@ -429,24 +447,6 @@ class MonteCarloCritSimulator:
                     stamina_gain = random.uniform(3, 10)  # Actual range
                     stamina_remaining = min(max_stamina, stamina_remaining + stamina_gain)
                     stamina_mods_this_floor += stamina_gain
-            
-            # Check flurry (approximate: 1 hit = 1 second)
-            flurry_triggered = False
-            if flurry_enabled and flurry_cooldown is not None:
-                # Check for ability instacharge (chance to instantly reset cooldown)
-                if flurry_cooldown > 0 and ability_instacharge > 0 and random.random() < ability_instacharge:
-                    flurry_cooldown = 0
-                    stamina_remaining = min(max_stamina, stamina_remaining + flurry_stamina_bonus)
-                    flurry_cooldown = effective_flurry_cooldown
-                    flurry_triggered = True
-                    stamina_mods_this_floor += flurry_stamina_bonus
-                else:
-                    flurry_cooldown -= stamina_for_floor
-                    if flurry_cooldown <= 0:
-                        stamina_remaining = min(max_stamina, stamina_remaining + flurry_stamina_bonus)
-                        flurry_cooldown = effective_flurry_cooldown
-                        flurry_triggered = True
-                        stamina_mods_this_floor += flurry_stamina_bonus
             
             # Format block types for display
             block_types_str = ", ".join([f"{bt}:{count}" for bt, count in sorted(block_types_spawned.items())])
