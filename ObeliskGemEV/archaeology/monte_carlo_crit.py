@@ -80,8 +80,14 @@ class MonteCarloCritSimulator:
         return max(1, int(total_damage - effective_armor))
     
     def calculate_quake_damage(self, stats: Dict) -> int:
-        """Calculate quake damage (20% of base damage, ignores armor)"""
-        total_damage = stats['total_damage']
+        """
+        Calculate quake damage (20% of base damage, ignores armor).
+        
+        IMPORTANT: Quake uses ONLY base damage - no Enrage bonus, no crits.
+        This matches game behavior where Quake AOE damage is unaffected by
+        Enrage or crit multipliers.
+        """
+        total_damage = stats['total_damage']  # Base damage only
         return max(1, int(total_damage * 0.20))
     
     def simulate_hit_damage(self, stats: Dict, block_armor: int, 
@@ -400,13 +406,15 @@ class MonteCarloCritSimulator:
                     total_xp += xp_gain
                 
                 # Quake: each hit on this block deals 20% damage to all other blocks
+                # IMPORTANT: Quake uses ONLY base damage (no Enrage bonus, no crits)
                 if quake_state is not None:
                     # Check if quake is active (charges available)
                     is_quake_active = quake_state['charges_remaining'] > 0
                     
                     if is_quake_active:
-                        # Calculate quake damage per hit (20% of base damage)
-                        base_damage = self.calculate_effective_damage(stats, 0)  # No armor for quake
+                        # Calculate quake damage per hit (20% of BASE damage only, no Enrage, no crits)
+                        # Use stats['total_damage'] directly - this is base damage without any bonuses
+                        base_damage = stats['total_damage']  # Base damage only, no Enrage bonus
                         quake_damage_per_hit = int(base_damage * self.QUAKE_DAMAGE_MULTIPLIER)
                         
                         # Apply quake damage to all other blocks
