@@ -1,6 +1,6 @@
-# ObeliskGemEV - Design Guidelines
+# ObeliskFarm - Design Guidelines
 
-This document contains design principles and guidelines for the ObeliskGemEV Calculator GUI. All future changes and additions should follow these guidelines.
+This document contains design principles and guidelines for the ObeliskFarm Calculator GUI. All future changes and additions should follow these guidelines.
 
 ## Language & Communication
 
@@ -37,9 +37,9 @@ This document contains design principles and guidelines for the ObeliskGemEV Cal
 - `gem.png` - Main window icon
 - `skill_shard.png` - Skill Shards section (16x16)
 - `stonks_tree.png` - Stonks checkbox (20x20)
-- `gamespeed2x.png` - Option Analyzer 2x Speed (32x32, white bg + border)
+- `gamespeed2x.png` - Lootbug Analyzer 2x Speed (32x32, white bg + border)
 - `founderbomb.png` - Founder Bomb section (20x20)
-- `lootbug.png` - Option Analyzer button (32x32)
+- `lootbug.png` - Lootbug Analyzer button (32x32)
 
 ### Tooltips
 
@@ -109,7 +109,7 @@ This document contains design principles and guidelines for the ObeliskGemEV Cal
 
 ## Component-Specific Guidelines
 
-### Option Analyzer Window
+### Lootbug Analyzer Window
 
 **Info Display**:
 - Important info should appear only on hover (tooltip)

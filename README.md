@@ -1,4 +1,4 @@
-# ObeliskGemEV Calculator
+# ObeliskFarm Calculator
 
 > ⚠️ **Data based on Obelisk Level 30** - All calculations and game data are based on Obelisk Level 30. Results may vary for different progression levels.
 
@@ -6,7 +6,7 @@ An interactive GUI tool for calculating the **Expected Value (EV)** for freebies
 
 ## Overview
 
-The ObeliskGemEV Calculator helps you calculate the optimal return from various freebie mechanisms in the game. The tool automatically calculates the **Gem-equivalent value per hour** based on all active game mechanics such as jackpots, refresh chains, skill shards, founder drops, and more.
+The ObeliskFarm Calculator helps you calculate the optimal return from various freebie mechanisms in the game. The tool automatically calculates the **Gem-equivalent value per hour** based on all active game mechanics such as jackpots, refresh chains, skill shards, founder drops, and more.
 
 ### What is calculated?
 
@@ -18,7 +18,7 @@ The ObeliskGemEV Calculator helps you calculate the optimal return from various 
 
 ## Additional Tools
 
-### Option Analyzer (Lootbug)
+### Lootbug Analyzer
 Analyze whether specific gem purchases are worth it based on your current EV/h. Currently supports:
 - **2x Game Speed** (15 Gems for 10 minutes) - calculates if the additional gem income exceeds the cost
 
@@ -130,7 +130,7 @@ Controls all bomb-related mechanics and their gem generation:
 ### Requirements
 
 ```bash
-cd ObeliskGemEV
+cd ObeliskFarm
 pip install -r requirements.txt
 ```
 
@@ -138,19 +138,19 @@ pip install -r requirements.txt
 
 **Windows:**
 ```bash
-cd ObeliskGemEV
+cd ObeliskFarm
 start_gui.bat
 ```
 
 **Linux/macOS:**
 ```bash
-cd ObeliskGemEV
+cd ObeliskFarm
 python gui.py
 ```
 
 Or directly:
 ```bash
-python ObeliskGemEV/gui.py
+python ObeliskFarm/gui.py
 ```
 
 ## Example Output
@@ -204,7 +204,7 @@ The time saved is converted into additional freebies and displayed as gem-equiva
 ## Project Structure
 
 ```
-ObeliskGemEV/
+ObeliskFarm/
 ├── gui.py                    # Main GUI application
 ├── freebie_ev_calculator.py  # Core EV calculations
 ├── ui_utils.py               # Shared UI utilities
@@ -218,12 +218,12 @@ ObeliskGemEV/
 │   ├── gui_love2d.py         # Love2D Simulator panel
 │   ├── simulation.py         # Combat simulation logic
 │   └── constants.py          # Upgrade data and costs
-├── lootbug/                  # Option Analyzer module
+├── lootbug/                  # Lootbug Analyzer module
 │   └── analyzer.py           # Purchase analysis
-├── stargazing/               # Stargazing Optimizer module
-│   ├── simulator.py          # Main GUI
+├── stargazing/               # Stargazing Calculator module
+│   ├── gui.py                # Main GUI
 │   ├── calculator.py         # Star income calculations
-│   └── data.py               # Star and upgrade data
+│   └── README.md             # Documentation
 ├── sprites/                  # UI icons and images
 └── save/                     # Auto-saved configurations
 ```
