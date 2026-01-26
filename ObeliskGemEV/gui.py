@@ -1,5 +1,5 @@
 """
-GUI for ObeliskGemEV Calculator
+GUI for ObeliskFarm Calculator
 """
 
 import tkinter as tk
@@ -28,7 +28,7 @@ def get_user_data_path() -> Path:
     if getattr(sys, 'frozen', False):
         # Running as exe - use AppData folder on Windows
         app_data = os.environ.get('APPDATA', os.path.expanduser('~'))
-        save_dir = Path(app_data) / 'ObeliskGemEV' / 'save'
+        save_dir = Path(app_data) / 'ObeliskFarm' / 'save'
     else:
         # Running as script - use local save folder
         save_dir = Path(__file__).parent / 'save'
@@ -58,12 +58,12 @@ from archaeology import ArchaeologySimulatorWindow
 from lootbug import LootbugWindow
 from event import EventSimulatorWindow
 try:
-    from stargazing3_0 import Stargazing3Window
-    STARGAZING3_AVAILABLE = True
+    from stargazing import StargazingWindow
+    STARGAZING_AVAILABLE = True
 except ImportError as e:
-    print(f"Warning: Could not import Stargazing3Window: {e}")
-    Stargazing3Window = None
-    STARGAZING3_AVAILABLE = False
+    print(f"Warning: Could not import StargazingWindow: {e}")
+    StargazingWindow = None
+    STARGAZING_AVAILABLE = False
 from ui_utils import create_tooltip as _create_tooltip, calculate_tooltip_position
 
 # Import version/config info
@@ -79,7 +79,7 @@ class MainMenuWindow:
     
     def __init__(self, root):
         self.root = root
-        self.root.title("ObeliskGemEV - Select Module")
+        self.root.title("ObeliskFarm - Select Module")
         self.root.geometry("600x650")
         self.root.resizable(True, True)
         self.root.minsize(600, 500)
@@ -135,7 +135,7 @@ class MainMenuWindow:
         # Title
         title_label = ttk.Label(
             main_frame,
-            text="ObeliskGemEV",
+            text="ObeliskFarm",
             font=("Arial", 24, "bold")
         )
         title_label.pack(pady=(0, 10))
@@ -161,8 +161,8 @@ class MainMenuWindow:
             ('gem', 'Gem EV Calculator', self.open_gem_ev),
             ('archaeology', 'Archaeology Simulator', self.open_archaeology),
             ('event', 'Event Simulator', self.open_event),
-            ('lootbug', 'Option Analyzer', self.open_lootbug),
-            ('stargazing', 'Stargazing 3.0', self.open_stargazing3),
+            ('lootbug', 'Lootbug Analyzer', self.open_lootbug),
+            ('stargazing', 'Stargazing', self.open_stargazing),
         ]
         
         # Create buttons in grid (2 columns)
@@ -181,6 +181,39 @@ class MainMenuWindow:
             if col >= 2:
                 col = 0
                 row += 1
+        
+        # Footer with donation button and message
+        footer_frame = ttk.Frame(main_frame)
+        footer_frame.pack(pady=(20, 10), fill=tk.X)
+        
+        # Blinking donation message
+        self.donation_label = ttk.Label(
+            footer_frame,
+            text="Buy me a coffee and support the tool development...",
+            font=("Arial", 9, "italic"),
+            foreground="#666666"
+        )
+        self.donation_label.pack(side=tk.LEFT, padx=(0, 10))
+        
+        # Blinking red "!" button
+        self.donation_button = tk.Button(
+            footer_frame,
+            text="!",
+            font=("Arial", 14, "bold"),
+            fg="white",
+            bg="#FF0000",
+            width=3,
+            height=1,
+            relief=tk.RAISED,
+            borderwidth=2,
+            cursor="hand2",
+            command=self._open_donation_window
+        )
+        self.donation_button.pack(side=tk.RIGHT)
+        
+        # Start blinking animation
+        self._blink_state = True
+        self._blink_animation()
         
         # Store reference to prevent garbage collection
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -312,6 +345,109 @@ class MainMenuWindow:
         """Handle window close"""
         self.root.destroy()
     
+    def _blink_animation(self):
+        """Animate blinking of donation button and message"""
+        if not self.root.winfo_exists():
+            return
+        
+        # Toggle blink state
+        self._blink_state = not self._blink_state
+        
+        if self._blink_state:
+            # Show button and message
+            self.donation_button.config(bg="#FF0000", fg="white")
+            self.donation_label.config(foreground="#666666")
+        else:
+            # Hide button and message (make transparent/light)
+            self.donation_button.config(bg="#FFCCCC", fg="#FFCCCC")
+            self.donation_label.config(foreground="#E0E0E0")
+        
+        # Schedule next blink (every 800ms)
+        self.root.after(800, self._blink_animation)
+    
+    def _open_donation_window(self):
+        """Open donation window with thank you message and link"""
+        # Stop blinking when clicked
+        self._blink_state = False
+        self.donation_button.config(bg="#FF0000", fg="white")
+        self.donation_label.config(foreground="#666666")
+        
+        # Create donation window
+        donation_window = tk.Toplevel(self.root)
+        donation_window.title("Support ObeliskFarm")
+        donation_window.geometry("500x300")
+        donation_window.resizable(False, False)
+        
+        # Center window
+        donation_window.update_idletasks()
+        width = donation_window.winfo_width()
+        height = donation_window.winfo_height()
+        x = (donation_window.winfo_screenwidth() // 2) - (width // 2)
+        y = (donation_window.winfo_screenheight() // 2) - (height // 2)
+        donation_window.geometry(f'{width}x{height}+{x}+{y}')
+        
+        # Main frame
+        main_frame = ttk.Frame(donation_window, padding="30")
+        main_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Thank you message
+        thank_you_label = ttk.Label(
+            main_frame,
+            text="Thank you for your interest in ObeliskFarm!",
+            font=("Arial", 16, "bold"),
+            justify=tk.CENTER
+        )
+        thank_you_label.pack(pady=(0, 20))
+        
+        # Description
+        desc_label = ttk.Label(
+            main_frame,
+            text="If you find this tool helpful and would like to support its development,\nI would greatly appreciate a small donation.",
+            font=("Arial", 11),
+            justify=tk.CENTER
+        )
+        desc_label.pack(pady=(0, 30))
+        
+        # Donation link button
+        link_frame = ttk.Frame(main_frame)
+        link_frame.pack(pady=(0, 20))
+        
+        link_label = ttk.Label(
+            link_frame,
+            text="Donation Link:",
+            font=("Arial", 10)
+        )
+        link_label.pack(side=tk.LEFT, padx=(0, 10))
+        
+        # Placeholder link - user can replace with actual donation link
+        donation_link = "https://buymeacoffee.com/yourusername"  # TODO: Replace with actual link
+        
+        link_button = tk.Button(
+            link_frame,
+            text="☕ Buy me a coffee",
+            font=("Arial", 11, "bold"),
+            fg="white",
+            bg="#FF813F",
+            relief=tk.RAISED,
+            borderwidth=2,
+            cursor="hand2",
+            command=lambda: self._open_link(donation_link)
+        )
+        link_button.pack(side=tk.LEFT)
+        
+        # Close button
+        close_button = ttk.Button(
+            main_frame,
+            text="Close",
+            command=donation_window.destroy
+        )
+        close_button.pack(pady=(20, 0))
+    
+    def _open_link(self, url):
+        """Open URL in default browser"""
+        import webbrowser
+        webbrowser.open(url)
+    
     def open_gem_ev(self):
         """Open Gem EV Calculator - replaces menu window"""
         # Destroy menu widgets
@@ -319,8 +455,8 @@ class MainMenuWindow:
             widget.destroy()
         
         # Create Gem EV GUI in the same root window
-        app = ObeliskGemEVGUI(self.root)
-        # Window will be maximized by ObeliskGemEVGUI.__init__
+        app = ObeliskFarmGUI(self.root)
+        # Window will be maximized by ObeliskFarmGUI.__init__
     
     def _open_toplevel_module(self, module_class, *args):
         """Helper to open a Toplevel module window and handle cleanup"""
@@ -419,19 +555,19 @@ class MainMenuWindow:
         """Open Event Simulator - opens in new window, closes menu"""
         self._open_toplevel_module(EventSimulatorWindow)
     
-    def open_stargazing3(self):
-        """Open Stargazing 3.0 Calculator - opens in new window, closes menu"""
-        if not STARGAZING3_AVAILABLE or Stargazing3Window is None:
+    def open_stargazing(self):
+        """Open Stargazing Calculator - opens in new window, closes menu"""
+        if not STARGAZING_AVAILABLE or StargazingWindow is None:
             messagebox.showerror(
                 "Error",
-                "Stargazing 3.0 Calculator is not available.\n"
+                "Stargazing Calculator is not available.\n"
                 "Please check that the module is properly installed."
             )
             return
-        self._open_toplevel_module(Stargazing3Window)
+        self._open_toplevel_module(StargazingWindow)
     
     def open_lootbug(self):
-        """Open Option Analyzer - opens in new window, closes menu"""
+        """Open Lootbug Analyzer - opens in new window, closes menu"""
         # Create a calculator for LootbugWindow
         try:
             params = GameParameters()
@@ -440,16 +576,16 @@ class MainMenuWindow:
         except Exception as e:
             messagebox.showerror(
                 "Error",
-                f"Error opening Option Analyzer:\n{str(e)}"
+                f"Error opening Lootbug Analyzer:\n{str(e)}"
             )
 
 
-class ObeliskGemEVGUI:
-    """GUI for the ObeliskGemEV Calculator"""
+class ObeliskFarmGUI:
+    """GUI for the ObeliskFarm Calculator"""
     
     def __init__(self, root):
         self.root = root
-        self.root.title(f"ObeliskGemEV Calculator (Data based on Obelisk Level {OBELISK_LEVEL})")
+        self.root.title(f"ObeliskFarm Calculator (Data based on Obelisk Level {OBELISK_LEVEL})")
         # Maximized window on startup
         self.root.state('zoomed')  # Maximize window on Windows
         self.root.resizable(True, True)
@@ -568,7 +704,7 @@ class ObeliskGemEVGUI:
         
         title_label = ttk.Label(
             title_frame,
-            text="ObeliskGemEV Calculator",
+            text="ObeliskFarm Calculator",
             font=("Arial", 16, "bold")
         )
         title_label.pack(side=tk.LEFT, padx=(0, 10))
@@ -879,11 +1015,7 @@ class ObeliskGemEVGUI:
         
         # Versuche, das Founders Bomb Icon zu laden
         try:
-            # Zuerst versuche founders_bomb.png in common
-            bomb_icon_path = get_resource_path("sprites/common/founders_bomb.png")
-            if not bomb_icon_path.exists():
-                # Fallback zu event/founderbomb.png
-                bomb_icon_path = get_resource_path("sprites/event/founderbomb.png")
+            bomb_icon_path = get_resource_path("sprites/event/founderbomb.png")
             if bomb_icon_path.exists():
                 bomb_image = Image.open(bomb_icon_path)
                 bomb_image = bomb_image.resize((16, 16), Image.Resampling.LANCZOS)
@@ -939,7 +1071,7 @@ class ObeliskGemEVGUI:
         
         # Versuche, das Gem Bomb Icon zu laden
         try:
-            gem_bomb_icon_path = get_resource_path("sprites/common/gem_bomb.png")
+            gem_bomb_icon_path = get_resource_path("sprites/event/gembomb.png")
             if gem_bomb_icon_path.exists():
                 gem_bomb_image = Image.open(gem_bomb_icon_path)
                 gem_bomb_image = gem_bomb_image.resize((16, 16), Image.Resampling.LANCZOS)
@@ -985,7 +1117,7 @@ class ObeliskGemEVGUI:
         
         # Versuche, das Cherry Bomb Icon zu laden
         try:
-            cherry_bomb_icon_path = get_resource_path("sprites/common/cherry_bomb.png")
+            cherry_bomb_icon_path = get_resource_path("sprites/event/cherrybomb.png")
             if cherry_bomb_icon_path.exists():
                 cherry_bomb_image = Image.open(cherry_bomb_icon_path)
                 cherry_bomb_image = cherry_bomb_image.resize((16, 16), Image.Resampling.LANCZOS)
@@ -1128,7 +1260,7 @@ class ObeliskGemEVGUI:
             )
     
     def open_option_analyzer(self):
-        """Öffnet das Option Analyzer Fenster"""
+        """Öffnet das Lootbug Analyzer Fenster"""
         # Hole aktuelle Parameter und erstelle Calculator
         params = self.get_parameters()
         if params is None:
@@ -1145,7 +1277,7 @@ class ObeliskGemEVGUI:
         except Exception as e:
             messagebox.showerror(
                 "Error",
-                f"Fehler beim Öffnen des Option Analyzers:\n{str(e)}"
+                f"Fehler beim Öffnen des Lootbug Analyzers:\n{str(e)}"
             )
     
     def create_tooltip(self, widget, text):
