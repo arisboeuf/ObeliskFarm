@@ -1,5 +1,5 @@
 """
-Shared UI utilities for ObeliskGemEV
+Shared UI utilities for ObeliskFarm
 """
 
 import tkinter as tk
@@ -11,7 +11,7 @@ def get_resource_path(relative_path: str) -> Path:
     """Get absolute path to resource, works for dev and for PyInstaller bundle.
     
     Args:
-        relative_path: Path relative to ObeliskGemEV folder (e.g., 'sprites/common/gem.png')
+        relative_path: Path relative to ObeliskFarm folder (e.g., 'sprites/common/gem.png')
     
     Returns:
         Absolute Path to the resource
@@ -20,7 +20,7 @@ def get_resource_path(relative_path: str) -> Path:
         # Running as compiled exe - use temp directory where PyInstaller extracts files
         base_path = Path(sys._MEIPASS)
     else:
-        # Running as script - use the ObeliskGemEV directory
+        # Running as script - use the ObeliskFarm directory
         base_path = Path(__file__).parent
     return base_path / relative_path
 

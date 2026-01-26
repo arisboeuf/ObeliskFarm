@@ -1,5 +1,5 @@
 """
-ObeliskGemEV - Erwartungswert-Berechnung für Gems (Freebies)
+ObeliskFarm - Erwartungswert-Berechnung für Gems (Freebies)
 """
 
 __version__ = "1.0.0"
