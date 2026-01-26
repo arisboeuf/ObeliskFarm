@@ -9,7 +9,7 @@ from dataclasses import dataclass
 class PlayerStats:
     """Player statistics for event simulation"""
     default_atk_time: float = 2.0
-    default_walk_time: float = 2.0  # Time to walk between enemies
+    default_walk_time: float = 4.0  # Time to walk between enemies (matches Lua original: defaultWalkTime=4)
     walk_speed: float = 1.0
     atk_speed: float = 1.0
     health: int = 100

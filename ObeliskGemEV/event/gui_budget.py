@@ -436,6 +436,9 @@ class BudgetOptimizerPanel:
         
         # Initial empty stats
         self.update_player_stats_display(None, None, None)
+        
+        # Start auto-refresh every 1 second (after all UI is built)
+        self._start_auto_refresh()
     
     def _build_upgrade_level_inputs(self):
         """Build upgrade level input rows with +/- buttons (compact, no scrolling)"""
@@ -866,6 +869,13 @@ class BudgetOptimizerPanel:
         self._update_player_stats()
         self._update_expected_results()
     
+    def _start_auto_refresh(self):
+        """Start auto-refresh timer (every 4 seconds)"""
+        if hasattr(self, 'window') and self.window.winfo_exists():
+            self._refresh_stats_and_results()
+            # Schedule next refresh in 4 seconds (4000ms)
+            self.window.after(4000, self._start_auto_refresh)
+    
     def _update_player_stats(self):
         """Update player stats display based on current upgrade levels"""
         from .simulation import apply_upgrades
@@ -1260,7 +1270,6 @@ class BudgetOptimizerPanel:
         
         def run_simulation():
             try:
-                print(f"[DEBUG] Stats simulation started")
                 # Update status immediately
                 def safe_update():
                     try:
@@ -1336,12 +1345,10 @@ class BudgetOptimizerPanel:
                     'avg_time': avg_time,
                     'stats': stats
                 }
-                print(f"[DEBUG] Stats simulation completed, avg_wave = {avg_wave:.2f}")
             except Exception as e:
                 import traceback
                 error_occurred[0] = True
                 error_message[0] = str(e)
-                print(f"[DEBUG] Stats simulation error: {traceback.format_exc()}")
             finally:
                 def safe_close():
                     try:
@@ -1376,7 +1383,7 @@ class BudgetOptimizerPanel:
                     else:
                         self._show_simulation_results(sim_result[0])
             except Exception as e:
-                print(f"[DEBUG] Error in check_sim_thread: {e}")
+                pass
         
         self.window.after(100, check_sim_thread)
     
@@ -1949,7 +1956,6 @@ class BudgetOptimizerPanel:
         
         def run_mc_optimizer():
             try:
-                print(f"[DEBUG] MC Optimizer thread started")
                 # Update status immediately (safe call)
                 def safe_update():
                     try:
@@ -1981,13 +1987,11 @@ class BudgetOptimizerPanel:
                     progress_callback=safe_progress_callback,
                     event_runs_per_combination=num_event_runs
                 )
-                print(f"[DEBUG] MC Optimizer completed, best_wave = {result.best_wave}")
                 mc_result[0] = result
             except Exception as e:
                 import traceback
                 error_occurred[0] = True
                 error_message[0] = str(e)
-                print(f"[DEBUG] MC Optimizer error: {traceback.format_exc()}")
             finally:
                 # Close loading dialog (safe call)
                 def safe_close():
@@ -1996,7 +2000,6 @@ class BudgetOptimizerPanel:
                             self._close_mc_loading_dialog(loading_window)
                     except (tk.TclError, RuntimeError, AttributeError):
                         pass
-                print(f"[DEBUG] MC Optimizer thread finishing")
                 try:
                     if self.window.winfo_exists():
                         self.window.after(0, safe_close)
@@ -2042,9 +2045,7 @@ class BudgetOptimizerPanel:
                         # Success - process result
                         self._process_mc_result(mc_result[0], initial_state_ref[0])
             except Exception as e:
-                print(f"[DEBUG] Error in check_thread: {e}")
-                import traceback
-                traceback.print_exc()
+                pass
         
         # Start polling (only once)
         try:

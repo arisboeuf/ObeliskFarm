@@ -40,7 +40,7 @@ def apply_upgrades(upgrades: Dict[int, List[int]], player: PlayerStats,
         p.health += 2 * u[1]  # +2 Max Hp
         p.atk_speed += 0.02 * u[2]  # +0.02 Atk Spd
         p.walk_speed += 0.03 * u[3]  # +0.03 Move Spd
-        p.game_speed += 0.03 * u[4]  # +3% Event Game Spd (wiki verified)
+        p.game_speed += 0.02 * u[4]  # +2% Event Game Spd (matches Lua original: 0.02*j)
         p.crit += u[5]  # +1% Crit Chance
         p.crit_dmg += 0.1 * u[5]  # +0.10 Crit Dmg
         p.atk += u[6]  # +1 Atk Dmg
@@ -69,7 +69,7 @@ def apply_upgrades(upgrades: Dict[int, List[int]], player: PlayerStats,
         p.atk += 2 * u[0]  # +2 Atk Dmg
         p.atk_speed += 0.02 * u[1]  # +0.02 Atk Spd
         p.crit += u[2]  # +1% Crit Chance
-        p.game_speed += 0.05 * u[3]  # +5% Event Game Spd (wiki verified)
+        p.game_speed += 0.03 * u[3]  # +3% Event Game Spd (matches Lua original: 0.03*j)
         p.atk += 3 * u[4]  # +3 Atk Dmg
         p.health += 3 * u[4]  # +3 Max Hp
         # u[5] is cap upgrade (no direct stat effect)

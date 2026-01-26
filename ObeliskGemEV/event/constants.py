@@ -8,13 +8,13 @@ Data sourced from: https://shminer.miraheze.org/wiki/Events
 # Upgrade names for display (matches wiki exactly)
 UPGRADE_NAMES = {
     1: ["+1 Atk Dmg", "+2 Max Hp", "+0.02 Atk Spd", "+0.03 Move Spd", 
-        "+3% Event Game Spd", "+1% Crit Chance, +0.10 Crit Dmg", 
+        "+2% Event Game Spd", "+1% Crit Chance, +0.10 Crit Dmg", 
         "+1 Atk Dmg +2 Max Hp", "+1 Tier 1 Upgrade Caps", 
         "+1% Prestige Bonus", "+3 Atk Dmg, +3 Max Hp"],
     2: ["+3 Max Hp", "-0.02 Enemy Atk Spd", "-1 Enemy Atk Dmg", 
         "-1% E.Crit, -0.10 E.Crit Dmg", "+1 Atk Dmg, +0.01 Atk Spd", 
         "+1 Tier 2 Upgrade Caps", "+2% Prestige Bonus"],
-    3: ["+2 Atk Dmg", "+0.02 Atk Spd", "+1% Crit Chance", "+5% Event Game Spd",
+    3: ["+2 Atk Dmg", "+0.02 Atk Spd", "+1% Crit Chance", "+3% Event Game Spd",
         "+3 Atk Dmg, +3 Max Hp", "+1 Tier 3 Upgrade Caps", 
         "+3% 5x Drop Chance", "+5 Max Hp, +0.03 Atk Spd"],
     4: ["+1% Block Chance", "+5 Max Hp", "+0.10 Crit Dmg, -0.10 E.Crit Dmg",
@@ -28,11 +28,11 @@ GEM_UPGRADE_NAMES = ["+10% Dmg", "+10% Max HP", "+125% Event Game Spd", "2x Even
 # Short names for compact display
 UPGRADE_SHORT_NAMES = {
     1: ["ATK +1", "HP +2", "ASpd +0.02", "MSpd +0.03", 
-        "GSpd +3%", "Crit +1%", "ATK+1 HP+2", "T1 Caps +1", 
+        "GSpd +2%", "Crit +1%", "ATK+1 HP+2", "T1 Caps +1", 
         "Prestige +1%", "ATK+3 HP+3"],
     2: ["HP +3", "E.ASpd -0.02", "E.ATK -1", 
         "E.Crit -1%", "ATK+1 ASpd+0.01", "T2 Caps +1", "Prestige +2%"],
-    3: ["ATK +2", "ASpd +0.02", "Crit +1%", "GSpd +5%",
+    3: ["ATK +2", "ASpd +0.02", "Crit +1%", "GSpd +3%",
         "ATK+3 HP+3", "T3 Caps +1", "5x Drop +3%", "HP+5 ASpd+0.03"],
     4: ["Block +1%", "HP +5", "Crit Dmg +0.10", 
         "ASpd+0.02 MSpd+0.02", "HP+4 ATK+4", "T4 Caps +1", 
@@ -109,7 +109,7 @@ UPGRADE_EFFECTS = {
         ("health", 2),        # +2 Maximum Health
         ("atk_speed", 0.02),  # +0.02 Attack Speed
         ("walk_speed", 0.03), # +0.03 Move Speed
-        ("game_speed", 0.03), # +3% Event Game Speed (wiki says +3%)
+        ("game_speed", 0.02), # +2% Event Game Speed (matches Lua original: 0.02*j)
         ("crit", 1, "crit_dmg", 0.10),  # +1% Crit, +0.10 Crit Dmg
         ("atk", 1, "health", 2),        # +1 ATK, +2 HP
         ("cap", 1),           # Cap upgrade (special)
@@ -129,7 +129,7 @@ UPGRADE_EFFECTS = {
         ("atk", 2),           # +2 Attack Damage
         ("atk_speed", 0.02),  # +0.02 Attack Speed
         ("crit", 1),          # +1% Crit Chance
-        ("game_speed", 0.05), # +5% Event Game Speed (wiki says +5%)
+        ("game_speed", 0.03), # +3% Event Game Speed (matches Lua original: 0.03*j)
         ("atk", 3, "health", 3),  # +3 ATK, +3 HP
         ("cap", 1),           # Cap upgrade
         ("x5_money", 3),      # +3% 5x Drop Chance
