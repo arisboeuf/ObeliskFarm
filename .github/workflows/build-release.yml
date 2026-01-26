@@ -1,4 +1,4 @@
-# Build and Release ObeliskGemEV executable
+# Build and Release ObeliskFarm executable
 # Triggers on version tags (v*)
 
 name: Build Release
@@ -24,7 +24,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r ObeliskGemEV/requirements.txt
+          pip install -r ObeliskFarm/requirements.txt
           pip install pyinstaller
       
       - name: Extract version from tag
@@ -33,7 +33,7 @@ jobs:
         run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
       
       - name: Build executable
-        run: python -m PyInstaller ObeliskGemEV.spec --clean
+        run: python -m PyInstaller ObeliskFarm.spec --clean
       
       - name: List output
         run: dir dist
@@ -44,12 +44,12 @@ jobs:
           files: dist/*.exe
           generate_release_notes: true
           body: |
-            ## ObeliskGemEV v${{ steps.version.outputs.VERSION }}
+            ## ObeliskFarm v${{ steps.version.outputs.VERSION }}
             
             > ⚠️ **Data based on Obelisk Level 30**
             
             ### Download
-            Download `ObeliskGemEV_v${{ steps.version.outputs.VERSION }}.exe` below and run it - no installation required!
+            Download `ObeliskFarm_v${{ steps.version.outputs.VERSION }}.exe` below and run it - no installation required!
             
             ### What's included
             - Freebie EV Calculator

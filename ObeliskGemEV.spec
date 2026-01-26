@@ -1,7 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 """
-PyInstaller spec file for ObeliskGemEV Calculator
-Build with: pyinstaller ObeliskGemEV.spec
+PyInstaller spec file for ObeliskFarm Calculator
+Build with: pyinstaller ObeliskFarm.spec
 """
 
 import os
@@ -9,7 +9,7 @@ from pathlib import Path
 
 # Get the absolute path to the project root
 PROJECT_ROOT = Path(SPECPATH)
-OBELISK_DIR = PROJECT_ROOT / 'ObeliskGemEV'
+OBELISK_DIR = PROJECT_ROOT / 'ObeliskFarm'
 
 # Version from __init__.py
 exec(open(OBELISK_DIR / '__init__.py').read())
@@ -43,7 +43,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name=f'ObeliskGemEV_v{VERSION}',
+    name=f'ObeliskFarm_v{VERSION}',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

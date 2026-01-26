@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Build script for ObeliskGemEV executable.
+Build script for ObeliskFarm executable.
 
 Usage:
     python build_exe.py
@@ -9,7 +9,7 @@ Requirements:
     pip install pyinstaller
 
 Output:
-    dist/ObeliskGemEV_vX.X.X.exe
+    dist/ObeliskFarm_vX.X.X.exe
 """
 
 import subprocess
@@ -19,10 +19,10 @@ from pathlib import Path
 
 # Project paths
 PROJECT_ROOT = Path(__file__).parent
-OBELISK_DIR = PROJECT_ROOT / 'ObeliskGemEV'
+OBELISK_DIR = PROJECT_ROOT / 'ObeliskFarm'
 DIST_DIR = PROJECT_ROOT / 'dist'
 BUILD_DIR = PROJECT_ROOT / 'build'
-SPEC_FILE = PROJECT_ROOT / 'ObeliskGemEV.spec'
+SPEC_FILE = PROJECT_ROOT / 'ObeliskFarm.spec'
 
 
 def get_version():
@@ -62,7 +62,7 @@ def clean_build():
 def build_exe():
     """Build the executable using PyInstaller"""
     version = get_version()
-    print(f"Building ObeliskGemEV v{version}...")
+    print(f"Building ObeliskFarm v{version}...")
     
     # Run PyInstaller with spec file
     result = subprocess.run(
@@ -75,7 +75,7 @@ def build_exe():
         sys.exit(1)
     
     # Check output
-    exe_name = f'ObeliskGemEV_v{version}.exe'
+    exe_name = f'ObeliskFarm_v{version}.exe'
     exe_path = DIST_DIR / exe_name
     
     if exe_path.exists():
@@ -89,7 +89,7 @@ def build_exe():
 
 def main():
     print("=" * 50)
-    print("ObeliskGemEV Build Script")
+    print("ObeliskFarm Build Script")
     print("=" * 50)
     
     # Check/install PyInstaller
