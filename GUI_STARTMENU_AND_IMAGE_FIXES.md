@@ -11,7 +11,7 @@ Diese Datei dokumentiert die Strategie für:
 
 ### Konzept
 - Beim Start wird ein Menü-Fenster angezeigt statt direkt Gem EV zu öffnen
-- Benutzer wählt aus: Gem EV, Archaeology, Event, Stargazing, Option Analyzer
+- Benutzer wählt aus: Gem EV, Archaeology, Event, Stargazing, Lootbug Analyzer
 - Nur EIN Fenster ist gleichzeitig offen
 
 ### Implementierung
@@ -189,6 +189,6 @@ class ImageManager:
 ### Dateien die geändert wurden:
 - `ObeliskGemEV/gui.py` - MainMenuWindow hinzugefügt
 - `ObeliskGemEV/archaeology/simulator.py` - master Parameter für alle Images
-- `ObeliskGemEV/stargazing/simulator.py` - master Parameter für alle Images
+- `ObeliskGemEV/stargazing/gui.py` - master Parameter für alle Images
 - `ObeliskGemEV/event/gui_budget.py` - master Parameter für alle Images
 - `ObeliskGemEV/ui_utils.py` - ImageManager hinzugefügt (optional)
