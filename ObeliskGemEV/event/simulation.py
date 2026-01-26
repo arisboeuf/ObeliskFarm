@@ -918,10 +918,21 @@ def get_current_max_level(upgrades: Dict[int, List[int]], tier: int, upgrade_idx
 
 
 def get_gem_max_level(prestige_count: int, idx: int) -> int:
-    """Get max level for gem upgrade based on prestige"""
-    if idx < 2:  # ATK% and HP%
+    """Get max level for gem upgrade based on prestige
+    
+    Matches Lua original (1-based to 0-based conversion):
+    Lua: i=1,2 (<3) → 5+prestigeCount (for +10% dmg, +10% max hp)
+    Lua: i=3 (==3) → 1+min(2, floor(prestigeCount/5)) (for +100% Event Game Spd)
+    Lua: i=4 (else) → 1 (for 2x Event Currencies)
+    
+    Python (0-based):
+    - idx 0,1 (<2): +10% Dmg, +10% HP → 5 + prestige_count
+    - idx 2 (==2): +125% Event Game Spd → 1 + min(2, prestige_count // 5)
+    - idx 3 (else): 2x Event Currencies → 1
+    """
+    if idx < 2:  # +10% Dmg, +10% HP (matches Lua: i<3, but Lua is 1-based so i=1,2)
         return 5 + prestige_count
-    elif idx == 2:  # Game Speed
+    elif idx == 2:  # +125% Event Game Spd (matches Lua: i==3)
         return 1 + min(2, prestige_count // 5)
-    else:  # 2x Currency
+    else:  # 2x Event Currencies (idx == 3, matches Lua: i==4, else case)
         return 1

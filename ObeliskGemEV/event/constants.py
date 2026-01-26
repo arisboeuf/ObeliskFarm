@@ -85,9 +85,9 @@ TIER_COLORS = {
 
 TIER_MAT_NAMES = {
     1: "Coins",
-    2: "Mat 2", 
-    3: "Mat 3",
-    4: "Mat 4"
+    2: "Currency 2", 
+    3: "Currency 3",
+    4: "Currency 4"
 }
 
 # Icon paths (relative to sprites folder)
@@ -96,6 +96,13 @@ CURRENCY_ICONS = {
     2: "event/currency_2.png",
     3: "event/currency_3.png",
     4: "event/currency_4.png"
+}
+
+GEM_UPGRADE_ICONS = {
+    0: "event/gem_upgrade_0.png",  # +10% Dmg
+    1: "event/gem_upgrade_1.png",  # +10% Max HP
+    2: "event/gem_upgrade_2.png",  # +125% Event Game Spd
+    3: "event/gem_upgrade_3.png"   # 2x Event Currencies
 }
 
 EVENT_BUTTON_ICON = "event/event_button.png"

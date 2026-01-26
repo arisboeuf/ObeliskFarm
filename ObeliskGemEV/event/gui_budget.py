@@ -1,6 +1,6 @@
 """
 Budget Optimizer Mode GUI.
-Helps players optimize upgrade paths with limited materials.
+Helps players optimize upgrade paths with limited currency.
 """
 
 import tkinter as tk
@@ -18,7 +18,7 @@ except ImportError:
 
 from .constants import (
     get_prestige_wave_requirement, TIER_COLORS, TIER_MAT_NAMES, UPGRADE_SHORT_NAMES,
-    CURRENCY_ICONS, WAVE_REWARDS, PRESTIGE_UNLOCKED, MAX_LEVELS, CAP_UPGRADES, PRESTIGE_BONUS_BASE
+    CURRENCY_ICONS, GEM_UPGRADE_ICONS, WAVE_REWARDS, PRESTIGE_UNLOCKED, MAX_LEVELS, CAP_UPGRADES, PRESTIGE_BONUS_BASE
 )
 from .utils import format_number
 from .stats import PlayerStats, EnemyStats
@@ -57,9 +57,9 @@ class BudgetOptimizerPanel:
         self.window = window_ref
         
         # State
-        self.material_budget = {1: 0, 2: 0, 3: 0, 4: 0}
-        self.material_vars = {}
-        self.material_entries = {}  # Store entry widgets for direct access
+        self.currency_budget = {1: 0, 2: 0, 3: 0, 4: 0}
+        self.currency_vars = {}
+        self.currency_entries = {}  # Store entry widgets for direct access
         
         # MC Settings
         self.mc_num_runs_var = tk.IntVar(value=2000)  # Number of upgrade combinations to test
@@ -79,8 +79,10 @@ class BudgetOptimizerPanel:
         
         # Load currency icons
         self.currency_icons = {}
+        self.gem_icons = {}  # Gem upgrade icons
         self.upgrade_icons = {}  # Cache for upgrade icons
         self._load_currency_icons()
+        self._load_gem_icons()
         self._load_upgrade_icons()
         
         self.build_ui()
@@ -110,6 +112,21 @@ class BudgetOptimizerPanel:
                     icon_image = icon_image.resize((24, 24), Image.Resampling.LANCZOS)
                     # Use window as master to ensure image is associated with the correct root
                     self.currency_icons[tier] = ImageTk.PhotoImage(icon_image, master=self.window)
+        except Exception:
+            pass  # Graceful fallback if icons can't be loaded
+    
+    def _load_gem_icons(self):
+        """Load gem upgrade icons from sprites folder"""
+        if not PIL_AVAILABLE:
+            return
+        
+        try:
+            for idx in range(4):
+                icon_path = get_resource_path(f"sprites/event/gem_upgrade_{idx}.png")
+                if icon_path.exists():
+                    icon_image = Image.open(icon_path)
+                    icon_image = icon_image.resize((32, 32), Image.Resampling.LANCZOS)
+                    self.gem_icons[idx] = ImageTk.PhotoImage(icon_image, master=self.window)
         except Exception:
             pass  # Graceful fallback if icons can't be loaded
     
@@ -205,9 +222,13 @@ class BudgetOptimizerPanel:
         tk.Label(header_content, text="Upgrades", font=("Arial", 10, "bold"),
                 background="#4CAF50", foreground="white").pack(side=tk.LEFT)
         
-        # Prestige input in header (right side) - using +/- buttons like upgrades
-        prestige_header_frame = tk.Frame(header_content, background="#4CAF50")
-        prestige_header_frame.pack(side=tk.RIGHT)
+        # Prestige and Gem Upgrades in header (right side) - using +/- buttons like upgrades
+        settings_header_frame = tk.Frame(header_content, background="#4CAF50")
+        settings_header_frame.pack(side=tk.RIGHT)
+        
+        # Prestige input
+        prestige_header_frame = tk.Frame(settings_header_frame, background="#4CAF50")
+        prestige_header_frame.pack(side=tk.LEFT, padx=(0, 15))
         
         tk.Label(prestige_header_frame, text="Prestige:", font=("Arial", 9, "bold"),
                 background="#4CAF50", foreground="white").pack(side=tk.LEFT, padx=(10, 5))
@@ -239,6 +260,126 @@ class BudgetOptimizerPanel:
         
         # Update display initially
         self._update_prestige_display()
+        
+        # === GEM UPGRADES SECTION (Permanent upgrades - not bought with Event Currency) ===
+        # Note: Gem Upgrades sind PERMANENTE Upgrades, die mit Gems (nicht Event Currency) gekauft werden.
+        # Sie beeinflussen ALLE Simulationen, werden aber NICHT vom MC Optimizer optimiert.
+        # Unterschied zu normalen Upgrades: Normale Upgrades werden mit Event Currency gekauft und optimiert.
+        gem_section_frame = tk.Frame(left_column, background="#E8EAF6", relief=tk.RIDGE, borderwidth=1)
+        gem_section_frame.pack(fill=tk.X, padx=3, pady=2)
+        
+        # Header with explanation
+        gem_section_header = tk.Frame(gem_section_frame, background="#E8EAF6")
+        gem_section_header.pack(fill=tk.X, padx=5, pady=(3, 2))
+        
+        tk.Label(gem_section_header, text="💎 Gem Upgrades", font=("Arial", 9, "bold"),
+                background="#E8EAF6", foreground="#5C6BC0").pack(side=tk.LEFT)
+        
+        info_label = tk.Label(gem_section_header, text="ℹ", font=("Arial", 9),
+                             background="#E8EAF6", foreground="#7986CB", cursor="hand2")
+        info_label.pack(side=tk.LEFT, padx=(5, 0))
+        create_tooltip(info_label, 
+                      "Permanente Upgrades (nicht Event Currency):\n"
+                      "• Werden mit Gems gekauft (außerhalb des Events)\n"
+                      "• Beeinflussen alle Simulationen\n"
+                      "• Werden NICHT vom MC Optimizer optimiert\n"
+                      "• Max Level hängt von Prestige ab")
+        
+        # Gem upgrades grid (2x2) - kompakter
+        gem_grid = tk.Frame(gem_section_frame, background="#E8EAF6")
+        gem_grid.pack(fill=tk.BOTH, expand=True, padx=3, pady=(0, 3))
+        gem_grid.columnconfigure(0, weight=1)
+        gem_grid.columnconfigure(1, weight=1)
+        gem_grid.rowconfigure(0, weight=1)
+        gem_grid.rowconfigure(1, weight=1)
+        
+        from .constants import GEM_UPGRADE_NAMES
+        from .simulation import get_gem_max_level
+        
+        self.gem_display_frames = []  # Store frames for updates
+        for idx, gem_name in enumerate(GEM_UPGRADE_NAMES):
+            row = idx // 2
+            col = idx % 2
+            
+            # Individual gem upgrade frame - dezenteres Design
+            gem_frame = tk.Frame(gem_grid, background="#C5CAE9", relief=tk.RAISED, borderwidth=1)
+            gem_frame.grid(row=row, column=col, padx=2, pady=2, sticky="nsew")
+            gem_frame.columnconfigure(0, weight=1)
+            
+            # Icon and name - kompakter
+            icon_name_frame = tk.Frame(gem_frame, background="#C5CAE9")
+            icon_name_frame.pack(fill=tk.X, padx=3, pady=(3, 1))
+            
+            # Icon - kleiner (20x20 statt 32x32)
+            if idx in self.gem_icons:
+                icon_label = tk.Label(icon_name_frame, image=self.gem_icons[idx],
+                                     background="#C5CAE9")
+                icon_label.pack(side=tk.LEFT, padx=(0, 3))
+            
+            # Name - kleiner
+            name_label = tk.Label(icon_name_frame, text=gem_name, font=("Arial", 8),
+                                background="#C5CAE9", foreground="#3F51B5", wraplength=100, justify=tk.LEFT)
+            name_label.pack(side=tk.LEFT, fill=tk.X, expand=True)
+            
+            # Level display and controls - kompakter
+            level_frame = tk.Frame(gem_frame, background="#C5CAE9")
+            level_frame.pack(fill=tk.X, padx=3, pady=1)
+            
+            # Current/Max level display - kleiner
+            prestige = self.budget_prestige_var.get()
+            max_level = get_gem_max_level(prestige, idx)
+            current_level = self.current_gem_levels[idx]
+            
+            level_display = tk.Label(level_frame, 
+                                    text=f"Lvl: {current_level}/{max_level}",
+                                    font=("Arial", 7),
+                                    background="#C5CAE9", foreground="#5C6BC0")
+            level_display.pack(side=tk.LEFT)
+            
+            # Control buttons - kleiner
+            controls_frame = tk.Frame(level_frame, background="#C5CAE9")
+            controls_frame.pack(side=tk.RIGHT)
+            
+            minus_btn = tk.Button(controls_frame, text="−", width=1, height=1, font=("Arial", 8, "bold"),
+                                 command=lambda i=idx: self._decrement_gem(i),
+                                 bg="#CCCCCC", fg="black",
+                                 relief=tk.RAISED, borderwidth=1, cursor="hand2",
+                                 state=tk.NORMAL if current_level > 0 else tk.DISABLED)
+            minus_btn.pack(side=tk.LEFT, padx=1)
+            
+            plus_btn = tk.Button(controls_frame, text="+", width=1, height=1, font=("Arial", 8, "bold"),
+                                command=lambda i=idx: self._increment_gem(i),
+                                bg="#CCCCCC", fg="black",
+                                relief=tk.RAISED, borderwidth=1, cursor="hand2",
+                                state=tk.NORMAL if current_level < max_level else tk.DISABLED)
+            plus_btn.pack(side=tk.LEFT, padx=1)
+            
+            # Forecast display - zeigt welches Upgrade +1 am meisten bringt
+            forecast_frame = tk.Frame(gem_frame, background="#C5CAE9")
+            forecast_frame.pack(fill=tk.X, padx=3, pady=(0, 2))
+            
+            forecast_label = tk.Label(forecast_frame, text="", font=("Arial", 7),
+                                     background="#C5CAE9", foreground="#1A237E", wraplength=120)
+            forecast_label.pack(side=tk.LEFT, fill=tk.X, expand=True)
+            
+            # "?" Icon für Tooltip
+            forecast_info_icon = tk.Label(forecast_frame, text="?", font=("Arial", 8, "bold"),
+                                         background="#C5CAE9", foreground="#5C6BC0", cursor="hand2")
+            forecast_info_icon.pack(side=tk.RIGHT, padx=(3, 0))
+            create_tooltip(forecast_info_icon,
+                "Forecast: Zeigt wie viele Wellen du durchschnittlich weiter kommst,\n"
+                "wenn du dieses Gem Upgrade um +1 Level erhöhst.\n"
+                "Berechnet basierend auf deinen aktuellen Upgrades.\n"
+                "⭐ = Bestes Upgrade (bringt am meisten)")
+            
+            # Store references for updates (including forecast label)
+            self.gem_display_frames.append((gem_frame, level_display, minus_btn, plus_btn, forecast_label))
+            
+            # "?" Icon für Gem Upgrade Details Tooltip
+            gem_info_icon = tk.Label(icon_name_frame, text="?", font=("Arial", 8, "bold"),
+                                    background="#C5CAE9", foreground="#5C6BC0", cursor="hand2")
+            gem_info_icon.pack(side=tk.RIGHT, padx=(3, 0))
+            self._create_gem_tooltip(gem_info_icon, idx, gem_name)
         
         # === CURRENT UPGRADE LEVELS (Forecast Mode) ===
         current_upgrades_frame = tk.Frame(left_column, background="#FFF3E0", relief=tk.RIDGE, borderwidth=2)
@@ -297,17 +438,17 @@ class BudgetOptimizerPanel:
         middle_column.grid(row=0, column=1, sticky="nsew", padx=3)
         middle_column.columnconfigure(0, weight=1)
         
-        # === MATERIAL INPUT (Budget) ===
+        # === CURRENCY INPUT (Budget) ===
         input_frame = tk.Frame(middle_column, background="#E8F5E9", relief=tk.RIDGE, borderwidth=2)
         input_frame.pack(fill=tk.X, padx=3, pady=2)
         
-        tk.Label(input_frame, text="Materials", font=("Arial", 9, "bold"),
+        tk.Label(input_frame, text="Currency", font=("Arial", 9, "bold"),
                 background="#E8F5E9").pack(anchor="w", padx=5, pady=(3, 2))
         
         mat_inner = tk.Frame(input_frame, background="#E8F5E9")
         mat_inner.pack(fill=tk.X, padx=5, pady=(0, 3))
         
-        mat_names = ["Coins", "M2", "M3", "M4"]
+        mat_names = ["Coins", "C2", "C3", "C4"]
         mat_colors = ["#FFC107", "#9C27B0", "#00BCD4", "#E91E63"]
         
         # Configure grid for uniform column widths (only 4 columns now, no prestige)
@@ -316,7 +457,7 @@ class BudgetOptimizerPanel:
         mat_inner.columnconfigure(2, weight=1, uniform="mat_col")
         mat_inner.columnconfigure(3, weight=1, uniform="mat_col")
         
-        # Compact grid layout for materials - uniform size
+        # Compact grid layout for currency - uniform size
         for i in range(4):
             col_frame = tk.Frame(mat_inner, background="#E8F5E9")
             col_frame.grid(row=0, column=i, padx=2, sticky="ew")
@@ -335,11 +476,11 @@ class BudgetOptimizerPanel:
             entry.pack(pady=2, fill=tk.X)
             entry.bind('<Return>', lambda e: self.calculate_optimal_upgrades())
             # Also trigger on focus out to ensure values are captured
-            entry.bind('<FocusOut>', lambda e: self._validate_material_entry(tier))
+            entry.bind('<FocusOut>', lambda e: self._validate_currency_entry(tier))
             
             # Store both the StringVar and the Entry widget reference
-            self.material_vars[tier] = var
-            self.material_entries[tier] = entry
+            self.currency_vars[tier] = var
+            self.currency_entries[tier] = entry
         
         # Prestige input removed from here - now in header
         
@@ -372,11 +513,11 @@ class BudgetOptimizerPanel:
         tk.Label(header_frame, text="Expected Results", font=("Arial", 10, "bold"),
                 background="#E8F5E9").pack(side=tk.LEFT)
         
-        # Refresh button
-        refresh_btn = tk.Button(header_frame, text="🔄", font=("Arial", 12),
+        # Refresh button - groß, ähnlich hoch wie der Bereich
+        refresh_btn = tk.Button(header_frame, text="🔄 Refresh", font=("Arial", 11, "bold"),
                                command=self._refresh_stats_and_results,
-                               bg="#E8F5E9", fg="#1976D2", relief=tk.FLAT,
-                               cursor="hand2", padx=5, pady=2)
+                               bg="#4CAF50", fg="white", relief=tk.RAISED, borderwidth=2,
+                               cursor="hand2", padx=15, pady=8)
         refresh_btn.pack(side=tk.RIGHT)
         create_tooltip(refresh_btn, "Refresh stats and expected results")
         
@@ -668,6 +809,203 @@ class BudgetOptimizerPanel:
             self.budget_prestige_var.set(current - 1)
             self._on_prestige_change()
     
+    def _increment_gem(self, idx: int):
+        """Increment gem upgrade level"""
+        from .simulation import get_gem_max_level
+        prestige = self.budget_prestige_var.get()
+        max_level = get_gem_max_level(prestige, idx)
+        if self.current_gem_levels[idx] < max_level:
+            self.current_gem_levels[idx] += 1
+            self._update_gem_display()
+            self._update_player_stats()
+            self._update_expected_results()
+            self.save_state()
+    
+    def _decrement_gem(self, idx: int):
+        """Decrement gem upgrade level"""
+        if self.current_gem_levels[idx] > 0:
+            self.current_gem_levels[idx] -= 1
+            self._update_gem_display()
+            self._update_player_stats()
+            self._update_expected_results()
+            self.save_state()
+    
+    def _update_gem_display(self):
+        """Update gem upgrade display labels and calculate forecast (which +1 brings most benefit)"""
+        from .simulation import get_gem_max_level, apply_upgrades
+        from .stats import PlayerStats, EnemyStats
+        from .optimizer import UpgradeState, estimate_max_wave
+        
+        prestige = self.budget_prestige_var.get()
+        
+        # Calculate forecast for all gem upgrades to find the best one
+        forecast_values = {}  # idx -> wave_improvement
+        
+        if hasattr(self, 'gem_display_frames'):
+            # Calculate base stats with current gem levels
+            base_state = UpgradeState()
+            for t in range(1, 5):
+                base_state.levels[t] = self.current_upgrade_levels[t].copy()
+            base_state.gem_levels = self.current_gem_levels.copy()
+            
+            player_base, enemy = apply_upgrades(
+                base_state.levels, PlayerStats(), EnemyStats(), prestige, base_state.gem_levels
+            )
+            
+            # Calculate wave improvement for each upgrade
+            for idx in range(4):
+                current_level = self.current_gem_levels[idx]
+                max_level = get_gem_max_level(prestige, idx)
+                
+                if current_level < max_level:
+                    # Test +1 level for this upgrade
+                    test_state = base_state.copy()
+                    test_state.gem_levels = test_state.gem_levels.copy()
+                    test_state.gem_levels[idx] += 1
+                    
+                    player_test, _ = apply_upgrades(
+                        test_state.levels, PlayerStats(), EnemyStats(), prestige, test_state.gem_levels
+                    )
+                    
+                    try:
+                        wave_base, _ = estimate_max_wave(player_base, enemy, runs=20)
+                        wave_test, _ = estimate_max_wave(player_test, enemy, runs=20)
+                        wave_improvement = wave_test - wave_base
+                        forecast_values[idx] = wave_improvement
+                    except:
+                        forecast_values[idx] = 0.0
+                else:
+                    forecast_values[idx] = -999  # Max level, not available
+            
+            # Find best upgrade (highest wave improvement)
+            best_idx = max(forecast_values.keys(), key=lambda i: forecast_values[i]) if forecast_values else None
+            
+            # Update all gem displays
+            for idx, gem_frame_data in enumerate(self.gem_display_frames):
+                if len(gem_frame_data) >= 4:
+                    gem_frame, level_display, minus_btn, plus_btn = gem_frame_data[0], gem_frame_data[1], gem_frame_data[2], gem_frame_data[3]
+                    forecast_label = gem_frame_data[4] if len(gem_frame_data) >= 5 else None
+                    
+                    current_level = self.current_gem_levels[idx]
+                    max_level = get_gem_max_level(prestige, idx)
+                    
+                    # Update level display
+                    level_display.config(text=f"Lvl: {current_level}/{max_level}")
+                    
+                    # Update button states
+                    minus_btn.config(state=tk.NORMAL if current_level > 0 else tk.DISABLED)
+                    plus_btn.config(state=tk.NORMAL if current_level < max_level else tk.DISABLED)
+                    
+                    # Update forecast display - besserer Kontrast
+                    if forecast_label is not None:
+                        if current_level < max_level and idx in forecast_values:
+                            wave_improvement = forecast_values[idx]
+                            is_best = (idx == best_idx and wave_improvement > 0)
+                            
+                            if is_best:
+                                forecast_label.config(
+                                    text=f"⭐ +{wave_improvement:.1f} Wave (BEST)",
+                                    foreground="#1B5E20",  # Dunkles Grün für besseren Kontrast
+                                    background="#C5CAE9",  # Sicherstellen dass Hintergrund gesetzt ist
+                                    font=("Arial", 7, "bold")
+                                )
+                            else:
+                                forecast_label.config(
+                                    text=f"+{wave_improvement:.1f} Wave",
+                                    foreground="#1A237E",  # Dunkles Blau für besseren Kontrast
+                                    background="#C5CAE9",
+                                    font=("Arial", 7)
+                                )
+                        else:
+                            forecast_label.config(
+                                text="MAX",
+                                foreground="#424242",  # Dunkles Grau
+                                background="#C5CAE9"
+                            )
+        
+        # Also update old format if it exists
+        if hasattr(self, 'gem_control_frames'):
+            for idx, gem_controls in enumerate(self.gem_control_frames):
+                current_level = self.current_gem_levels[idx]
+                max_level = get_gem_max_level(prestige, idx)
+                
+                if len(gem_controls) >= 3:
+                    label, minus_btn, plus_btn = gem_controls[0], gem_controls[1], gem_controls[2]
+                    label.config(text=f"{current_level}")
+                    minus_btn.config(state=tk.NORMAL if current_level > 0 else tk.DISABLED)
+                    plus_btn.config(state=tk.NORMAL if current_level < max_level else tk.DISABLED)
+                    
+                    if len(gem_controls) >= 4:
+                        max_label = gem_controls[3]
+                        max_label.config(text=f"/ {max_level}")
+    
+    def _create_gem_tooltip(self, widget, idx: int, gem_name: str):
+        """Create tooltip for gem upgrade showing current level and forecast"""
+        def on_enter(event):
+            from .simulation import get_gem_max_level, apply_upgrades
+            from .stats import PlayerStats, EnemyStats
+            from .optimizer import UpgradeState, estimate_max_wave
+            
+            prestige = self.budget_prestige_var.get()
+            current_level = self.current_gem_levels[idx]
+            max_level = get_gem_max_level(prestige, idx)
+            
+            # Calculate forecast: what does next level give?
+            forecast_text = f"{gem_name}\n"
+            forecast_text += f"Current: {current_level}/{max_level}\n"
+            
+            if current_level < max_level:
+                # Calculate stats with current gem levels
+                state = UpgradeState()
+                for t in range(1, 5):
+                    state.levels[t] = self.current_upgrade_levels[t].copy()
+                state.gem_levels = self.current_gem_levels.copy()
+                
+                player_current, enemy = apply_upgrades(
+                    state.levels, PlayerStats(), EnemyStats(), prestige, state.gem_levels
+                )
+                
+                # Calculate stats with +1 gem level
+                state_next = state.copy()
+                state_next.gem_levels = state_next.gem_levels.copy()
+                state_next.gem_levels[idx] += 1
+                
+                player_next, _ = apply_upgrades(
+                    state_next.levels, PlayerStats(), EnemyStats(), prestige, state_next.gem_levels
+                )
+                
+                # Estimate wave improvement
+                try:
+                    wave_current, _ = estimate_max_wave(player_current, enemy, runs=20)
+                    wave_next, _ = estimate_max_wave(player_next, enemy, runs=20)
+                    wave_improvement = wave_next - wave_current
+                    wave_pct = (wave_improvement / wave_current * 100) if wave_current > 0 else 0
+                    
+                    forecast_text += f"\nNext Level Forecast:\n"
+                    forecast_text += f"  +{wave_improvement:.1f} Wave ({wave_pct:+.1f}%)\n"
+                    forecast_text += f"  → Bedeutet: Mit +1 Level kannst du\n"
+                    forecast_text += f"     durchschnittlich {wave_improvement:.1f} Wellen weiter kommen\n"
+                    forecast_text += f"     (basierend auf aktuellen Upgrades)\n"
+                    
+                    # Show stat changes
+                    if idx == 0:  # +10% Dmg
+                        atk_change = player_next.atk - player_current.atk
+                        forecast_text += f"  ATK: +{atk_change:.1f}\n"
+                    elif idx == 1:  # +10% Max HP
+                        hp_change = player_next.health - player_current.health
+                        forecast_text += f"  HP: +{hp_change:.0f}\n"
+                    elif idx == 2:  # +125% Event Game Speed
+                        speed_change = player_next.game_speed - player_current.game_speed
+                        forecast_text += f"  Game Speed: +{speed_change:.2f}x\n"
+                    elif idx == 3:  # 2x Event Currencies
+                        forecast_text += f"  2x Currency: Enabled\n"
+                except:
+                    forecast_text += f"\n(Calculating forecast...)\n"
+            else:
+                forecast_text += f"\nMAX LEVEL\n"
+            
+            create_tooltip(widget, forecast_text)
+    
     def _update_prestige_display(self):
         """Update the prestige display label"""
         if hasattr(self, 'prestige_display_label'):
@@ -679,6 +1017,9 @@ class BudgetOptimizerPanel:
         prestige = self.budget_prestige_var.get()
         # Update display
         self._update_prestige_display()
+        # Update gem display (max levels may have changed)
+        if hasattr(self, 'gem_display_frames') or hasattr(self, 'gem_control_frames'):
+            self._update_gem_display()
         # Rebuild upgrade inputs
         self._build_upgrade_level_inputs()
         # Update player stats to reflect new prestige multiplier
@@ -870,11 +1211,11 @@ class BudgetOptimizerPanel:
         self._update_expected_results()
     
     def _start_auto_refresh(self):
-        """Start auto-refresh timer (every 4 seconds)"""
+        """Start auto-refresh timer (every 10 seconds)"""
         if hasattr(self, 'window') and self.window.winfo_exists():
             self._refresh_stats_and_results()
-            # Schedule next refresh in 4 seconds (4000ms)
-            self.window.after(4000, self._start_auto_refresh)
+            # Schedule next refresh in 10 seconds (10000ms)
+            self.window.after(10000, self._start_auto_refresh)
     
     def _update_player_stats(self):
         """Update player stats display based on current upgrade levels"""
@@ -1690,20 +2031,20 @@ class BudgetOptimizerPanel:
         info_frame = tk.Frame(self.results_container, background="#FFFFFF", relief=tk.RAISED, borderwidth=1)
         info_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         
-        text = "Enter your materials above and click 'Calculate Optimal Upgrades'\n\n"
+        text = "Enter your currency above and click 'Calculate Optimal Upgrades'\n\n"
         text += "The optimizer will recommend:\n"
-        text += "  • Which upgrades to buy for each material type\n"
+        text += "  • Which upgrades to buy for each currency type\n"
         text += "  • Expected wave you can reach\n"
-        text += "  • Materials left over after upgrades"
+        text += "  • Currency left over after upgrades"
         
         tk.Label(info_frame, text=text, font=("Arial", 9), 
                 background="#FFFFFF", justify=tk.LEFT, anchor="nw",
                 padx=10, pady=10).pack(fill=tk.BOTH, expand=True)
     
-    def _validate_material_entry(self, tier):
-        """Validate and update material entry when focus is lost"""
-        if tier in self.material_vars:
-            var = self.material_vars[tier]
+    def _validate_currency_entry(self, tier):
+        """Validate and update currency entry when focus is lost"""
+        if tier in self.currency_vars:
+            var = self.currency_vars[tier]
             val = var.get().strip() if var.get() else ""
             # Clean the value
             val = val.replace(",", "").replace(" ", "")
@@ -1721,11 +2062,11 @@ class BudgetOptimizerPanel:
             # Parse current budget
             budget = {}
             for tier in range(1, 5):
-                if tier in self.material_entries:
-                    entry = self.material_entries[tier]
+                if tier in self.currency_entries:
+                    entry = self.currency_entries[tier]
                     raw_val = entry.get() if entry else ""
-                elif tier in self.material_vars:
-                    var = self.material_vars[tier]
+                elif tier in self.currency_vars:
+                    var = self.currency_vars[tier]
                     raw_val = var.get() if var else ""
                 else:
                     raw_val = ""
@@ -1854,19 +2195,19 @@ class BudgetOptimizerPanel:
             return None
     
     def calculate_optimal_upgrades(self):
-        """Calculate optimal upgrades based on material budget"""
-        # Parse material inputs - read directly from entry widgets
+        """Calculate optimal upgrades based on currency budget"""
+        # Parse currency inputs - read directly from entry widgets
         try:
             total_budget = 0
             for i in range(1, 5):
                 # Get value directly from Entry widget (more reliable than StringVar)
                 raw_val = ""
-                if i in self.material_entries:
-                    entry = self.material_entries[i]
+                if i in self.currency_entries:
+                    entry = self.currency_entries[i]
                     raw_val = entry.get() if entry else ""
-                elif i in self.material_vars:
+                elif i in self.currency_vars:
                     # Fallback to StringVar if entry not available
-                    var = self.material_vars[i]
+                    var = self.currency_vars[i]
                     raw_val = var.get() if var else ""
                 else:
                     raw_val = ""
@@ -1882,13 +2223,13 @@ class BudgetOptimizerPanel:
                 # Convert to float (handles both integers and decimals)
                 if val:
                     try:
-                        self.material_budget[i] = float(val)
+                        self.currency_budget[i] = float(val)
                     except (ValueError, TypeError):
-                        self.material_budget[i] = 0.0
+                        self.currency_budget[i] = 0.0
                 else:
-                    self.material_budget[i] = 0.0
+                    self.currency_budget[i] = 0.0
                 
-                total_budget += self.material_budget[i]
+                total_budget += self.currency_budget[i]
             
             # Check if any budget was entered
             if total_budget == 0 or total_budget < 0.001:
@@ -1896,7 +2237,7 @@ class BudgetOptimizerPanel:
                 for widget in self.expected_results_container.winfo_children():
                     widget.destroy()
                 error_label = tk.Label(self.expected_results_container, 
-                                      text="Error: Please enter at least some materials", 
+                                      text="Error: Please enter at least some currency", 
                                       font=("Arial", 9), foreground="red",
                                       background="#E8F5E9")
                 error_label.pack(pady=20)
@@ -1928,7 +2269,7 @@ class BudgetOptimizerPanel:
             for widget in self.expected_results_container.winfo_children():
                 widget.destroy()
             error_label = tk.Label(self.expected_results_container, 
-                                  text=f"Error: Please enter valid numbers for materials\n{str(e)}", 
+                                  text=f"Error: Please enter valid numbers for currency\n{str(e)}", 
                                   font=("Arial", 9), foreground="red",
                                   background="#E8F5E9")
             error_label.pack(pady=20)
@@ -1980,7 +2321,7 @@ class BudgetOptimizerPanel:
                 num_event_runs = max(1, self.mc_event_runs_var.get())
                 
                 result = monte_carlo_optimize(
-                    budget=self.material_budget,
+                    budget=self.currency_budget,
                     prestige=prestige,
                     initial_state=initial_state_ref[0],
                     num_runs=num_mc_runs,
@@ -2111,11 +2452,11 @@ class BudgetOptimizerPanel:
         for widget in self.results_container.winfo_children():
             widget.destroy()
         
-        # === MATERIAL SUMMARY (2x2 grid) ===
+        # === CURRENCY SUMMARY (2x2 grid) ===
         mat_summary_frame = tk.Frame(self.results_container, background="#FFFFFF", relief=tk.RAISED, borderwidth=1)
         mat_summary_frame.pack(fill=tk.X, padx=3, pady=2)
         
-        tk.Label(mat_summary_frame, text="Materials", font=("Arial", 9, "bold"),
+        tk.Label(mat_summary_frame, text="Currency", font=("Arial", 9, "bold"),
                 background="#FFFFFF").pack(anchor="w", padx=5, pady=2)
         
         mat_grid = tk.Frame(mat_summary_frame, background="#FFFFFF")
@@ -2125,7 +2466,7 @@ class BudgetOptimizerPanel:
         mat_grid.rowconfigure(0, weight=1)
         mat_grid.rowconfigure(1, weight=1)
         
-        # Arrange materials in 2x2 grid: T1 top-left, T2 top-right, T3 bottom-left, T4 bottom-right
+        # Arrange currency in 2x2 grid: T1 top-left, T2 top-right, T3 bottom-left, T4 bottom-right
         positions = [
             (0, 0),  # T1 top-left
             (0, 1),  # T2 top-right
@@ -2136,7 +2477,7 @@ class BudgetOptimizerPanel:
         for tier in range(1, 5):
             row, col = positions[tier - 1]
             mat_name = f"Mat {tier}" if tier > 1 else "Coins"
-            budget = self.material_budget[tier]
+            budget = self.currency_budget[tier]
             spent = result.materials_spent[tier]
             remaining = result.materials_remaining[tier]
             

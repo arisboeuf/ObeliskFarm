@@ -80,9 +80,11 @@ class MainMenuWindow:
     def __init__(self, root):
         self.root = root
         self.root.title("ObeliskFarm - Select Module")
+        # Fixed window size - calculated to fit all content without scrolling
+        # 5 buttons in 2 columns (3 rows): 2×250px buttons + padding = ~550px width
+        # Height: title + subtitle + 3 rows of buttons (120px each) + footer = ~650px
         self.root.geometry("600x650")
-        self.root.resizable(True, True)
-        self.root.minsize(600, 500)
+        self.root.resizable(False, False)  # Fixed size, no resizing
         
         # Center window on screen
         self.root.update_idletasks()
@@ -103,33 +105,12 @@ class MainMenuWindow:
         except:
             pass
         
-        # Main container with scrollbar
+        # Main container - no scrolling needed
         main_container = ttk.Frame(self.root)
         main_container.pack(fill=tk.BOTH, expand=True)
         
-        # Canvas for scrolling
-        canvas = tk.Canvas(main_container, highlightthickness=0)
-        scrollbar = ttk.Scrollbar(main_container, orient="vertical", command=canvas.yview)
-        scrollable_frame = ttk.Frame(canvas)
-        
-        scrollable_frame.bind(
-            "<Configure>",
-            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
-        )
-        
-        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
-        canvas.configure(yscrollcommand=scrollbar.set)
-        
-        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        
-        # Mousewheel scrolling
-        def on_mousewheel(event):
-            canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
-        canvas.bind_all("<MouseWheel>", on_mousewheel)
-        
-        # Main frame inside scrollable frame
-        main_frame = ttk.Frame(scrollable_frame, padding="20")
+        # Main frame - no scrolling
+        main_frame = ttk.Frame(main_container, padding="20")
         main_frame.pack(fill=tk.BOTH, expand=True)
         
         # Title
@@ -147,9 +128,10 @@ class MainMenuWindow:
         )
         subtitle_label.pack(pady=(0, 20))
         
-        # Buttons frame with grid layout (2 columns)
+        # Buttons frame with grid layout (2 columns) - fixed size to fit buttons exactly
         buttons_frame = ttk.Frame(main_frame)
-        buttons_frame.pack(fill=tk.BOTH, expand=True, padx=20)
+        buttons_frame.pack(padx=20, pady=10)
+        # Configure columns to be equal width but not expand unnecessarily
         buttons_frame.columnconfigure(0, weight=1, uniform="button")
         buttons_frame.columnconfigure(1, weight=1, uniform="button")
         
@@ -165,7 +147,7 @@ class MainMenuWindow:
             ('stargazing', 'Stargazing', self.open_stargazing),
         ]
         
-        # Create buttons in grid (2 columns)
+        # Create buttons in grid (2 columns) - buttons will fill available space horizontally
         row = 0
         col = 0
         for icon_key, text, command in buttons:
@@ -175,41 +157,42 @@ class MainMenuWindow:
                 text=text,
                 command=command
             )
-            button.grid(row=row, column=col, padx=10, pady=10, sticky="nsew")
+            button.grid(row=row, column=col, padx=10, pady=10, sticky="ew")  # Expand horizontally only
             
             col += 1
             if col >= 2:
                 col = 0
                 row += 1
         
-        # Footer with donation button and message
+        # Footer with donation button and message - centered
         footer_frame = ttk.Frame(main_frame)
-        footer_frame.pack(pady=(20, 10), fill=tk.X)
+        footer_frame.pack(pady=(20, 10))
+        
+        # Container for donation elements (to center them together)
+        donation_container = ttk.Frame(footer_frame)
+        donation_container.pack()
         
         # Blinking donation message
         self.donation_label = ttk.Label(
-            footer_frame,
+            donation_container,
             text="Buy me a coffee and support the tool development...",
             font=("Arial", 9, "italic"),
             foreground="#666666"
         )
         self.donation_label.pack(side=tk.LEFT, padx=(0, 10))
         
-        # Blinking red "!" button
-        self.donation_button = tk.Button(
-            footer_frame,
+        # Blinking red "!" button with rounded corners
+        self.donation_button = self._create_rounded_button(
+            donation_container,
             text="!",
-            font=("Arial", 14, "bold"),
-            fg="white",
             bg="#FF0000",
-            width=3,
-            height=1,
-            relief=tk.RAISED,
-            borderwidth=2,
-            cursor="hand2",
-            command=self._open_donation_window
+            fg="white",
+            command=self._open_donation_window,
+            width=40,
+            height=40,
+            corner_radius=10
         )
-        self.donation_button.pack(side=tk.RIGHT)
+        self.donation_button.pack(side=tk.LEFT)
         
         # Start blinking animation
         self._blink_state = True
@@ -244,6 +227,7 @@ class MainMenuWindow:
     def _create_icon_button(self, parent, icon, text, command):
         """Create a button with icon and text in tile format"""
         # Create a frame for the button content with nice styling (tile format)
+        # Calculate width: (600px window - 40px padding - 30px button spacing) / 2 = 265px
         button_frame = tk.Frame(
             parent,
             relief=tk.RAISED,
@@ -251,8 +235,8 @@ class MainMenuWindow:
             bg="#E3F2FD",
             highlightbackground="#1976D2",
             highlightthickness=1,
-            width=250,
-            height=120
+            width=265,  # Calculated to fit 2 columns in 600px window
+            height=120  # Fixed height
         )
         button_frame.pack_propagate(False)  # Keep fixed size
         
@@ -345,6 +329,114 @@ class MainMenuWindow:
         """Handle window close"""
         self.root.destroy()
     
+    def _create_rounded_button(self, parent, text, bg, fg, command, width=40, height=40, corner_radius=10):
+        """Create a rounded button using Canvas"""
+        # Get parent background color - handle both tk.Frame and ttk.Frame
+        parent_bg = '#f0f0f0'  # Default light gray
+        try:
+            # Try to get background from tk.Frame
+            parent_bg = parent.cget('background')
+        except:
+            try:
+                # Try alternative for some widgets
+                parent_bg = parent.cget('bg')
+            except:
+                # For ttk.Frame, use system default or fallback
+                if sys.platform == 'win32':
+                    parent_bg = 'SystemButtonFace'
+                else:
+                    parent_bg = '#f0f0f0'
+        
+        canvas = tk.Canvas(
+            parent,
+            width=width,
+            height=height,
+            highlightthickness=0,
+            bg=parent_bg,
+            cursor="hand2"
+        )
+        
+        def draw_rounded_rectangle(canvas, x1, y1, x2, y2, radius, fill, outline, width):
+            """Draw a rounded rectangle on canvas"""
+            # Draw the four corner arcs (filled)
+            # Top-left
+            canvas.create_arc(x1, y1, x1 + 2*radius, y1 + 2*radius, 
+                            start=90, extent=90, fill=fill, outline="", style=tk.PIESLICE)
+            # Top-right
+            canvas.create_arc(x2 - 2*radius, y1, x2, y1 + 2*radius, 
+                            start=0, extent=90, fill=fill, outline="", style=tk.PIESLICE)
+            # Bottom-left
+            canvas.create_arc(x1, y2 - 2*radius, x1 + 2*radius, y2, 
+                            start=180, extent=90, fill=fill, outline="", style=tk.PIESLICE)
+            # Bottom-right
+            canvas.create_arc(x2 - 2*radius, y2 - 2*radius, x2, y2, 
+                            start=270, extent=90, fill=fill, outline="", style=tk.PIESLICE)
+            
+            # Fill the center rectangles
+            canvas.create_rectangle(x1 + radius, y1, x2 - radius, y2, fill=fill, outline="")
+            canvas.create_rectangle(x1, y1 + radius, x2, y2 - radius, fill=fill, outline="")
+            
+            # Draw outline arcs
+            canvas.create_arc(x1, y1, x1 + 2*radius, y1 + 2*radius, 
+                            start=90, extent=90, fill="", outline=outline, width=width, style=tk.ARC)
+            canvas.create_arc(x2 - 2*radius, y1, x2, y1 + 2*radius, 
+                            start=0, extent=90, fill="", outline=outline, width=width, style=tk.ARC)
+            canvas.create_arc(x1, y2 - 2*radius, x1 + 2*radius, y2, 
+                            start=180, extent=90, fill="", outline=outline, width=width, style=tk.ARC)
+            canvas.create_arc(x2 - 2*radius, y2 - 2*radius, x2, y2, 
+                            start=270, extent=90, fill="", outline=outline, width=width, style=tk.ARC)
+            
+            # Draw outline lines
+            canvas.create_line(x1 + radius, y1, x2 - radius, y1, fill=outline, width=width)
+            canvas.create_line(x1 + radius, y2, x2 - radius, y2, fill=outline, width=width)
+            canvas.create_line(x1, y1 + radius, x1, y2 - radius, fill=outline, width=width)
+            canvas.create_line(x2, y1 + radius, x2, y2 - radius, fill=outline, width=width)
+        
+        # Draw rounded rectangle
+        def draw_button(bg_color, fg_color):
+            canvas.delete("all")
+            # Draw rounded rectangle
+            draw_rounded_rectangle(canvas, 2, 2, width-2, height-2, 
+                                 corner_radius, bg_color, "#CC0000", 2)
+            # Draw text
+            canvas.create_text(
+                width//2, height//2,
+                text=text,
+                fill=fg_color,
+                font=("Arial", 14, "bold")
+            )
+        
+        # Initial draw
+        draw_button(bg, fg)
+        
+        # Store colors for animation
+        canvas.button_bg = bg
+        canvas.button_fg = fg
+        
+        # Hover effects
+        def on_enter(e):
+            canvas.config(cursor="hand2")
+        
+        def on_leave(e):
+            canvas.config(cursor="hand2")
+        
+        def on_click(e):
+            command()
+        
+        canvas.bind("<Enter>", on_enter)
+        canvas.bind("<Leave>", on_leave)
+        canvas.bind("<Button-1>", on_click)
+        
+        # Method to update button colors (for blinking)
+        def update_colors(new_bg, new_fg):
+            canvas.button_bg = new_bg
+            canvas.button_fg = new_fg
+            draw_button(new_bg, new_fg)
+        
+        canvas.update_colors = update_colors
+        
+        return canvas
+    
     def _blink_animation(self):
         """Animate blinking of donation button and message"""
         if not self.root.winfo_exists():
@@ -355,11 +447,17 @@ class MainMenuWindow:
         
         if self._blink_state:
             # Show button and message
-            self.donation_button.config(bg="#FF0000", fg="white")
+            if hasattr(self.donation_button, 'update_colors'):
+                self.donation_button.update_colors("#FF0000", "white")
+            else:
+                self.donation_button.config(bg="#FF0000", fg="white")
             self.donation_label.config(foreground="#666666")
         else:
             # Hide button and message (make transparent/light)
-            self.donation_button.config(bg="#FFCCCC", fg="#FFCCCC")
+            if hasattr(self.donation_button, 'update_colors'):
+                self.donation_button.update_colors("#FFCCCC", "#FFCCCC")
+            else:
+                self.donation_button.config(bg="#FFCCCC", fg="#FFCCCC")
             self.donation_label.config(foreground="#E0E0E0")
         
         # Schedule next blink (every 800ms)
@@ -369,7 +467,10 @@ class MainMenuWindow:
         """Open donation window with thank you message and link"""
         # Stop blinking when clicked
         self._blink_state = False
-        self.donation_button.config(bg="#FF0000", fg="white")
+        if hasattr(self.donation_button, 'update_colors'):
+            self.donation_button.update_colors("#FF0000", "white")
+        else:
+            self.donation_button.config(bg="#FF0000", fg="white")
         self.donation_label.config(foreground="#666666")
         
         # Create donation window
@@ -419,8 +520,8 @@ class MainMenuWindow:
         )
         link_label.pack(side=tk.LEFT, padx=(0, 10))
         
-        # Placeholder link - user can replace with actual donation link
-        donation_link = "https://buymeacoffee.com/yourusername"  # TODO: Replace with actual link
+        # Buy Me a Coffee donation link
+        donation_link = "https://buymeacoffee.com/arisboeuf"
         
         link_button = tk.Button(
             link_frame,
