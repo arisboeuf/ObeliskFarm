@@ -35,7 +35,7 @@ def get_user_data_path() -> Path:
     """Get path for user data (saves) - persists outside of bundle."""
     if getattr(sys, 'frozen', False):
         app_data = os.environ.get('APPDATA', os.path.expanduser('~'))
-        save_dir = Path(app_data) / 'ObeliskGemEV' / 'save'
+        save_dir = Path(app_data) / 'ObeliskFarm' / 'save'
     else:
         save_dir = Path(__file__).parent.parent / 'save'
     save_dir.mkdir(parents=True, exist_ok=True)
@@ -703,11 +703,14 @@ class ArchaeologySimulatorWindow:
             'enrage_enabled': self.enrage_enabled.get() if hasattr(self, 'enrage_enabled') else True,
             'flurry_enabled': self.flurry_enabled.get() if hasattr(self, 'flurry_enabled') else True,
             'quake_enabled': self.quake_enabled.get() if hasattr(self, 'quake_enabled') else True,
-            'quake_enabled': self.quake_enabled.get() if hasattr(self, 'quake_enabled') else True,
+            'avada_keda_enabled': self.avada_keda_enabled.get() if hasattr(self, 'avada_keda_enabled') else False,
+            'block_bonker_enabled': self.block_bonker_enabled.get() if hasattr(self, 'block_bonker_enabled') else False,
             'shared_planner_points': self.shared_planner_points.get() if hasattr(self, 'shared_planner_points') else 20,
             'frag_target_type': self.frag_target_var.get() if hasattr(self, 'frag_target_var') else 'common',
             'mc_screening_n': self.mc_screening_n_var.get() if hasattr(self, 'mc_screening_n_var') else 200,
             'mc_refinement_n': self.mc_refinement_n_var.get() if hasattr(self, 'mc_refinement_n_var') else 500,
+            # Save MC logs (without window_creator functions, which can't be serialized)
+            'mc_results_log': self._serialize_mc_logs() if hasattr(self, 'mc_results_log') else [],
         }
         try:
             SAVE_DIR.mkdir(parents=True, exist_ok=True)
@@ -782,10 +785,22 @@ class ArchaeologySimulatorWindow:
                 quake_val = state.get('quake_enabled', True)
                 self.quake_enabled.set(bool(quake_val))  # Ensure boolean value
                 self._update_ability_button_visual('quake', bool(quake_val))
+            if hasattr(self, 'avada_keda_enabled'):
+                avada_keda_val = state.get('avada_keda_enabled', False)
+                self.avada_keda_enabled.set(bool(avada_keda_val))  # Ensure boolean value
+                self._update_avada_keda_button_visual(bool(avada_keda_val))
+            if hasattr(self, 'block_bonker_enabled'):
+                block_bonker_val = state.get('block_bonker_enabled', False)
+                self.block_bonker_enabled.set(bool(block_bonker_val))  # Ensure boolean value
+                self._update_block_bonker_button_visual(bool(block_bonker_val))
             
             # Update stage label
             if hasattr(self, 'stage_label'):
                 self.stage_label.config(text=str(self.current_stage))
+            
+            # Load MC logs
+            if 'mc_results_log' in state:
+                self._deserialize_mc_logs(state['mc_results_log'])
             
             # Update Archaeology Level (used by MC optimizers)
             if hasattr(self, 'shared_planner_points'):
@@ -946,6 +961,9 @@ class ArchaeologySimulatorWindow:
                       str_pts * flat_damage_per_str +
                       frag_bonuses.get('flat_damage', 0))
         percent_damage_bonus = str_pts * percent_damage_per_str + frag_bonuses.get('percent_damage', 0)
+        # Block Bonker: +1% damage per highest stage (capped at 100)
+        block_bonker = self._get_block_bonker_bonus()
+        percent_damage_bonus += block_bonker['damage_percent']
         # Damage is always integer (floored) - no decimal damage in game
         total_damage = int(flat_damage * (1 + percent_damage_bonus))
         
@@ -968,8 +986,8 @@ class ArchaeologySimulatorWindow:
                       agi_pts * max_stamina_per_agi +
                       gem_stamina * self.GEM_UPGRADE_BONUSES['stamina']['max_stamina'] +
                       frag_bonuses.get('max_stamina', 0))
-        # Apply percent stamina bonus
-        max_stamina = int(max_stamina * (1 + frag_bonuses.get('max_stamina_percent', 0)))
+        # Apply percent stamina bonus (fragment upgrades + Block Bonker)
+        max_stamina = int(max_stamina * (1 + frag_bonuses.get('max_stamina_percent', 0) + block_bonker['max_stamina_percent']))
         
         crit_chance = (self.base_crit_chance + 
                       agi_pts * self.SKILL_BONUSES['agility']['crit_chance'] +
@@ -1044,15 +1062,20 @@ class ArchaeologySimulatorWindow:
         # Stamina mod gain bonus
         stamina_mod_gain = self.MOD_STAMINA_BONUS_AVG + frag_bonuses.get('stamina_mod_gain', 0)
         
+        # Block Bonker: +1 speed_mod_gain per highest stage (capped at 100)
+        # Note: speed_mod_gain affects the number of attacks during speed mod (not chance)
+        # This is stored separately and used in calculations
+        
         # Enrage bonuses from fragment upgrades (additive to base enrage bonuses)
         enrage_damage_bonus = self.ENRAGE_DAMAGE_BONUS + frag_bonuses.get('enrage_damage', 0)
         enrage_crit_damage_bonus = self.ENRAGE_CRIT_DAMAGE_BONUS + frag_bonuses.get('enrage_crit_damage', 0)
         
-        # Quake charges from fragment upgrades (base 5 + quake_attacks per level)
-        quake_charges = self.QUAKE_CHARGES + frag_bonuses.get('quake_attacks', 0)
+        # Quake charges from fragment upgrades (base 5 + quake_attacks per level) + Avada Keda
+        avada_keda = self._get_avada_keda_bonus()
+        quake_charges = self.QUAKE_CHARGES + frag_bonuses.get('quake_attacks', 0) + avada_keda['duration_bonus']
         
-        # Ability instacharge chance from fragment upgrades
-        ability_instacharge = frag_bonuses.get('ability_instacharge', 0)
+        # Ability instacharge chance from fragment upgrades + Avada Keda
+        ability_instacharge = frag_bonuses.get('ability_instacharge', 0) + avada_keda['instacharge_bonus']
         
         return {
             'flat_damage': flat_damage,
@@ -1077,6 +1100,8 @@ class ArchaeologySimulatorWindow:
             'loot_mod_multiplier': loot_mod_multiplier,
             'exp_mod_gain': exp_mod_gain,
             'stamina_mod_gain': stamina_mod_gain,
+            # Block Bonker: speed_mod_gain bonus (affects speed mod duration)
+            'speed_mod_gain': block_bonker['speed_mod_gain'],
             # Archaeology XP multiplier (applies to leveling)
             'arch_xp_mult': arch_xp_mult,
             # Enrage bonuses (with fragment upgrades)
@@ -1084,11 +1109,13 @@ class ArchaeologySimulatorWindow:
             'enrage_crit_damage_bonus': enrage_crit_damage_bonus,
             # Misc card level for ability cooldown reduction
             'misc_card_level': getattr(self, 'misc_card_level', 0),
-            # Fragment upgrade cooldown reductions (for MC simulations)
+            # Fragment upgrade cooldown reductions (for MC simulations) + Avada Keda
             'enrage_cooldown': frag_bonuses.get('enrage_cooldown', 0),
             'flurry_cooldown': frag_bonuses.get('flurry_cooldown', 0),
             'quake_cooldown': frag_bonuses.get('quake_cooldown', 0),
-            'ability_cooldown': frag_bonuses.get('ability_cooldown', 0),
+            'ability_cooldown': frag_bonuses.get('ability_cooldown', 0) + avada_keda['cooldown_reduction'],
+            # Avada Keda duration bonus (for MC simulations)
+            'avada_keda_duration_bonus': avada_keda['duration_bonus'],
             # Quake charges and ability instacharge
             'quake_charges': quake_charges,
             'ability_instacharge': ability_instacharge,
@@ -1191,18 +1218,66 @@ class ArchaeologySimulatorWindow:
             return 0.90  # -10%
         return 1.0
 
+    def _get_avada_keda_bonus(self):
+        """Return Avada Keda bonuses if enabled: +5 duration, -10s cooldown, +3% instacharge"""
+        if hasattr(self, 'avada_keda_enabled') and self.avada_keda_enabled.get():
+            return {
+                'duration_bonus': 5,
+                'cooldown_reduction': -10,
+                'instacharge_bonus': 0.03,  # +3%
+            }
+        return {
+            'duration_bonus': 0,
+            'cooldown_reduction': 0,
+            'instacharge_bonus': 0.0,
+        }
+    
+    def _get_block_bonker_bonus(self):
+        """Return Block Bonker bonuses if enabled: +1% damage, +1% max_stamina, +1 speed_mod_gain per highest stage (capped at 100)"""
+        if hasattr(self, 'block_bonker_enabled') and self.block_bonker_enabled.get():
+            # Highest stage = Goal Stage - 1 (if goal is 9, highest is 8)
+            goal_stage = getattr(self, 'current_stage', 1)
+            highest_stage = max(0, goal_stage - 1)
+            # Cap at 100
+            highest_stage = min(highest_stage, 100)
+            
+            return {
+                'damage_percent': highest_stage * 0.01,  # +1% per stage
+                'max_stamina_percent': highest_stage * 0.01,  # +1% per stage
+                'speed_mod_gain': highest_stage,  # +1 per stage
+                'highest_stage': highest_stage,  # For tooltip display
+            }
+        return {
+            'damage_percent': 0.0,
+            'max_stamina_percent': 0.0,
+            'speed_mod_gain': 0,
+            'highest_stage': 0,
+        }
+    
     def _get_effective_ability_cooldowns(self):
-        """Return effective cooldowns (seconds) for Enrage, Flurry, Quake after fragments + misc card."""
+        """Return effective cooldowns (seconds) for Enrage, Flurry, Quake after fragments + misc card + Avada Keda."""
         frag_bonuses = self._get_fragment_upgrade_bonuses()
+        avada_keda = self._get_avada_keda_bonus()
         mult = self.get_ability_cooldown_multiplier()
-        enrage_base = self.ENRAGE_COOLDOWN + frag_bonuses.get('enrage_cooldown', 0) + frag_bonuses.get('ability_cooldown', 0)
-        flurry_base = self.FLURRY_COOLDOWN + frag_bonuses.get('flurry_cooldown', 0) + frag_bonuses.get('ability_cooldown', 0)
-        quake_base = self.QUAKE_COOLDOWN + frag_bonuses.get('quake_cooldown', 0) + frag_bonuses.get('ability_cooldown', 0)
+        enrage_base = self.ENRAGE_COOLDOWN + frag_bonuses.get('enrage_cooldown', 0) + frag_bonuses.get('ability_cooldown', 0) + avada_keda['cooldown_reduction']
+        flurry_base = self.FLURRY_COOLDOWN + frag_bonuses.get('flurry_cooldown', 0) + frag_bonuses.get('ability_cooldown', 0) + avada_keda['cooldown_reduction']
+        quake_base = self.QUAKE_COOLDOWN + frag_bonuses.get('quake_cooldown', 0) + frag_bonuses.get('ability_cooldown', 0) + avada_keda['cooldown_reduction']
         return {
             'enrage': int(enrage_base * mult),
             'flurry': int(flurry_base * mult),
             'quake': int(quake_base * mult),
         }
+    
+    def _get_effective_enrage_charges(self):
+        """Return effective Enrage charges (base + Avada Keda bonus)"""
+        avada_keda = self._get_avada_keda_bonus()
+        return self.ENRAGE_CHARGES + avada_keda['duration_bonus']
+    
+    def _get_effective_quake_charges(self):
+        """Return effective Quake charges (base + fragment upgrades + Avada Keda bonus)"""
+        frag_bonuses = self._get_fragment_upgrade_bonuses()
+        avada_keda = self._get_avada_keda_bonus()
+        return self.QUAKE_CHARGES + frag_bonuses.get('quake_attacks', 0) + avada_keda['duration_bonus']
 
     def calculate_damage_breakpoints(self, block_hp, block_armor, stats, block_type=None, tier=None):
         """
@@ -1318,13 +1393,15 @@ class ArchaeologySimulatorWindow:
             enrage_cooldown_reduction = frag_bonuses.get('enrage_cooldown', 0)  # -1s per level
             ability_cooldown_reduction = frag_bonuses.get('ability_cooldown', 0)  # -1s per level (all abilities)
             
-            # Calculate base cooldown with flat reductions, then apply percentage from misc card
-            base_enrage_cooldown = self.ENRAGE_COOLDOWN + enrage_cooldown_reduction + ability_cooldown_reduction
+            # Calculate base cooldown with flat reductions + Avada Keda, then apply percentage from misc card
+            avada_keda = self._get_avada_keda_bonus()
+            base_enrage_cooldown = self.ENRAGE_COOLDOWN + enrage_cooldown_reduction + ability_cooldown_reduction + avada_keda['cooldown_reduction']
             cooldown_multiplier = self.get_ability_cooldown_multiplier()
             effective_enrage_cooldown = base_enrage_cooldown * cooldown_multiplier
             
-            # Proportion of enrage hits: 5 / effective_cooldown
-            enrage_proportion = self.ENRAGE_CHARGES / effective_enrage_cooldown
+            # Proportion of enrage hits: effective_charges / effective_cooldown
+            effective_enrage_charges = self._get_effective_enrage_charges()
+            enrage_proportion = effective_enrage_charges / effective_enrage_cooldown
             normal_proportion = 1.0 - enrage_proportion
             
             # Enrage effective damage: base damage * (1 + enrage_damage_bonus) (floored), then subtract armor
@@ -1644,7 +1721,9 @@ class ArchaeologySimulatorWindow:
         
         # Speed Mod effect: 2x speed for avg 60 hits
         speed_mod_chance = stats.get('speed_mod_chance', 0)
-        speed_mod_hits_avg = self.MOD_SPEED_ATTACKS_AVG  # 60 hits on average
+        # Block Bonker adds to speed mod gain (number of attacks during speed mod)
+        speed_mod_gain_bonus = stats.get('speed_mod_gain', 0)
+        speed_mod_hits_avg = self.MOD_SPEED_ATTACKS_AVG + speed_mod_gain_bonus  # Base 60 + Block Bonker bonus
         # Expected speed mod hits per run
         speed_mod_hits = blocks_per_run * speed_mod_chance * speed_mod_hits_avg
         # These hits take half the time (2x speed)
@@ -2124,6 +2203,114 @@ class ArchaeologySimulatorWindow:
         self._update_ability_button_visual('enrage', True)
         self._update_ability_button_visual('flurry', True)
         self._update_ability_button_visual('quake', True)
+        
+        ttk.Separator(col_frame, orient='horizontal').pack(fill=tk.X, pady=5, padx=5)
+        
+        # Avada Keda Skill Toggle (like ability buttons)
+        avada_keda_header_frame = tk.Frame(col_frame, background="#E3F2FD")
+        avada_keda_header_frame.pack(fill=tk.X, padx=8, pady=(5, 3))
+        
+        tk.Label(avada_keda_header_frame, text="Avada Keda", font=("Arial", 10, "bold"), 
+                background="#E3F2FD").pack(side=tk.LEFT)
+        
+        # Help icon for Avada Keda
+        avada_keda_help = tk.Label(avada_keda_header_frame, text="?", font=("Arial", 9, "bold"), 
+                                   cursor="hand2", foreground="#1976D2", background="#E3F2FD")
+        avada_keda_help.pack(side=tk.LEFT, padx=(5, 0))
+        self._create_avada_keda_tooltip(avada_keda_help)
+        
+        avada_keda_abilities_frame = tk.Frame(col_frame, background="#E3F2FD")
+        avada_keda_abilities_frame.pack(fill=tk.X, padx=8, pady=2)
+        
+        self.avada_keda_enabled = tk.BooleanVar(value=False)
+        
+        # Load Avada Keda icon
+        avada_keda_icon = self._load_avada_keda_icon()
+        
+        # Create button with icon (similar to ability buttons)
+        avada_keda_frame = tk.Frame(avada_keda_abilities_frame, background="#E3F2FD")
+        avada_keda_frame.pack(side=tk.LEFT, padx=(0, 5))
+        
+        btn_kwargs = {
+            'command': self._toggle_avada_keda,
+            'relief': tk.RAISED,
+            'borderwidth': 2,
+            'background': "#E3F2FD",
+            'activebackground': "#BA68C8",
+        }
+        
+        if avada_keda_icon:
+            btn_kwargs['image'] = avada_keda_icon
+            btn_kwargs['width'] = 34
+            btn_kwargs['height'] = 34
+        else:
+            btn_kwargs['text'] = "AK"
+            btn_kwargs['width'] = 34
+            btn_kwargs['height'] = 34
+        
+        self.avada_keda_icon_button = tk.Button(avada_keda_frame, **btn_kwargs)
+        self.avada_keda_icon_button.pack()
+        
+        # Add checkmark indicator label (will be shown/hidden based on state)
+        self.avada_keda_check_label = tk.Label(avada_keda_frame, text="✗", font=("Arial", 12, "bold"),
+                                               foreground="#F44336", background="#E3F2FD")
+        self.avada_keda_check_label.pack(side=tk.LEFT, padx=(3, 0))
+        
+        # Update initial visual state
+        self._update_avada_keda_button_visual(False)
+        
+        # Block Bonker Skill Toggle (like Avada Keda)
+        block_bonker_header_frame = tk.Frame(col_frame, background="#E3F2FD")
+        block_bonker_header_frame.pack(fill=tk.X, padx=8, pady=(5, 3))
+        
+        tk.Label(block_bonker_header_frame, text="Block Bonker", font=("Arial", 10, "bold"), 
+                background="#E3F2FD").pack(side=tk.LEFT)
+        
+        # Help icon for Block Bonker
+        block_bonker_help = tk.Label(block_bonker_header_frame, text="?", font=("Arial", 9, "bold"), 
+                                   cursor="hand2", foreground="#1976D2", background="#E3F2FD")
+        block_bonker_help.pack(side=tk.LEFT, padx=(5, 0))
+        self._create_block_bonker_tooltip(block_bonker_help)
+        
+        block_bonker_abilities_frame = tk.Frame(col_frame, background="#E3F2FD")
+        block_bonker_abilities_frame.pack(fill=tk.X, padx=8, pady=2)
+        
+        self.block_bonker_enabled = tk.BooleanVar(value=False)
+        
+        # Load Block Bonker icon
+        block_bonker_icon = self._load_block_bonker_icon()
+        
+        # Create button with icon (similar to ability buttons)
+        block_bonker_frame = tk.Frame(block_bonker_abilities_frame, background="#E3F2FD")
+        block_bonker_frame.pack(side=tk.LEFT, padx=(0, 5))
+        
+        btn_kwargs = {
+            'command': self._toggle_block_bonker,
+            'relief': tk.RAISED,
+            'borderwidth': 2,
+            'background': "#E3F2FD",
+            'activebackground': "#BA68C8",
+        }
+        
+        if block_bonker_icon:
+            btn_kwargs['image'] = block_bonker_icon
+            btn_kwargs['width'] = 32
+            btn_kwargs['height'] = 32
+        else:
+            btn_kwargs['text'] = "BB"
+            btn_kwargs['width'] = 32
+            btn_kwargs['height'] = 32
+        
+        self.block_bonker_icon_button = tk.Button(block_bonker_frame, **btn_kwargs)
+        self.block_bonker_icon_button.pack()
+        
+        # Add checkmark indicator label (will be shown/hidden based on state)
+        self.block_bonker_check_label = tk.Label(block_bonker_frame, text="✗", font=("Arial", 12, "bold"),
+                                               foreground="#F44336", background="#E3F2FD")
+        self.block_bonker_check_label.pack(side=tk.LEFT, padx=(3, 0))
+        
+        # Update initial visual state
+        self._update_block_bonker_button_visual(False)
         
         ttk.Separator(col_frame, orient='horizontal').pack(fill=tk.X, pady=5, padx=5)
         
@@ -2868,6 +3055,241 @@ class ArchaeologySimulatorWindow:
         # Update display to reflect changes
         self.update_display()
     
+    def _load_avada_keda_icon(self):
+        """Load Avada Keda icon from local file"""
+        # Check if already loaded
+        if hasattr(self, '_avada_keda_icon') and self._avada_keda_icon is not None:
+            return self._avada_keda_icon
+        
+        # Local path
+        local_path = get_resource_path('sprites/archaeology/avadakeda.png')
+        
+        try:
+            if not local_path.exists():
+                # File doesn't exist, return None (will use text fallback)
+                self._avada_keda_icon = None
+                return None
+            
+            # Load the local file
+            icon_image = Image.open(local_path)
+            
+            # Convert to RGBA if needed for transparency
+            if icon_image.mode != 'RGBA':
+                icon_image = icon_image.convert('RGBA')
+            icon_image = icon_image.resize((32, 32), Image.Resampling.LANCZOS)
+            # Use window as master to ensure image is associated with the correct root
+            photo = ImageTk.PhotoImage(icon_image, master=self.window)
+            self._avada_keda_icon = photo
+            return photo
+        except Exception as e:
+            # Fallback: return None (will use text instead)
+            print(f"Warning: Could not load Avada Keda icon: {e}")
+            self._avada_keda_icon = None
+            return None
+    
+    def _toggle_avada_keda(self):
+        """Toggle Avada Keda on/off"""
+        current = self.avada_keda_enabled.get()
+        self.avada_keda_enabled.set(not current)
+        self._update_avada_keda_button_visual(not current)
+        # Update display to reflect changes
+        self.update_display()
+    
+    def _update_avada_keda_button_visual(self, enabled):
+        """Update the visual appearance of Avada Keda button"""
+        if not hasattr(self, 'avada_keda_icon_button'):
+            return
+        
+        button = self.avada_keda_icon_button
+        check_label = getattr(self, 'avada_keda_check_label', None)
+        
+        if enabled:
+            # Active: raised border with green highlight
+            button.config(relief=tk.RAISED, borderwidth=2, 
+                        highlightbackground="#4CAF50", highlightthickness=2)
+            # Show green checkmark
+            if check_label:
+                check_label.config(text="✓", foreground="#4CAF50")
+                check_label.lift()  # Bring to front
+        else:
+            # Disabled: sunken border, grayed out
+            button.config(relief=tk.SUNKEN, borderwidth=2,
+                        highlightbackground="#9E9E9E", highlightthickness=2)
+            # Show X
+            if check_label:
+                check_label.config(text="✗", foreground="#F44336")
+                check_label.lift()
+    
+    def _create_avada_keda_tooltip(self, widget):
+        """Create a tooltip explaining Avada Keda skill"""
+        def on_enter(event):
+            tooltip = tk.Toplevel()
+            tooltip.wm_overrideredirect(True)
+            
+            tooltip_width = 400
+            tooltip_height = 200
+            screen_width = widget.winfo_screenwidth()
+            screen_height = widget.winfo_screenheight()
+            x, y = calculate_tooltip_position(event, tooltip_width, tooltip_height, screen_width, screen_height)
+            tooltip.wm_geometry(f"+{x}+{y}")
+            
+            outer_frame = tk.Frame(tooltip, background="#9C27B0", relief=tk.FLAT)
+            outer_frame.pack(padx=2, pady=2)
+            inner_frame = tk.Frame(outer_frame, background="#FFFFFF")
+            inner_frame.pack(padx=1, pady=1)
+            content = tk.Frame(inner_frame, background="#FFFFFF", padx=10, pady=8)
+            content.pack()
+            
+            tk.Label(content, text="Avada Keda", font=("Arial", 10, "bold"),
+                    background="#FFFFFF", foreground="#9C27B0").pack(anchor="w")
+            
+            lines = [
+                "",
+                "Obelisk Level: 30",
+                "Cost: 50 Skill Points",
+                "",
+                "Effects:",
+                "• Ability Duration +5 (Enrage: 5→10, Quake: 5→10)",
+                "• Ability Cooldown -10s (Enrage: 60s→50s, Flurry: 120s→110s, Quake: 180s→170s)",
+                "• Ability Instacharge Chance +3%",
+                "",
+                "Instacharge can proc on every ability usage.",
+                "When it procs, you get the ability back immediately",
+                "and effects extend (e.g., Enrage duration stacks).",
+            ]
+            
+            for line in lines:
+                tk.Label(content, text=line, font=("Arial", 9),
+                        background="#FFFFFF", justify=tk.LEFT).pack(anchor="w")
+            
+            widget.tooltip = tooltip
+        
+        def on_leave(event):
+            if hasattr(widget, 'tooltip'):
+                widget.tooltip.destroy()
+                del widget.tooltip
+        
+        widget.bind("<Enter>", on_enter)
+        widget.bind("<Leave>", on_leave)
+    
+    def _load_block_bonker_icon(self):
+        """Load Block Bonker icon from local file"""
+        # Cache the icon to avoid reloading
+        if hasattr(self, '_block_bonker_icon') and self._block_bonker_icon is not None:
+            return self._block_bonker_icon
+        
+        try:
+            local_path = get_resource_path('sprites/archaeology/blockbonker.png')
+            if not local_path.exists():
+                self._block_bonker_icon = None
+                return None
+            
+            # Load the local file
+            icon_image = Image.open(local_path)
+            
+            # Convert to RGBA if needed for transparency
+            if icon_image.mode != 'RGBA':
+                icon_image = icon_image.convert('RGBA')
+            icon_image = icon_image.resize((32, 32), Image.Resampling.LANCZOS)
+            # Use window as master to ensure image is associated with the correct root
+            photo = ImageTk.PhotoImage(icon_image, master=self.window)
+            self._block_bonker_icon = photo
+            return photo
+        except Exception as e:
+            # Fallback: return None (will use text instead)
+            print(f"Warning: Could not load Block Bonker icon: {e}")
+            self._block_bonker_icon = None
+            return None
+    
+    def _toggle_block_bonker(self):
+        """Toggle Block Bonker on/off"""
+        current = self.block_bonker_enabled.get()
+        self.block_bonker_enabled.set(not current)
+        self._update_block_bonker_button_visual(not current)
+        # Update display to reflect changes
+        self.update_display()
+    
+    def _update_block_bonker_button_visual(self, enabled):
+        """Update the visual appearance of Block Bonker button"""
+        if not hasattr(self, 'block_bonker_icon_button'):
+            return
+        
+        button = self.block_bonker_icon_button
+        check_label = getattr(self, 'block_bonker_check_label', None)
+        
+        if enabled:
+            # Active: raised border with green highlight
+            button.config(relief=tk.RAISED, borderwidth=2, 
+                        highlightbackground="#4CAF50", highlightthickness=2)
+            # Show green checkmark
+            if check_label:
+                check_label.config(text="✓", foreground="#4CAF50")
+                check_label.lift()  # Bring to front
+        else:
+            # Disabled: sunken border, grayed out
+            button.config(relief=tk.SUNKEN, borderwidth=2,
+                        highlightbackground="#9E9E9E", highlightthickness=2)
+            # Show X
+            if check_label:
+                check_label.config(text="✗", foreground="#F44336")
+                check_label.lift()
+    
+    def _create_block_bonker_tooltip(self, widget):
+        """Create a tooltip explaining Block Bonker skill"""
+        def on_enter(event):
+            tooltip = tk.Toplevel()
+            tooltip.wm_overrideredirect(True)
+            
+            # Get current highest stage for dynamic display
+            block_bonker = self._get_block_bonker_bonus()
+            highest_stage = block_bonker['highest_stage']
+            goal_stage = getattr(self, 'current_stage', 1)
+            
+            tooltip_width = 400
+            tooltip_height = 250
+            screen_width = widget.winfo_screenwidth()
+            screen_height = widget.winfo_screenheight()
+            x, y = calculate_tooltip_position(event, tooltip_width, tooltip_height, screen_width, screen_height)
+            tooltip.wm_geometry(f"+{x}+{y}")
+            
+            outer_frame = tk.Frame(tooltip, background="#9C27B0", relief=tk.FLAT)
+            outer_frame.pack(padx=2, pady=2)
+            inner_frame = tk.Frame(outer_frame, background="#FFFFFF")
+            inner_frame.pack(padx=1, pady=1)
+            content = tk.Frame(inner_frame, background="#FFFFFF", padx=10, pady=8)
+            content.pack()
+            
+            tk.Label(content, text="Block Bonker", font=("Arial", 10, "bold"),
+                    background="#FFFFFF", foreground="#9C27B0").pack(anchor="w")
+            
+            lines = [
+                "",
+                "Obelisk Level: 30",
+                "Cost: 50 Skill Points",
+                "",
+                "Effects (per Highest Stage):",
+                f"• Damage: +{highest_stage}% (Currently: Goal Stage {goal_stage} → Highest Stage {highest_stage})",
+                f"• Max Stamina: +{highest_stage}% (Currently: Goal Stage {goal_stage} → Highest Stage {highest_stage})",
+                f"• Speed Mod Gain: +{highest_stage} (Currently: Goal Stage {goal_stage} → Highest Stage {highest_stage})",
+                "",
+                "Note: Highest Stage = Goal Stage - 1",
+                "Currently capped at Stage 100",
+            ]
+            
+            for line in lines:
+                tk.Label(content, text=line, font=("Arial", 9),
+                        background="#FFFFFF", justify=tk.LEFT).pack(anchor="w")
+            
+            widget.tooltip = tooltip
+        
+        def on_leave(event):
+            if hasattr(widget, 'tooltip'):
+                widget.tooltip.destroy()
+                del widget.tooltip
+        
+        widget.bind("<Enter>", on_enter)
+        widget.bind("<Leave>", on_leave)
+    
     def _update_ability_button_visual(self, ability_name, enabled):
         """Update the visual appearance of an ability button"""
         button_map = {
@@ -2914,16 +3336,21 @@ class ArchaeologySimulatorWindow:
             # Get fragment upgrade cooldown reductions
             frag_bonuses = self._get_fragment_upgrade_bonuses()
             
-            # Calculate effective cooldowns (base + flat fragment reductions, then percentage misc card)
-            enrage_base = self.ENRAGE_COOLDOWN + frag_bonuses.get('enrage_cooldown', 0) + frag_bonuses.get('ability_cooldown', 0)
+            # Get Avada Keda bonuses
+            avada_keda = self._get_avada_keda_bonus()
+            avada_keda_enabled = hasattr(self, 'avada_keda_enabled') and self.avada_keda_enabled.get()
+            
+            # Calculate effective cooldowns (base + flat fragment reductions + Avada Keda, then percentage misc card)
+            enrage_base = self.ENRAGE_COOLDOWN + frag_bonuses.get('enrage_cooldown', 0) + frag_bonuses.get('ability_cooldown', 0) + avada_keda['cooldown_reduction']
             enrage_effective = int(enrage_base * cooldown_multiplier)
-            flurry_base = self.FLURRY_COOLDOWN + frag_bonuses.get('flurry_cooldown', 0) + frag_bonuses.get('ability_cooldown', 0)
+            flurry_base = self.FLURRY_COOLDOWN + frag_bonuses.get('flurry_cooldown', 0) + frag_bonuses.get('ability_cooldown', 0) + avada_keda['cooldown_reduction']
             flurry_effective = int(flurry_base * cooldown_multiplier)
-            quake_base = self.QUAKE_COOLDOWN + frag_bonuses.get('quake_cooldown', 0) + frag_bonuses.get('ability_cooldown', 0)
+            quake_base = self.QUAKE_COOLDOWN + frag_bonuses.get('quake_cooldown', 0) + frag_bonuses.get('ability_cooldown', 0) + avada_keda['cooldown_reduction']
             quake_effective = int(quake_base * cooldown_multiplier)
             
-            # Get quake charges (base 5 + quake_attacks per level)
-            quake_charges = self.QUAKE_CHARGES + frag_bonuses.get('quake_attacks', 0)
+            # Get effective charges (base + fragment upgrades + Avada Keda)
+            effective_enrage_charges = self._get_effective_enrage_charges()
+            quake_charges = self._get_effective_quake_charges()
             
             # Build tooltip content
             tooltip_width = 300
@@ -2953,10 +3380,16 @@ class ArchaeologySimulatorWindow:
                     background="#FFFFFF").pack(anchor="w", pady=(3, 0))
             tk.Label(content, text=f"  Status: {enrage_status}", font=("Arial", 8),
                     background="#FFFFFF", foreground=enrage_status_color).pack(anchor="w")
-            # Show base cooldown (after fragment flat reductions)
+            # Show base cooldown (after fragment flat reductions + Avada Keda)
             enrage_frag_reduction = frag_bonuses.get('enrage_cooldown', 0) + frag_bonuses.get('ability_cooldown', 0)
-            if enrage_frag_reduction > 0:
-                tk.Label(content, text=f"  Base: {self.ENRAGE_COOLDOWN}s → {enrage_base}s (Frag: -{enrage_frag_reduction}s)",
+            reduction_text = f"Frag: -{enrage_frag_reduction}s" if enrage_frag_reduction > 0 else ""
+            if avada_keda_enabled:
+                if reduction_text:
+                    reduction_text += f", Avada Keda: -10s"
+                else:
+                    reduction_text = "Avada Keda: -10s"
+            if reduction_text:
+                tk.Label(content, text=f"  Base: {self.ENRAGE_COOLDOWN}s → {enrage_base}s ({reduction_text})",
                         font=("Arial", 8), background="#FFFFFF", foreground="#666666").pack(anchor="w")
             else:
                 tk.Label(content, text=f"  Base: {self.ENRAGE_COOLDOWN}s",
@@ -2973,7 +3406,7 @@ class ArchaeologySimulatorWindow:
             else:
                 tk.Label(content, text=f"  Effective: {enrage_effective}s",
                         font=("Arial", 8), background="#FFFFFF").pack(anchor="w")
-            tk.Label(content, text="  Effect: +20% Dmg, +100% Crit Dmg (5 hits)",
+            tk.Label(content, text=f"  Effect: +20% Dmg, +100% Crit Dmg ({effective_enrage_charges} hits)",
                     font=("Arial", 8), background="#FFFFFF", foreground="#555555").pack(anchor="w")
             
             # Flurry
@@ -2984,10 +3417,16 @@ class ArchaeologySimulatorWindow:
                     background="#FFFFFF").pack(anchor="w", pady=(3, 0))
             tk.Label(content, text=f"  Status: {flurry_status}", font=("Arial", 8),
                     background="#FFFFFF", foreground=flurry_status_color).pack(anchor="w")
-            # Show base cooldown (after fragment flat reductions)
+            # Show base cooldown (after fragment flat reductions + Avada Keda)
             flurry_frag_reduction = frag_bonuses.get('flurry_cooldown', 0) + frag_bonuses.get('ability_cooldown', 0)
-            if flurry_frag_reduction > 0:
-                tk.Label(content, text=f"  Base: {self.FLURRY_COOLDOWN}s → {flurry_base}s (Frag: -{flurry_frag_reduction}s)",
+            reduction_text = f"Frag: -{flurry_frag_reduction}s" if flurry_frag_reduction > 0 else ""
+            if avada_keda_enabled:
+                if reduction_text:
+                    reduction_text += f", Avada Keda: -10s"
+                else:
+                    reduction_text = "Avada Keda: -10s"
+            if reduction_text:
+                tk.Label(content, text=f"  Base: {self.FLURRY_COOLDOWN}s → {flurry_base}s ({reduction_text})",
                         font=("Arial", 8), background="#FFFFFF", foreground="#666666").pack(anchor="w")
             else:
                 tk.Label(content, text=f"  Base: {self.FLURRY_COOLDOWN}s",
@@ -3015,17 +3454,32 @@ class ArchaeologySimulatorWindow:
                     background="#FFFFFF").pack(anchor="w", pady=(3, 0))
             tk.Label(content, text=f"  Status: {quake_status}", font=("Arial", 8),
                     background="#FFFFFF", foreground=quake_status_color).pack(anchor="w")
-            # Show quake charges (with fragment upgrades)
-            if quake_charges > self.QUAKE_CHARGES:
-                tk.Label(content, text=f"  Charges: {self.QUAKE_CHARGES} → {quake_charges} (Frag: +{quake_charges - self.QUAKE_CHARGES})",
+            # Show quake charges (with fragment upgrades + Avada Keda)
+            frag_charges_bonus = frag_bonuses.get('quake_attacks', 0)
+            charges_text = f"Charges: {self.QUAKE_CHARGES}"
+            if frag_charges_bonus > 0 or avada_keda_enabled:
+                charges_text += f" → {quake_charges} ("
+                parts = []
+                if frag_charges_bonus > 0:
+                    parts.append(f"Frag: +{frag_charges_bonus}")
+                if avada_keda_enabled:
+                    parts.append(f"Avada Keda: +{avada_keda['duration_bonus']}")
+                charges_text += ", ".join(parts) + ")"
+                tk.Label(content, text=charges_text,
                         font=("Arial", 8), background="#FFFFFF", foreground="#666666").pack(anchor="w")
             else:
                 tk.Label(content, text=f"  Charges: {quake_charges}",
                         font=("Arial", 8), background="#FFFFFF").pack(anchor="w")
-            # Show base cooldown (after fragment flat reductions)
+            # Show base cooldown (after fragment flat reductions + Avada Keda)
             quake_frag_reduction = frag_bonuses.get('quake_cooldown', 0) + frag_bonuses.get('ability_cooldown', 0)
-            if quake_frag_reduction > 0:
-                tk.Label(content, text=f"  Base: {self.QUAKE_COOLDOWN}s → {quake_base}s (Frag: -{quake_frag_reduction}s)",
+            reduction_text = f"Frag: -{quake_frag_reduction}s" if quake_frag_reduction > 0 else ""
+            if avada_keda_enabled:
+                if reduction_text:
+                    reduction_text += f", Avada Keda: -10s"
+                else:
+                    reduction_text = "Avada Keda: -10s"
+            if reduction_text:
+                tk.Label(content, text=f"  Base: {self.QUAKE_COOLDOWN}s → {quake_base}s ({reduction_text})",
                         font=("Arial", 8), background="#FFFFFF", foreground="#666666").pack(anchor="w")
             else:
                 tk.Label(content, text=f"  Base: {self.QUAKE_COOLDOWN}s",
@@ -4137,14 +4591,24 @@ class ArchaeologySimulatorWindow:
         widget.bind("<Leave>", on_leave)
     
     def create_results_column(self, parent):
-        """Right column: Fragment Planner and MC Optimizers at the top"""
+        """Right column: Fragment Planner and MC Optimizers at the top, MC Log on the right"""
         # Outer frame for the column
         col_outer = tk.Frame(parent, background="#FFF3E0", relief=tk.RIDGE, borderwidth=2)
         col_outer.grid(row=0, column=2, sticky="nsew", padx=(2, 0), pady=0)
+        col_outer.columnconfigure(0, weight=2)  # MC area gets 2/3
+        col_outer.columnconfigure(1, weight=1)    # Log panel gets 1/3
+        col_outer.rowconfigure(0, weight=1)
+        
+        # Left side: MC area
+        mc_area_frame = tk.Frame(col_outer, background="#FFF3E0")
+        mc_area_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 2))
         
         # Inner frame (no scrolling - Fragment Planner is at the top)
-        col_frame = tk.Frame(col_outer, background="#FFF3E0")
+        col_frame = tk.Frame(mc_area_frame, background="#FFF3E0")
         col_frame.pack(fill=tk.BOTH, expand=True, anchor="nw")
+        
+        # Initialize MC results storage
+        self.mc_results_log = []  # List of {timestamp, mc_type, result_data, window_creator}
         
         # === MC FRAGMENT FARMER ===
         mc_fragment_farmer_section = tk.Frame(col_frame, background="#E1BEE7", relief=tk.RIDGE, borderwidth=2)
@@ -4457,6 +4921,525 @@ class ArchaeologySimulatorWindow:
         
         # Initialize target button highlight
         self._update_frag_target_buttons()
+        
+        # Right side: MC Log Panel
+        self._create_mc_log_panel(col_outer)
+    
+    def _create_mc_log_panel(self, parent):
+        """Create the MC results log panel on the right side"""
+        from datetime import datetime
+        
+        # Log panel frame
+        log_panel = tk.Frame(parent, background="#E8EAF6", relief=tk.RIDGE, borderwidth=2)
+        log_panel.grid(row=0, column=1, sticky="nsew")
+        log_panel.columnconfigure(0, weight=1)
+        log_panel.rowconfigure(1, weight=1)
+        
+        # Header
+        log_header = tk.Frame(log_panel, background="#5C6BC0", relief=tk.FLAT)
+        log_header.pack(fill=tk.X)
+        
+        # Title and reset button
+        header_content = tk.Frame(log_header, background="#5C6BC0")
+        header_content.pack(fill=tk.X, padx=5, pady=3)
+        
+        tk.Label(header_content, text="MC Results Log", font=("Arial", 11, "bold"),
+                background="#5C6BC0", foreground="#FFFFFF").pack(side=tk.LEFT)
+        
+        # Reset button (small)
+        reset_button = tk.Button(
+            header_content,
+            text="Reset",
+            font=("Arial", 7),
+            bg="#E53935",
+            fg="#FFFFFF",
+            activebackground="#C62828",
+            activeforeground="#FFFFFF",
+            relief=tk.RAISED,
+            borderwidth=1,
+            padx=4,
+            pady=1,
+            command=self._reset_mc_log
+        )
+        reset_button.pack(side=tk.RIGHT, padx=(5, 0))
+        
+        # Scrollable log list
+        log_container = tk.Frame(log_panel, background="#E8EAF6")
+        log_container.pack(fill=tk.BOTH, expand=True, padx=2, pady=2)
+        log_container.columnconfigure(0, weight=1)
+        log_container.rowconfigure(0, weight=1)
+        
+        # Canvas for scrolling
+        log_canvas = tk.Canvas(log_container, highlightthickness=0, background="#FFFFFF")
+        log_scrollbar = ttk.Scrollbar(log_container, orient="vertical", command=log_canvas.yview)
+        log_scrollable_frame = tk.Frame(log_canvas, background="#FFFFFF")
+        
+        log_scrollable_frame.bind(
+            "<Configure>",
+            lambda e: log_canvas.configure(scrollregion=log_canvas.bbox("all"))
+        )
+        
+        log_canvas.create_window((0, 0), window=log_scrollable_frame, anchor="nw")
+        log_canvas.configure(yscrollcommand=log_scrollbar.set)
+        
+        log_canvas.grid(row=0, column=0, sticky="nsew")
+        log_scrollbar.grid(row=0, column=1, sticky="ns")
+        
+        # Mousewheel scrolling
+        def on_mousewheel(event):
+            log_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+        log_canvas.bind_all("<MouseWheel>", on_mousewheel)
+        
+        # Store references
+        self.mc_log_canvas = log_canvas
+        self.mc_log_scrollable_frame = log_scrollable_frame
+        
+        # Empty state message
+        self.mc_log_empty_label = tk.Label(
+            log_scrollable_frame,
+            text="No MC results yet.\nRun an MC simulation to see results here.",
+            font=("Arial", 9),
+            foreground="#999999",
+            background="#FFFFFF",
+            justify=tk.CENTER
+        )
+        self.mc_log_empty_label.pack(pady=20)
+    
+    def _extract_mc_metrics(self, mc_type, result_data):
+        """Extract key metrics from result data for display in log entry
+        Always returns in order: floors/run, xp/h, frag/h
+        """
+        import numpy as np
+        
+        floors_per_run = None
+        xp_per_hour = None
+        frag_per_hour = None
+        
+        try:
+            # Extract metrics_samples if available (contains floors_cleared, xp_per_run, total_fragments, run_duration_seconds)
+            if 'metrics_samples' in result_data and result_data['metrics_samples']:
+                metrics_list = result_data['metrics_samples']
+                if isinstance(metrics_list, list) and len(metrics_list) > 0:
+                    # Calculate floors/run
+                    floors_list = [m.get('floors_cleared', 0.0) for m in metrics_list]
+                    if floors_list:
+                        floors_per_run = np.mean(floors_list) if isinstance(floors_list[0], (int, float, np.number)) else None
+                    
+                    # Calculate XP/h
+                    avg_xp_per_run = np.mean([m.get('xp_per_run', 0.0) for m in metrics_list])
+                    avg_duration = np.mean([m.get('run_duration_seconds', 1.0) for m in metrics_list])
+                    if avg_duration > 0:
+                        xp_per_hour = avg_xp_per_run * 3600 / avg_duration
+                    
+                    # Calculate Frag/h
+                    avg_frag_per_run = np.mean([m.get('total_fragments', 0.0) for m in metrics_list])
+                    if avg_duration > 0:
+                        frag_per_hour = avg_frag_per_run * 3600 / avg_duration
+            
+            # If metrics_samples not available, try to extract from samples directly
+            if floors_per_run is None and mc_type == 'stage':
+                # For stage optimizer, we might not have floors_cleared, but we can use max_stage as approximation
+                if 'max_stage_samples' in result_data and result_data['max_stage_samples'] is not None:
+                    samples = result_data['max_stage_samples']
+                    if isinstance(samples, np.ndarray):
+                        floors_per_run = np.mean(samples)
+                    elif isinstance(samples, list) and len(samples) > 0:
+                        floors_per_run = sum(samples) / len(samples)
+            
+            if xp_per_hour is None and 'xp_per_hour_samples' in result_data and result_data['xp_per_hour_samples'] is not None:
+                samples = result_data['xp_per_hour_samples']
+                if isinstance(samples, np.ndarray):
+                    xp_per_hour = np.mean(samples)
+                elif isinstance(samples, list) and len(samples) > 0:
+                    xp_per_hour = sum(samples) / len(samples)
+            
+            if frag_per_hour is None and 'frag_per_hour_samples' in result_data and result_data['frag_per_hour_samples'] is not None:
+                samples = result_data['frag_per_hour_samples']
+                if isinstance(samples, np.ndarray):
+                    frag_per_hour = np.mean(samples)
+                elif isinstance(samples, list) and len(samples) > 0:
+                    frag_per_hour = sum(samples) / len(samples)
+            
+            # Build metrics list in fixed order: floors/run, xp/h, frag/h
+            metrics = []
+            if floors_per_run is not None:
+                metrics.append(f"Floors/run: {floors_per_run:.2f}")
+            if xp_per_hour is not None:
+                metrics.append(f"XP/h: {xp_per_hour:.0f}")
+            if frag_per_hour is not None:
+                metrics.append(f"Frag/h: {frag_per_hour:.1f}")
+            
+        except Exception as e:
+            # If extraction fails, just return empty list
+            pass
+        
+        return " | ".join(metrics) if metrics else ""
+    
+    def _reset_mc_log(self):
+        """Reset the MC log (clear all entries)"""
+        # Ask for confirmation
+        if not tk.messagebox.askyesno(
+            "Reset MC Log",
+            "Are you sure you want to clear all MC log entries?\n\nThis cannot be undone."
+        ):
+            return
+        
+        # Clear log list
+        self.mc_results_log = []
+        
+        # Clear all UI entries
+        for widget in self.mc_log_scrollable_frame.winfo_children():
+            widget.destroy()
+        
+        # Show empty state message
+        self.mc_log_empty_label = tk.Label(
+            self.mc_log_scrollable_frame,
+            text="No MC results yet.\nRun an MC simulation to see results here.",
+            font=("Arial", 9),
+            foreground="#999999",
+            background="#FFFFFF",
+            justify=tk.CENTER
+        )
+        self.mc_log_empty_label.pack(pady=20)
+        
+        # Update scroll region
+        self.mc_log_canvas.update_idletasks()
+        self.mc_log_canvas.configure(scrollregion=self.mc_log_canvas.bbox("all"))
+        
+        # Save state to persist the reset
+        self.save_state()
+    
+    def _add_mc_log_entry(self, mc_type, result_data, window_creator):
+        """Add an entry to the MC log and store the result data"""
+        from datetime import datetime
+        
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        # Extract metrics for display
+        metrics_text = self._extract_mc_metrics(mc_type, result_data)
+        
+        # Create log entry data
+        log_entry = {
+            'timestamp': timestamp,
+            'mc_type': mc_type,  # 'stage', 'XP', or 'frag'
+            'result_data': result_data,
+            'window_creator': window_creator,  # Function to recreate the window
+            'metrics_text': metrics_text  # Cached metrics for display
+        }
+        
+        # Add to log list
+        self.mc_results_log.append(log_entry)
+        
+        # Remove empty state message if present
+        if hasattr(self, 'mc_log_empty_label') and self.mc_log_empty_label.winfo_exists():
+            self.mc_log_empty_label.destroy()
+        
+        # Create clickable log entry widget
+        entry_frame = tk.Frame(
+            self.mc_log_scrollable_frame,
+            background="#FFFFFF",
+            relief=tk.RAISED,
+            borderwidth=1
+        )
+        entry_frame.pack(fill=tk.X, padx=2, pady=2)
+        
+        # Make entire frame clickable
+        def on_click(event):
+            self._restore_mc_result(log_entry)
+        
+        def on_enter(event):
+            entry_frame.config(background="#E3F2FD", relief=tk.SUNKEN)
+        
+        def on_leave(event):
+            entry_frame.config(background="#FFFFFF", relief=tk.RAISED)
+        
+        entry_frame.bind("<Button-1>", on_click)
+        entry_frame.bind("<Enter>", on_enter)
+        entry_frame.bind("<Leave>", on_leave)
+        entry_frame.config(cursor="hand2")
+        
+        # Type label with color
+        type_colors = {
+            'stage': '#9C27B0',
+            'XP': '#673AB7',
+            'frag': '#7B1FA2'
+        }
+        type_color = type_colors.get(mc_type, '#666666')
+        
+        type_label = tk.Label(
+            entry_frame,
+            text=mc_type.upper(),
+            font=("Arial", 9, "bold"),
+            foreground=type_color,
+            background="#FFFFFF"
+        )
+        type_label.pack(side=tk.LEFT, padx=(5, 10), pady=3)
+        type_label.bind("<Button-1>", on_click)
+        type_label.bind("<Enter>", on_enter)
+        type_label.bind("<Leave>", on_leave)
+        type_label.config(cursor="hand2")
+        
+        # Metrics label (XP/h, Frag/h, Stage)
+        if metrics_text:
+            metrics_label = tk.Label(
+                entry_frame,
+                text=metrics_text,
+                font=("Arial", 8),
+                foreground="#555555",
+                background="#FFFFFF"
+            )
+            metrics_label.pack(side=tk.LEFT, padx=(0, 10), pady=3)
+            metrics_label.bind("<Button-1>", on_click)
+            metrics_label.bind("<Enter>", on_enter)
+            metrics_label.bind("<Leave>", on_leave)
+            metrics_label.config(cursor="hand2")
+        
+        # Timestamp label
+        timestamp_label = tk.Label(
+            entry_frame,
+            text=timestamp,
+            font=("Arial", 8),
+            foreground="#666666",
+            background="#FFFFFF"
+        )
+        timestamp_label.pack(side=tk.LEFT, padx=(0, 5), pady=3)
+        timestamp_label.bind("<Button-1>", on_click)
+        timestamp_label.bind("<Enter>", on_enter)
+        timestamp_label.bind("<Leave>", on_leave)
+        timestamp_label.config(cursor="hand2")
+        
+        # Update scroll region
+        self.mc_log_canvas.update_idletasks()
+        self.mc_log_canvas.configure(scrollregion=self.mc_log_canvas.bbox("all"))
+        
+        # Scroll to bottom to show newest entry
+        self.mc_log_canvas.yview_moveto(1.0)
+    
+    def _restore_mc_result(self, log_entry):
+        """Restore a saved MC result window"""
+        try:
+            # Call the window creator function with the stored data
+            log_entry['window_creator'](log_entry['result_data'])
+        except Exception as e:
+            tk.messagebox.showerror(
+                "Error",
+                f"Could not restore MC result:\n{str(e)}"
+            )
+    
+    def _serialize_mc_logs(self):
+        """Serialize MC logs for JSON storage (convert numpy arrays to lists, etc.)"""
+        serialized_logs = []
+        for log_entry in getattr(self, 'mc_results_log', []):
+            # Create serializable copy without window_creator function
+            serialized_entry = {
+                'timestamp': log_entry['timestamp'],
+                'mc_type': log_entry['mc_type'],
+                'result_data': self._serialize_result_data(log_entry['result_data']),
+                'metrics_text': log_entry.get('metrics_text', '')  # Save cached metrics
+            }
+            serialized_logs.append(serialized_entry)
+        return serialized_logs
+    
+    def _serialize_result_data(self, data):
+        """Convert result data to JSON-serializable format"""
+        import numpy as np
+        
+        serialized = {}
+        for key, value in data.items():
+            if value is None:
+                serialized[key] = None
+            elif isinstance(value, (list, tuple)):
+                # Convert lists/tuples, handling numpy arrays inside
+                serialized[key] = [self._serialize_value(v) for v in value]
+            elif isinstance(value, dict):
+                # Recursively serialize dictionaries
+                serialized[key] = self._serialize_result_data(value)
+            else:
+                serialized[key] = self._serialize_value(value)
+        return serialized
+    
+    def _serialize_value(self, value):
+        """Convert a single value to JSON-serializable format"""
+        import numpy as np
+        
+        if isinstance(value, np.ndarray):
+            return value.tolist()
+        elif isinstance(value, (np.integer, np.floating)):
+            return float(value) if isinstance(value, np.floating) else int(value)
+        elif isinstance(value, (list, tuple)):
+            return [self._serialize_value(v) for v in value]
+        elif isinstance(value, dict):
+            return {k: self._serialize_value(v) for k, v in value.items()}
+        else:
+            return value
+    
+    def _deserialize_mc_logs(self, serialized_logs):
+        """Deserialize MC logs from JSON and restore UI entries"""
+        if not serialized_logs:
+            return
+        
+        # Ensure log panel exists
+        if not hasattr(self, 'mc_log_scrollable_frame'):
+            return  # Log panel not created yet, skip loading
+        
+        # Clear existing logs if any
+        if hasattr(self, 'mc_results_log'):
+            self.mc_results_log = []
+        else:
+            self.mc_results_log = []
+        
+        for serialized_entry in serialized_logs:
+            # Deserialize result data
+            result_data = self._deserialize_result_data(serialized_entry['result_data'])
+            
+            # Create window creator function based on MC type
+            mc_type = serialized_entry['mc_type']
+            if mc_type == 'stage':
+                def create_window(data):
+                    self._create_stage_optimizer_window(data)
+            elif mc_type == 'XP':
+                def create_window(data):
+                    self._create_xp_maximizer_window(data)
+            elif mc_type == 'frag':
+                def create_window(data):
+                    self._create_fragment_farmer_window(data)
+            else:
+                continue  # Skip unknown types
+            
+            # Create log entry
+            log_entry = {
+                'timestamp': serialized_entry['timestamp'],
+                'mc_type': mc_type,
+                'result_data': result_data,
+                'window_creator': create_window,
+                'metrics_text': serialized_entry.get('metrics_text', '')  # Load cached metrics
+            }
+            
+            # Add to log list
+            self.mc_results_log.append(log_entry)
+            
+            # Restore UI entry
+            self._add_mc_log_entry_ui_only(log_entry)
+    
+    def _deserialize_result_data(self, data):
+        """Convert serialized result data back to original format (with numpy arrays if needed)"""
+        import numpy as np
+        
+        deserialized = {}
+        for key, value in data.items():
+            if value is None:
+                deserialized[key] = None
+            elif isinstance(value, list):
+                # Check if this should be a numpy array (based on key name)
+                if 'samples' in key.lower() or 'max_stage_samples' in key or 'xp_per_hour_samples' in key or 'frag_per_hour_samples' in key:
+                    try:
+                        deserialized[key] = np.array(value)
+                    except:
+                        deserialized[key] = value
+                elif isinstance(value, list) and len(value) > 0 and isinstance(value[0], dict):
+                    # List of dictionaries (e.g., metrics_samples)
+                    deserialized[key] = [self._deserialize_result_data(item) if isinstance(item, dict) else item for item in value]
+                else:
+                    deserialized[key] = value
+            elif isinstance(value, dict):
+                deserialized[key] = self._deserialize_result_data(value)
+            else:
+                deserialized[key] = value
+        return deserialized
+    
+    def _add_mc_log_entry_ui_only(self, log_entry):
+        """Add a log entry to the UI without storing it again (used when loading from save)"""
+        timestamp = log_entry['timestamp']
+        mc_type = log_entry['mc_type']
+        
+        # Get metrics text (either cached or extract from result_data)
+        if 'metrics_text' in log_entry:
+            metrics_text = log_entry['metrics_text']
+        else:
+            # Extract metrics if not cached (for backward compatibility)
+            metrics_text = self._extract_mc_metrics(mc_type, log_entry['result_data'])
+        
+        # Remove empty state message if present
+        if hasattr(self, 'mc_log_empty_label') and self.mc_log_empty_label.winfo_exists():
+            self.mc_log_empty_label.destroy()
+        
+        # Create clickable log entry widget
+        entry_frame = tk.Frame(
+            self.mc_log_scrollable_frame,
+            background="#FFFFFF",
+            relief=tk.RAISED,
+            borderwidth=1
+        )
+        entry_frame.pack(fill=tk.X, padx=2, pady=2)
+        
+        # Make entire frame clickable
+        def on_click(event):
+            self._restore_mc_result(log_entry)
+        
+        def on_enter(event):
+            entry_frame.config(background="#E3F2FD", relief=tk.SUNKEN)
+        
+        def on_leave(event):
+            entry_frame.config(background="#FFFFFF", relief=tk.RAISED)
+        
+        entry_frame.bind("<Button-1>", on_click)
+        entry_frame.bind("<Enter>", on_enter)
+        entry_frame.bind("<Leave>", on_leave)
+        entry_frame.config(cursor="hand2")
+        
+        # Type label with color
+        type_colors = {
+            'stage': '#9C27B0',
+            'XP': '#673AB7',
+            'frag': '#7B1FA2'
+        }
+        type_color = type_colors.get(mc_type, '#666666')
+        
+        type_label = tk.Label(
+            entry_frame,
+            text=mc_type.upper(),
+            font=("Arial", 9, "bold"),
+            foreground=type_color,
+            background="#FFFFFF"
+        )
+        type_label.pack(side=tk.LEFT, padx=(5, 10), pady=3)
+        type_label.bind("<Button-1>", on_click)
+        type_label.bind("<Enter>", on_enter)
+        type_label.bind("<Leave>", on_leave)
+        type_label.config(cursor="hand2")
+        
+        # Metrics label (XP/h, Frag/h, Stage)
+        if metrics_text:
+            metrics_label = tk.Label(
+                entry_frame,
+                text=metrics_text,
+                font=("Arial", 8),
+                foreground="#555555",
+                background="#FFFFFF"
+            )
+            metrics_label.pack(side=tk.LEFT, padx=(0, 10), pady=3)
+            metrics_label.bind("<Button-1>", on_click)
+            metrics_label.bind("<Enter>", on_enter)
+            metrics_label.bind("<Leave>", on_leave)
+            metrics_label.config(cursor="hand2")
+        
+        # Timestamp label
+        timestamp_label = tk.Label(
+            entry_frame,
+            text=timestamp,
+            font=("Arial", 8),
+            foreground="#666666",
+            background="#FFFFFF"
+        )
+        timestamp_label.pack(side=tk.LEFT, padx=(0, 5), pady=3)
+        timestamp_label.bind("<Button-1>", on_click)
+        timestamp_label.bind("<Enter>", on_enter)
+        timestamp_label.bind("<Leave>", on_leave)
+        timestamp_label.config(cursor="hand2")
+        
+        # Update scroll region
+        self.mc_log_canvas.update_idletasks()
+        self.mc_log_canvas.configure(scrollregion=self.mc_log_canvas.bbox("all"))
     
     def _set_frag_target(self, frag_type):
         """Set the target fragment type for MC Fragment Farmer"""
@@ -6015,7 +6998,7 @@ class ArchaeologySimulatorWindow:
         target_frag = self.frag_target_var.get() if hasattr(self, 'frag_target_var') else 'common'
         
         # Get Archaeology Level (shared across all planners)
-        # This represents how many ADDITIONAL skill points to allocate optimally
+        # This represents the TOTAL skill points to allocate (starting from 0, ignoring current distribution)
         num_points = self.shared_planner_points.get() if hasattr(self, 'shared_planner_points') else 20
         
         # Get MC simulation N values (shared by MC Fragment Farmer and MC Stage Optimizer)
@@ -6044,8 +7027,8 @@ class ArchaeologySimulatorWindow:
             # Always start at Floor 1 (unbiased) - this is critical for proper simulation
             starting_floor = 1
             
-            # Start with original skill points (current distribution)
-            # We will add num_points additional points optimally
+            # Start with original skill points (current distribution) - will be reset to 0 for MC
+            # MC will use num_points total skill points (starting from 0, ignoring current distribution)
             self.skill_points = original_points.copy()
             
             enrage_enabled = self.enrage_enabled.get() if hasattr(self, 'enrage_enabled') else True
@@ -6090,7 +7073,7 @@ class ArchaeologySimulatorWindow:
             except (tk.TclError, RuntimeError):
                 pass
             
-            original_str = original_points.get('strength', 0)
+            original_str = 0  # Start from 0, ignore current skill distribution
             for dist_tuple in generate_dirichlet_samples(
                 num_points, len(skills), n_samples,
                 require_str=True, original_str=original_str
@@ -6113,9 +7096,9 @@ class ArchaeologySimulatorWindow:
                         cancel_event.set()
                         return
                 
-                # Apply distribution temporarily (on top of original_points)
+                # Apply distribution temporarily (start from 0, ignore current distribution)
                 for skill, points in zip(skills, dist_tuple):
-                    self.skill_points[skill] = original_points.get(skill, 0) + points
+                    self.skill_points[skill] = points
                 
                 new_stats = self.get_total_stats()
                 
@@ -6201,9 +7184,9 @@ class ArchaeologySimulatorWindow:
                         cancel_event.set()
                         return
                 
-                # Apply distribution temporarily
+                # Apply distribution temporarily (start from 0, ignore current distribution)
                 for skill, points in zip(skills, refine_sample):
-                    self.skill_points[skill] = original_points.get(skill, 0) + points
+                    self.skill_points[skill] = points
                 
                 new_stats = self.get_total_stats()
                 
@@ -6283,9 +7266,9 @@ class ArchaeologySimulatorWindow:
                 return
             
             # Phase 3: Run full MC simulation (1000 runs) with best distribution
-            # Apply best distribution
+            # Apply best distribution (start from 0, ignore current distribution)
             for skill, points in best_distribution.items():
-                self.skill_points[skill] = original_points.get(skill, 0) + points
+                self.skill_points[skill] = points
             
             final_stats = self.get_total_stats()
             
@@ -6366,12 +7349,10 @@ class ArchaeologySimulatorWindow:
                 self.window.after(0, lambda: self._close_loading_dialog(loading_window))
                 return
             
-            # Get skill points for display
+            # Get skill points for display (start from 0, ignore current distribution)
             skill_points_display = {}
             for skill in skills:
-                current = original_points.get(skill, 0)
-                added = best_distribution.get(skill, 0)
-                skill_points_display[skill] = current + added
+                skill_points_display[skill] = best_distribution.get(skill, 0)
             
             # Restore original skill points after MC simulation (don't reset to 0)
             # Use a closure to capture original_points
@@ -6418,7 +7399,7 @@ class ArchaeologySimulatorWindow:
         original_points = self.skill_points.copy()
         
         # Get Archaeology Level (shared across all planners)
-        # This represents how many ADDITIONAL skill points to allocate optimally
+        # This represents the TOTAL skill points to allocate (starting from 0, ignoring current distribution)
         num_points = self.shared_planner_points.get() if hasattr(self, 'shared_planner_points') else 20
         
         # Get MC simulation N values (shared by MC Fragment Farmer and MC Stage Optimizer)
@@ -6447,8 +7428,8 @@ class ArchaeologySimulatorWindow:
             # Always start at Floor 1 (unbiased) - this is critical for proper simulation
             starting_floor = 1
             
-            # Start with original skill points (current distribution)
-            # We will add num_points additional points optimally
+            # Start with original skill points (current distribution) - will be reset to 0 for MC
+            # MC will use num_points total skill points (starting from 0, ignoring current distribution)
             self.skill_points = original_points.copy()
             
             enrage_enabled = self.enrage_enabled.get() if hasattr(self, 'enrage_enabled') else True
@@ -6493,7 +7474,7 @@ class ArchaeologySimulatorWindow:
             except (tk.TclError, RuntimeError):
                 pass
             
-            original_str = original_points.get('strength', 0)
+            original_str = 0  # Start from 0, ignore current skill distribution
             for dist_tuple in generate_dirichlet_samples(
                 num_points, len(skills), n_samples,
                 require_str=True, original_str=original_str
@@ -6516,9 +7497,9 @@ class ArchaeologySimulatorWindow:
                         cancel_event.set()
                         return
                 
-                # Apply distribution temporarily (on top of original_points)
+                # Apply distribution temporarily (start from 0, ignore current distribution)
                 for skill, points in zip(skills, dist_tuple):
-                    self.skill_points[skill] = original_points.get(skill, 0) + points
+                    self.skill_points[skill] = points
                 
                 new_stats = self.get_total_stats()
                 
@@ -6598,9 +7579,9 @@ class ArchaeologySimulatorWindow:
                         cancel_event.set()
                         return
                 
-                # Apply distribution temporarily
+                # Apply distribution temporarily (start from 0, ignore current distribution)
                 for skill, points in zip(skills, refine_sample):
-                    self.skill_points[skill] = original_points.get(skill, 0) + points
+                    self.skill_points[skill] = points
                 
                 new_stats = self.get_total_stats()
                 
@@ -6674,9 +7655,9 @@ class ArchaeologySimulatorWindow:
                 return
             
             # Phase 3: Run full MC simulation (1000 runs) with best distribution
-            # Apply best distribution
+            # Apply best distribution (start from 0, ignore current distribution)
             for skill, points in best_distribution.items():
-                self.skill_points[skill] = original_points.get(skill, 0) + points
+                self.skill_points[skill] = points
             
             final_stats = self.get_total_stats()
             
@@ -6753,12 +7734,10 @@ class ArchaeologySimulatorWindow:
                 self.window.after(0, lambda: self._close_loading_dialog(loading_window))
                 return
             
-            # Get skill points for display
+            # Get skill points for display (start from 0, ignore current distribution)
             skill_points_display = {}
             for skill in skills:
-                current = original_points.get(skill, 0)
-                added = best_distribution.get(skill, 0)
-                skill_points_display[skill] = current + added
+                skill_points_display[skill] = best_distribution.get(skill, 0)
             
             # Restore original skill points after MC simulation (don't reset to 0)
             # Use a closure to capture original_points
@@ -6806,7 +7785,7 @@ class ArchaeologySimulatorWindow:
         original_points = self.skill_points.copy()
         
         # Get Archaeology Level (shared across all planners)
-        # This represents how many ADDITIONAL skill points to allocate optimally
+        # This represents the TOTAL skill points to allocate (starting from 0, ignoring current distribution)
         num_points = self.shared_planner_points.get() if hasattr(self, 'shared_planner_points') else 20
         
         # Get MC simulation N values (shared by MC Fragment Farmer and MC Stage Optimizer)
@@ -6824,8 +7803,8 @@ class ArchaeologySimulatorWindow:
             # Always start at Floor 1 (unbiased) - this is critical for proper simulation
             starting_floor = 1
             
-            # Start with original skill points (current distribution)
-            # We will add num_points additional points optimally
+            # Start with original skill points (current distribution) - will be reset to 0 for MC
+            # MC will use num_points total skill points (starting from 0, ignoring current distribution)
             self.skill_points = original_points.copy()
             
             enrage_enabled = self.enrage_enabled.get() if hasattr(self, 'enrage_enabled') else True
@@ -6881,7 +7860,7 @@ class ArchaeologySimulatorWindow:
             except (tk.TclError, RuntimeError):
                 pass
             
-            original_str = original_points.get('strength', 0)
+            original_str = 0  # Start from 0, ignore current skill distribution
             for dist_tuple in generate_dirichlet_samples(
                 num_points, len(skills), n_samples, 
                 require_str=True, original_str=original_str
@@ -6892,9 +7871,9 @@ class ArchaeologySimulatorWindow:
                 
                 combination_count += 1
                 
-                # Apply distribution temporarily (on top of original_points)
+                # Apply distribution temporarily (start from 0, ignore current distribution)
                 for skill, points in zip(skills, dist_tuple):
-                    self.skill_points[skill] = original_points.get(skill, 0) + points
+                    self.skill_points[skill] = points
                 
                 new_stats = self.get_total_stats()
                 
@@ -7033,9 +8012,9 @@ class ArchaeologySimulatorWindow:
                         cancel_event.set()
                         return
                 
-                # Apply distribution temporarily
+                # Apply distribution temporarily (start from 0, ignore current distribution)
                 for skill, points in zip(skills, refine_sample):
-                    self.skill_points[skill] = original_points.get(skill, 0) + points
+                    self.skill_points[skill] = points
                 
                 new_stats = self.get_total_stats()
                 
@@ -7122,9 +8101,9 @@ class ArchaeologySimulatorWindow:
                 return
             
             # Phase 3: Run full MC simulation (1000 runs) with best distribution
-            # Apply best distribution
+            # Apply best distribution (start from 0, ignore current distribution)
             for skill, points in best_distribution.items():
-                self.skill_points[skill] = original_points.get(skill, 0) + points
+                self.skill_points[skill] = points
             
             final_stats = self.get_total_stats()
             
@@ -7185,14 +8164,12 @@ class ArchaeologySimulatorWindow:
                     except (tk.TclError, RuntimeError):
                         pass
             
-            # Get skill points for display (current + best distribution)
+            # Get skill points for display (start from 0, ignore current distribution)
             skill_points_display = {}
-            added_distribution = {}  # Only the new points added
+            added_distribution = {}  # Same as skill_points_display (all points are "new" since we start from 0)
             for skill in skills:
-                current = original_points.get(skill, 0)
-                added = best_distribution.get(skill, 0)
-                skill_points_display[skill] = current + added
-                added_distribution[skill] = added
+                skill_points_display[skill] = best_distribution.get(skill, 0)
+                added_distribution[skill] = best_distribution.get(skill, 0)
             
             # Sort top 3 candidates by max_stage (int) then fragments/h, then xp/h, and keep only top 3
             top_3_candidates.sort(key=lambda x: (x[1], x[2], x[3]), reverse=True)
@@ -7312,11 +8289,11 @@ class ArchaeologySimulatorWindow:
                         if cancel_event.is_set():
                             self.skill_points = original_points.copy()
                             return
-                        if original_points.get('strength', 0) + dist_tuple[0] == 0:
+                        if dist_tuple[0] == 0:  # Start from 0, ignore current distribution
                             continue
                         combination_count += 1
                         for skill, points in zip(skills, dist_tuple):
-                            self.skill_points[skill] = original_points.get(skill, 0) + points
+                            self.skill_points[skill] = points  # Start from 0, ignore current distribution
                         new_stats = self.get_total_stats()
                         max_stage_samples = []
                         m_screening = []
@@ -7430,6 +8407,35 @@ class ArchaeologySimulatorWindow:
     
     def _show_stage_optimizer_results(self, max_stage_samples, skill_points_display, added_distribution, num_points, metrics_samples, top_3_candidates=None):
         """Show histogram window with max stage distribution and optimal skill setup"""
+        # Store result data and create window creator function
+        result_data = {
+            'max_stage_samples': max_stage_samples,
+            'skill_points_display': skill_points_display,
+            'added_distribution': added_distribution,
+            'num_points': num_points,
+            'metrics_samples': metrics_samples,
+            'top_3_candidates': top_3_candidates
+        }
+        
+        def create_window(data):
+            self._create_stage_optimizer_window(data)
+        
+        # Create the window
+        create_window(result_data)
+        
+        # Add log entry
+        if hasattr(self, 'mc_results_log'):
+            self._add_mc_log_entry('stage', result_data, create_window)
+    
+    def _create_stage_optimizer_window(self, result_data):
+        """Create the stage optimizer result window (extracted for reuse)"""
+        max_stage_samples = result_data['max_stage_samples']
+        skill_points_display = result_data['skill_points_display']
+        added_distribution = result_data['added_distribution']
+        num_points = result_data['num_points']
+        metrics_samples = result_data['metrics_samples']
+        top_3_candidates = result_data.get('top_3_candidates')
+        
         try:
             import matplotlib
             matplotlib.use('TkAgg')
@@ -7457,7 +8463,7 @@ class ArchaeologySimulatorWindow:
         title_lines = [
             f"MC Stage Optimizer Results - {n_sims} simulations",
             "Finding optimal skill distribution for maximum stage reached",
-            f"Used {num_points} additional points (Arch Level: {num_points})",
+            f"Used {num_points} total points (Arch Level: {num_points}, starting from 0)",
         ]
         title_label = ttk.Label(main_frame, text="\n".join(title_lines), font=("Arial", 12, "bold"))
         title_label.grid(row=0, column=0, columnspan=2, pady=(0, 10), sticky=tk.W)
@@ -7760,6 +8766,33 @@ Fragments/h: {fragments_per_hour:.2f}"""
     def _show_xp_maximizer_results(self, xp_per_hour_samples, skill_points_display, num_points,
                                   optimal_stage, metrics_samples):
         """Show histogram window with XP/hour distribution and optimal skill setup"""
+        # Store result data and create window creator function
+        result_data = {
+            'xp_per_hour_samples': xp_per_hour_samples,
+            'skill_points_display': skill_points_display,
+            'num_points': num_points,
+            'optimal_stage': optimal_stage,
+            'metrics_samples': metrics_samples
+        }
+        
+        def create_window(data):
+            self._create_xp_maximizer_window(data)
+        
+        # Create the window
+        create_window(result_data)
+        
+        # Add log entry
+        if hasattr(self, 'mc_results_log'):
+            self._add_mc_log_entry('XP', result_data, create_window)
+    
+    def _create_xp_maximizer_window(self, result_data):
+        """Create the XP maximizer result window (extracted for reuse)"""
+        xp_per_hour_samples = result_data['xp_per_hour_samples']
+        skill_points_display = result_data['skill_points_display']
+        num_points = result_data['num_points']
+        optimal_stage = result_data['optimal_stage']
+        metrics_samples = result_data['metrics_samples']
+        
         try:
             import matplotlib
             matplotlib.use('TkAgg')
@@ -8066,7 +9099,7 @@ Fragments/h: {fragments_per_hour:.2f}"""
                     for rest in generate_distributions(n_points - i, n_skills - 1):
                         yield (i,) + rest
             
-            original_str = original_points.get('strength', 0)
+            original_str = 0  # Start from 0, ignore current skill distribution
             # Use 4× more samples for better coverage (same as main optimizer)
             base_n_samples = max(500, num_points * 20)
             n_samples = base_n_samples * 4
@@ -8074,7 +9107,7 @@ Fragments/h: {fragments_per_hour:.2f}"""
             # Count brute-force combinations
             brute_force_count = sum(
                 1 for dt in generate_distributions(num_points, len(skills))
-                if original_str + dt[0] > 0
+                if dt[0] > 0  # Start from 0, ignore current distribution
             )
             
             # Run both methods
@@ -8094,7 +9127,7 @@ Fragments/h: {fragments_per_hour:.2f}"""
                 if cancel_event.is_set():
                     self.skill_points = original_points.copy()
                     return
-                if original_str + dist_tuple[0] == 0:
+                if dist_tuple[0] == 0:  # Start from 0, ignore current distribution
                     continue
                 bf_count += 1
                 if bf_count % 50 == 0:
@@ -8108,7 +9141,7 @@ Fragments/h: {fragments_per_hour:.2f}"""
                         pass
                 
                 for skill, points in zip(skills, dist_tuple):
-                    self.skill_points[skill] = original_points.get(skill, 0) + points
+                    self.skill_points[skill] = points  # Start from 0, ignore current distribution
                 new_stats = self.get_total_stats()
                 
                 max_stage_samples = []
@@ -8158,7 +9191,7 @@ Fragments/h: {fragments_per_hour:.2f}"""
                         pass
                 
                 for skill, points in zip(skills, dist_tuple):
-                    self.skill_points[skill] = original_points.get(skill, 0) + points
+                    self.skill_points[skill] = points  # Start from 0, ignore current distribution
                 new_stats = self.get_total_stats()
                 
                 max_stage_samples = []
@@ -8203,7 +9236,7 @@ Fragments/h: {fragments_per_hour:.2f}"""
                     return
                 
                 for skill, points in zip(skills, dist_tuple):
-                    self.skill_points[skill] = original_points.get(skill, 0) + points
+                    self.skill_points[skill] = points  # Start from 0, ignore current distribution
                 new_stats = self.get_total_stats()
                 
                 max_stage_samples = []
@@ -8257,7 +9290,7 @@ Fragments/h: {fragments_per_hour:.2f}"""
                         return
                 
                 for skill, points in zip(skills, refine_sample):
-                    self.skill_points[skill] = original_points.get(skill, 0) + points
+                    self.skill_points[skill] = points  # Start from 0, ignore current distribution
                 new_stats = self.get_total_stats()
                 
                 max_stage_samples = []
@@ -8406,6 +9439,35 @@ Fragments/h: {fragments_per_hour:.2f}"""
     def _show_fragment_farmer_results(self, frag_per_hour_samples, skill_points_display, num_points,
                                      target_frag, optimal_stage, metrics_samples):
         """Show histogram window with fragment/hour distribution and optimal skill setup"""
+        # Store result data and create window creator function
+        result_data = {
+            'frag_per_hour_samples': frag_per_hour_samples,
+            'skill_points_display': skill_points_display,
+            'num_points': num_points,
+            'target_frag': target_frag,
+            'optimal_stage': optimal_stage,
+            'metrics_samples': metrics_samples
+        }
+        
+        def create_window(data):
+            self._create_fragment_farmer_window(data)
+        
+        # Create the window
+        create_window(result_data)
+        
+        # Add log entry
+        if hasattr(self, 'mc_results_log'):
+            self._add_mc_log_entry('frag', result_data, create_window)
+    
+    def _create_fragment_farmer_window(self, result_data):
+        """Create the fragment farmer result window (extracted for reuse)"""
+        frag_per_hour_samples = result_data['frag_per_hour_samples']
+        skill_points_display = result_data['skill_points_display']
+        num_points = result_data['num_points']
+        target_frag = result_data['target_frag']
+        optimal_stage = result_data['optimal_stage']
+        metrics_samples = result_data['metrics_samples']
+        
         try:
             import matplotlib
             matplotlib.use('TkAgg')

@@ -170,8 +170,12 @@ class MonteCarloCritSimulator:
         hits = 0
         damage_dealt = 0
         
-        # Get ability instacharge chance from stats
+        # Get ability instacharge chance from stats (includes Avada Keda +3%)
         ability_instacharge = stats.get('ability_instacharge', 0)
+        
+        # Get Avada Keda duration bonus for enrage charges
+        avada_keda_duration_bonus = stats.get('avada_keda_duration_bonus', 0)
+        effective_enrage_charges = self.ENRAGE_CHARGES + avada_keda_duration_bonus
         
         while damage_dealt < block_hp:
             # Check if enrage is available
@@ -183,11 +187,11 @@ class MonteCarloCritSimulator:
                 # Check for ability instacharge (chance to instantly reset cooldown)
                 if enrage_state['cooldown'] > 0 and ability_instacharge > 0 and random.random() < ability_instacharge:
                     enrage_state['cooldown'] = 0
-                    enrage_state['charges_remaining'] = self.ENRAGE_CHARGES
+                    enrage_state['charges_remaining'] = effective_enrage_charges
                 else:
                     enrage_state['cooldown'] -= 1
                     if enrage_state['cooldown'] <= 0:
-                        enrage_state['charges_remaining'] = self.ENRAGE_CHARGES
+                        enrage_state['charges_remaining'] = effective_enrage_charges
                         enrage_state['cooldown'] = enrage_cooldown
             
             # Simulate hit
@@ -258,17 +262,30 @@ class MonteCarloCritSimulator:
             'ability_cooldown': stats.get('ability_cooldown', 0),  # -1s per level from armor_pen_cd_l1 (all abilities)
         }
         
-        # Get quake charges from fragment upgrades (base 5 + quake_attacks per level)
+        # Get quake charges from fragment upgrades (base 5 + quake_attacks per level) + Avada Keda
         quake_charges = stats.get('quake_charges', self.QUAKE_CHARGES)
         
-        # Get ability instacharge chance
+        # Get ability instacharge chance (includes Avada Keda +3%)
         ability_instacharge = stats.get('ability_instacharge', 0)
         
-        # Calculate base cooldowns with flat fragment reductions
-        # Order: base -> flat fragment reductions -> percentage misc card reduction
+        # Get Avada Keda duration bonus
+        avada_keda_duration_bonus = stats.get('avada_keda_duration_bonus', 0)
+        
+        # Calculate effective enrage charges (base 5 + Avada Keda)
+        effective_enrage_charges = self.ENRAGE_CHARGES + avada_keda_duration_bonus
+        
+        # Calculate base cooldowns with flat fragment reductions + Avada Keda
+        # Order: base -> flat fragment reductions -> Avada Keda -> percentage misc card reduction
         base_enrage_cooldown = self.ENRAGE_COOLDOWN + frag_bonuses['enrage_cooldown'] + frag_bonuses['ability_cooldown']
         base_flurry_cooldown = self.FLURRY_COOLDOWN + frag_bonuses['flurry_cooldown'] + frag_bonuses['ability_cooldown']
         base_quake_cooldown = self.QUAKE_COOLDOWN + frag_bonuses['quake_cooldown'] + frag_bonuses['ability_cooldown']
+        
+        # Apply Avada Keda cooldown reduction (-10s to all abilities)
+        avada_keda_cooldown_reduction = stats.get('ability_cooldown', 0) - frag_bonuses.get('ability_cooldown', 0)
+        if avada_keda_cooldown_reduction < 0:  # Avada Keda adds negative value (reduction)
+            base_enrage_cooldown += avada_keda_cooldown_reduction
+            base_flurry_cooldown += avada_keda_cooldown_reduction
+            base_quake_cooldown += avada_keda_cooldown_reduction
         
         # Apply percentage reduction from misc card
         effective_enrage_cooldown = int(base_enrage_cooldown * cooldown_multiplier)

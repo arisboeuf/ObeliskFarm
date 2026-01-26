@@ -330,7 +330,7 @@ This document covers:
 
 ## Usage
 
-1. Launch from the main ObeliskGemEV Calculator (Archaeology button)
+1. Launch from the main ObeliskFarm Calculator (Archaeology button)
 2. Select your current stage from the dropdown
 3. Add skill points and upgrades to match your character
 4. The "Best Next Point" recommendation shows optimal investment

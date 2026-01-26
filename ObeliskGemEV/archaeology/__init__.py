@@ -1,5 +1,5 @@
 """
-Archaeology Simulator Module for ObeliskGemEV
+Archaeology Simulator Module for ObeliskFarm
 """
 
 from .simulator import ArchaeologySimulatorWindow
