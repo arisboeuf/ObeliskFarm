@@ -511,35 +511,34 @@ class LootbugWindow:
             # Founder Bomb: recharges every founder_bomb_interval_seconds
             founder_bomb_recharge = getattr(params, 'founder_bomb_interval_seconds', 60.0)
             
-            duration_seconds = duration * 60
-            
-            # Normal charges in duration
-            normal_gem_bombs = duration_seconds / gem_bomb_recharge
-            normal_founder_bombs = duration_seconds / founder_bomb_recharge
-            
-            # With 10x recharge
-            boosted_gem_bombs = (duration_seconds * 10) / gem_bomb_recharge
-            boosted_founder_bombs = (duration_seconds * 10) / founder_bomb_recharge
-            
-            # Additional charges
-            extra_gem_bombs = boosted_gem_bombs - normal_gem_bombs
-            extra_founder_bombs = boosted_founder_bombs - normal_gem_bombs
-            
             # Calculate value per bomb
             ev = self.calculator.calculate_total_ev_per_hour()
             
-            # Gem Bomb: ev['gem_bomb_gems'] is per hour
-            # Bombs per hour = 3600 / gem_bomb_recharge
-            bombs_per_hour = 3600 / gem_bomb_recharge
-            gem_value_per_bomb = ev['gem_bomb_gems'] / bombs_per_hour if bombs_per_hour > 0 else 0
+            # IMPORTANT: ev['gem_bomb_gems'] already includes all refills from Battery/D20
+            # When recharge is 10x faster, ALL bombs recharge 10x faster, including Battery/D20
+            # This means the entire recursive system becomes 10x stronger
+            # 
+            # For the duration of the buff:
+            # - Normal EV per hour = ev['gem_bomb_gems']
+            # - With 10x recharge: EV per hour = ev['gem_bomb_gems'] × 10
+            # - Additional EV per hour = ev['gem_bomb_gems'] × 9
+            # - For duration minutes: additional_value = (additional EV per hour) × (duration / 60)
             
-            # Founder Bomb: ev['founder_bomb_boost'] is per hour
-            founder_per_hour = 3600 / founder_bomb_recharge
-            founder_value_per_bomb = ev['founder_bomb_boost'] / founder_per_hour if founder_per_hour > 0 else 0
+            duration_hours = duration / 60.0
+            
+            # Gem Bomb: 10x recharge means 10x EV per hour (includes all refills)
+            normal_gem_ev_per_hour = ev['gem_bomb_gems']
+            boosted_gem_ev_per_hour = normal_gem_ev_per_hour * 10.0
+            additional_gem_ev_per_hour = boosted_gem_ev_per_hour - normal_gem_ev_per_hour
+            additional_gem_value = additional_gem_ev_per_hour * duration_hours
+            
+            # Founder Bomb: 10x recharge means 10x drops per hour
+            normal_founder_ev_per_hour = ev['founder_bomb_boost']
+            boosted_founder_ev_per_hour = normal_founder_ev_per_hour * 10.0
+            additional_founder_ev_per_hour = boosted_founder_ev_per_hour - normal_founder_ev_per_hour
+            additional_founder_value = additional_founder_ev_per_hour * duration_hours
             
             # Total additional value
-            additional_gem_value = extra_gem_bombs * gem_value_per_bomb
-            additional_founder_value = extra_founder_bombs * founder_value_per_bomb
             additional_gain = additional_gem_value + additional_founder_value
             
             profit = additional_gain - cost
@@ -551,15 +550,23 @@ class LootbugWindow:
             tk.Label(result_frame, text=f"Duration: {duration} min",
                     font=("Arial", 9), background=bg_color).pack(anchor=tk.W)
             
-            tk.Label(result_frame, text=f"\nExtra Gem Bombs: +{extra_gem_bombs:.1f}",
+            tk.Label(result_frame, text=f"\nGem Bomb EV (includes Battery/D20 refills):",
                     font=("Arial", 9), background=bg_color).pack(anchor=tk.W)
-            tk.Label(result_frame, text=f"  Value: ~{gem_value_per_bomb:.1f} Gems each = {additional_gem_value:.1f} Gems",
+            tk.Label(result_frame, text=f"  Normal: {normal_gem_ev_per_hour:.1f} Gems/h",
+                    font=("Arial", 9), background=bg_color).pack(anchor=tk.W)
+            tk.Label(result_frame, text=f"  With 10x Recharge: {boosted_gem_ev_per_hour:.1f} Gems/h",
                     font=("Arial", 9), background=bg_color, foreground="#2E7D32").pack(anchor=tk.W)
+            tk.Label(result_frame, text=f"  Additional Value ({duration} min): {additional_gem_value:.1f} Gems",
+                    font=("Arial", 9, "bold"), background=bg_color, foreground="#2E7D32").pack(anchor=tk.W)
             
-            tk.Label(result_frame, text=f"\nExtra Founder Bombs: +{extra_founder_bombs:.1f}",
+            tk.Label(result_frame, text=f"\nFounder Bomb EV:",
                     font=("Arial", 9), background=bg_color).pack(anchor=tk.W)
-            tk.Label(result_frame, text=f"  Value: ~{founder_value_per_bomb:.1f} Gems each = {additional_founder_value:.1f} Gems",
+            tk.Label(result_frame, text=f"  Normal: {normal_founder_ev_per_hour:.1f} Gems/h",
+                    font=("Arial", 9), background=bg_color).pack(anchor=tk.W)
+            tk.Label(result_frame, text=f"  With 10x Recharge: {boosted_founder_ev_per_hour:.1f} Gems/h",
                     font=("Arial", 9), background=bg_color, foreground="#2E7D32").pack(anchor=tk.W)
+            tk.Label(result_frame, text=f"  Additional Value ({duration} min): {additional_founder_value:.1f} Gems",
+                    font=("Arial", 9, "bold"), background=bg_color, foreground="#2E7D32").pack(anchor=tk.W)
             
             tk.Label(result_frame, text=f"\nTotal Extra Value: {additional_gain:.1f} Gems",
                     font=("Arial", 9, "bold"), background=bg_color, foreground="#2E7D32").pack(anchor=tk.W)
