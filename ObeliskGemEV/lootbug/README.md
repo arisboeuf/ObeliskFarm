@@ -1,4 +1,4 @@
-# Option Analyzer (Lootbug)
+# Lootbug Analyzer
 
 Analyzes whether specific gem purchases are worth it based on your current EV/h in Idle Obelisk Miner.
 
@@ -52,8 +52,8 @@ This means 2x Speed is worth it when your affected EV/h > 90 Gems/h.
 
 ## Usage
 
-1. Configure your parameters in the main ObeliskGemEV Calculator
-2. Click the Lootbug button to open the Option Analyzer
+1. Configure your parameters in the main ObeliskFarm Calculator
+2. Click the Lootbug button to open the Lootbug Analyzer
 3. View the analysis for each purchase option
 
 The analyzer automatically uses your current EV values, so results update as you change parameters in the main calculator.

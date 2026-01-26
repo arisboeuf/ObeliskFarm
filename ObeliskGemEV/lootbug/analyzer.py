@@ -1,5 +1,5 @@
 """
-Lootbug - Option Analyzer & Loot Tables
+Lootbug - Lootbug Analyzer & Loot Tables
 
 Analyzes whether specific gem purchases are worth it based on current EV/h.
 Also shows lootbug reward tables with weights.
@@ -21,7 +21,7 @@ def get_user_data_path() -> Path:
     """Get path for user data (saves) - persists outside of bundle."""
     if getattr(sys, 'frozen', False):
         app_data = os.environ.get('APPDATA', os.path.expanduser('~'))
-        save_dir = Path(app_data) / 'ObeliskGemEV' / 'save'
+        save_dir = Path(app_data) / 'ObeliskFarm' / 'save'
     else:
         save_dir = Path(__file__).parent.parent / 'save'
     save_dir.mkdir(parents=True, exist_ok=True)
@@ -191,7 +191,7 @@ class LootbugWindow:
         
         # Create new window - larger and resizable
         self.window = tk.Toplevel(parent)
-        self.window.title("Lootbug - Option Analyzer & Loot Tables")
+        self.window.title("Lootbug - Lootbug Analyzer & Loot Tables")
         self.window.state('zoomed')  # Maximize window on Windows
         self.window.resizable(True, True)
         self.window.minsize(900, 600)
@@ -248,8 +248,8 @@ class LootbugWindow:
                 self.gem_cost_reduction = 0
             else:
                 self.gem_cost_reduction = 0
-            if hasattr(self, 'cost_reduction_var'):
-                self.cost_reduction_var.set(str(self.gem_cost_reduction))
+            if hasattr(self, 'cost_reduction_label'):
+                self.cost_reduction_label.config(text=str(self.gem_cost_reduction))
             self._update_loot_tables()
         except Exception as e:
             print(f"Warning: Could not load lootbug state: {e}")
@@ -264,7 +264,7 @@ class LootbugWindow:
         # Left: Title
         title_label = tk.Label(
             header_frame,
-            text="Lootbug - Option Analyzer & Loot Tables",
+            text="Lootbug - Lootbug Analyzer & Loot Tables",
             font=("Arial", 14, "bold"),
             background="#E3F2FD"
         )
@@ -277,21 +277,34 @@ class LootbugWindow:
         tk.Label(controls_frame, text="Gem Cost Reduction:", font=("Arial", 10), 
                 background="#E3F2FD").pack(side=tk.LEFT, padx=(0, 3))
         
-        # Preset buttons
-        tk.Button(controls_frame, text="-1", width=3, font=("Arial", 8),
-                 command=lambda: self._set_cost_reduction(-1)).pack(side=tk.LEFT, padx=1)
-        tk.Button(controls_frame, text="0", width=3, font=("Arial", 8),
-                 command=lambda: self._set_cost_reduction(0)).pack(side=tk.LEFT, padx=1)
-        tk.Button(controls_frame, text="+1", width=3, font=("Arial", 8),
-                 command=lambda: self._set_cost_reduction(1)).pack(side=tk.LEFT, padx=1)
+        # Buttons frame (vertical: + on top, - below)
+        buttons_frame = tk.Frame(controls_frame, background="#E3F2FD")
+        buttons_frame.pack(side=tk.LEFT, padx=(0, 3))
         
-        # Custom entry
-        self.cost_reduction_var = tk.StringVar(value="0")
-        cost_entry = ttk.Entry(controls_frame, textvariable=self.cost_reduction_var, width=5)
-        cost_entry.pack(side=tk.LEFT, padx=(5, 1))
+        # Plus button (on top)
+        plus_btn = tk.Button(buttons_frame, text="+", width=2, height=1, font=("Arial", 9, "bold"),
+                           command=self._increment_cost_reduction,
+                           bg="#CCCCCC", fg="black",
+                           relief=tk.RAISED, borderwidth=1,
+                           cursor="hand2")
+        plus_btn.pack(pady=(0, 1))
+        
+        # Minus button (below)
+        minus_btn = tk.Button(buttons_frame, text="−", width=2, height=1, font=("Arial", 9, "bold"),
+                            command=self._decrement_cost_reduction,
+                            bg="#CCCCCC", fg="black",
+                            relief=tk.RAISED, borderwidth=1,
+                            cursor="hand2")
+        minus_btn.pack(pady=(1, 0))
+        
+        # Value display (read-only label)
+        self.cost_reduction_label = tk.Label(controls_frame, text=str(self.gem_cost_reduction), 
+                                            font=("Arial", 10, "bold"),
+                                            background="#E3F2FD", width=5, anchor=tk.CENTER)
+        self.cost_reduction_label.pack(side=tk.LEFT, padx=(0, 1))
+        
         tk.Label(controls_frame, text="Gems", font=("Arial", 10), 
                 background="#E3F2FD").pack(side=tk.LEFT)
-        self.cost_reduction_var.trace_add('write', self._on_cost_reduction_changed)
         
         # Help icon
         help_label = tk.Label(controls_frame, text="?", font=("Arial", 9, "bold"), 
@@ -306,7 +319,7 @@ class LootbugWindow:
         content_frame.columnconfigure(1, weight=2)
         content_frame.rowconfigure(0, weight=1)
         
-        # Left column: Option Analyzer - dynamic content based on selected buff
+        # Left column: Lootbug Analyzer - dynamic content based on selected buff
         self.analyzer_frame = tk.Frame(content_frame, background="#FFF3E0", relief=tk.RIDGE, borderwidth=2)
         self.analyzer_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 3))
         
@@ -692,18 +705,22 @@ class LootbugWindow:
             tk.Label(parent, text=f"Cost: {cost:.0f} Gems",
                     font=("Arial", 10), foreground="#C73E1D", background=bg_color).pack()
     
-    def _set_cost_reduction(self, reduction):
-        """Set cost reduction to a specific value"""
-        self.cost_reduction_var.set(str(reduction))
+    def _increment_cost_reduction(self):
+        """Increment cost reduction by 1"""
+        self.gem_cost_reduction += 1
+        self._update_cost_reduction_display()
+        self._update_loot_tables()
     
-    def _on_cost_reduction_changed(self, *args):
-        """Called when cost reduction input changes"""
-        try:
-            value = int(self.cost_reduction_var.get())
-            self.gem_cost_reduction = value
-            self._update_loot_tables()
-        except ValueError:
-            pass
+    def _decrement_cost_reduction(self):
+        """Decrement cost reduction by 1 (minimum 0)"""
+        self.gem_cost_reduction = max(0, self.gem_cost_reduction - 1)
+        self._update_cost_reduction_display()
+        self._update_loot_tables()
+    
+    def _update_cost_reduction_display(self):
+        """Update the cost reduction label display"""
+        if hasattr(self, 'cost_reduction_label'):
+            self.cost_reduction_label.config(text=str(self.gem_cost_reduction))
     
     def _update_loot_tables(self):
         """Update the gem buffs table with current cost reduction"""
@@ -766,7 +783,7 @@ class LootbugWindow:
                 "a 15 gem cost becomes 14 gems.",
                 "",
                 "This affects the Gem Buffs table",
-                "and Option Analyzer calculations.",
+                "and Lootbug Analyzer calculations.",
             ]
             
             for line in lines:
