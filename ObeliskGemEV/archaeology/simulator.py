@@ -8663,10 +8663,11 @@ Fragments/h: {fragments_per_hour:.2f}"""
                     x_pos = np.arange(len(labels))
                     width = 0.35
                     
+                    # Use same color for both, but different hatch patterns
                     bars1 = ax_top3.barh(x_pos - width/2, frags_values, width, label='Fragments/h', 
-                                        color=colors[:len(labels)], alpha=0.7, edgecolor='#4A148C', linewidth=1)
+                                        color=colors[:len(labels)], alpha=0.7, edgecolor='#4A148C', linewidth=1, hatch='')
                     bars2 = ax_top3.barh(x_pos + width/2, xp_values, width, label='XP/h', 
-                                        color=[c.replace('B0', '80') for c in colors[:len(labels)]], alpha=0.7, edgecolor='#4A148C', linewidth=1)
+                                        color=colors[:len(labels)], alpha=0.7, edgecolor='#4A148C', linewidth=1, hatch='///')
                     
                     # Add value labels on bars
                     for i, (bar1, bar2, frag_val, xp_val) in enumerate(zip(bars1, bars2, frags_values, xp_values)):
@@ -8682,7 +8683,7 @@ Fragments/h: {fragments_per_hour:.2f}"""
                     ax_top3.set_xlabel('Rate (/h)', fontsize=9, fontweight='bold')
                     ax_top3.set_title(f'Top {len(tied_candidates)} Candidates (Max Stage: {best_max_stage})', 
                                     fontsize=9, fontweight='bold')
-                    ax_top3.legend(fontsize=8, loc='lower right')
+                    ax_top3.legend(fontsize=8, loc='upper left', bbox_to_anchor=(1.02, 1))
                     ax_top3.grid(axis='x', alpha=0.3, linestyle='--')
                     
                     fig_top3.tight_layout(pad=1.5)
@@ -8820,10 +8821,8 @@ Fragments/h: {fragments_per_hour:.2f}"""
         main_frame.columnconfigure(0, weight=1)
         
         # Title
-        stage_label = get_stage_range_label(optimal_stage)
         title_label = ttk.Label(main_frame, 
-                               text=f"MC XP/h Maximizer Results - 1000 simulations\n"
-                                    f"Optimal Stage: {stage_label} (Stage {optimal_stage})", 
+                               text=f"MC XP/h Maximizer Results - 1000 simulations", 
                                font=("Arial", 12, "bold"))
         title_label.grid(row=0, column=0, columnspan=2, pady=(0, 10), sticky=tk.W)
         
@@ -9495,10 +9494,8 @@ Fragments/h: {fragments_per_hour:.2f}"""
         main_frame.columnconfigure(0, weight=1)
         
         # Title
-        stage_label = get_stage_range_label(optimal_stage)
         title_label = ttk.Label(main_frame, 
-                               text=f"MC Fragment Farmer Results ({target_frag.upper()}) - 1000 simulations\n"
-                                    f"Optimal Stage: {stage_label} (Stage {optimal_stage})", 
+                               text=f"MC Fragment Farmer Results ({target_frag.upper()}) - 1000 simulations", 
                                font=("Arial", 12, "bold"))
         title_label.grid(row=0, column=0, columnspan=2, pady=(0, 10), sticky=tk.W)
         
