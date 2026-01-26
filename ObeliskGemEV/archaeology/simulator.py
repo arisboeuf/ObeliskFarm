@@ -1190,7 +1190,20 @@ class ArchaeologySimulatorWindow:
         elif self.misc_card_level == 3:
             return 0.90  # -10%
         return 1.0
-    
+
+    def _get_effective_ability_cooldowns(self):
+        """Return effective cooldowns (seconds) for Enrage, Flurry, Quake after fragments + misc card."""
+        frag_bonuses = self._get_fragment_upgrade_bonuses()
+        mult = self.get_ability_cooldown_multiplier()
+        enrage_base = self.ENRAGE_COOLDOWN + frag_bonuses.get('enrage_cooldown', 0) + frag_bonuses.get('ability_cooldown', 0)
+        flurry_base = self.FLURRY_COOLDOWN + frag_bonuses.get('flurry_cooldown', 0) + frag_bonuses.get('ability_cooldown', 0)
+        quake_base = self.QUAKE_COOLDOWN + frag_bonuses.get('quake_cooldown', 0) + frag_bonuses.get('ability_cooldown', 0)
+        return {
+            'enrage': int(enrage_base * mult),
+            'flurry': int(flurry_base * mult),
+            'quake': int(quake_base * mult),
+        }
+
     def calculate_damage_breakpoints(self, block_hp, block_armor, stats, block_type=None, tier=None):
         """
         Calculate damage breakpoints for a specific block.
@@ -2033,6 +2046,9 @@ class ArchaeologySimulatorWindow:
         self.enrage_check_label = tk.Label(enrage_frame, text="✓", font=("Arial", 12, "bold"),
                                           foreground="#4CAF50", background="#E3F2FD")
         self.enrage_check_label.pack(side=tk.LEFT, padx=(3, 0))
+        self.enrage_cooldown_label = tk.Label(enrage_frame, text="60s", font=("Arial", 9),
+                                              foreground="#2E7D32", background="#E3F2FD")
+        self.enrage_cooldown_label.pack(side=tk.LEFT, padx=(2, 0))
         
         # Flurry ability icon button
         flurry_frame = tk.Frame(abilities_frame, background="#E3F2FD")
@@ -2065,6 +2081,9 @@ class ArchaeologySimulatorWindow:
         self.flurry_check_label = tk.Label(flurry_frame, text="✓", font=("Arial", 12, "bold"),
                                           foreground="#4CAF50", background="#E3F2FD")
         self.flurry_check_label.pack(side=tk.LEFT, padx=(3, 0))
+        self.flurry_cooldown_label = tk.Label(flurry_frame, text="120s", font=("Arial", 9),
+                                              foreground="#2E7D32", background="#E3F2FD")
+        self.flurry_cooldown_label.pack(side=tk.LEFT, padx=(2, 0))
         
         # Quake ability icon button
         quake_frame = tk.Frame(abilities_frame, background="#E3F2FD")
@@ -2097,6 +2116,9 @@ class ArchaeologySimulatorWindow:
         self.quake_check_label = tk.Label(quake_frame, text="✓", font=("Arial", 12, "bold"),
                                          foreground="#4CAF50", background="#E3F2FD")
         self.quake_check_label.pack(side=tk.LEFT, padx=(3, 0))
+        self.quake_cooldown_label = tk.Label(quake_frame, text="180s", font=("Arial", 9),
+                                             foreground="#2E7D32", background="#E3F2FD")
+        self.quake_cooldown_label.pack(side=tk.LEFT, padx=(2, 0))
         
         # Update initial visual state
         self._update_ability_button_visual('enrage', True)
@@ -5562,6 +5584,13 @@ class ArchaeologySimulatorWindow:
             self.mod_labels['loot_mod_chance'].config(text=f"{stats['loot_mod_chance']*100:.2f}%")
             self.mod_labels['speed_mod_chance'].config(text=f"{stats['speed_mod_chance']*100:.2f}%")
             self.mod_labels['stamina_mod_chance'].config(text=f"{stats['stamina_mod_chance']*100:.2f}%")
+        
+        # Update ability cooldown labels (effective cooldowns after fragments + misc card)
+        if hasattr(self, 'enrage_cooldown_label'):
+            cooldowns = self._get_effective_ability_cooldowns()
+            self.enrage_cooldown_label.config(text=f"{cooldowns['enrage']}s")
+            self.flurry_cooldown_label.config(text=f"{cooldowns['flurry']}s")
+            self.quake_cooldown_label.config(text=f"{cooldowns['quake']}s")
         
         # Update gem upgrade levels
         if hasattr(self, 'gem_upgrade_labels'):

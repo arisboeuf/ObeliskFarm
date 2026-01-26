@@ -45,16 +45,27 @@ class GameParameters:
 
     # Bombs - General
     free_bomb_chance: float = 0.16  # 16% Chance dass bomb click 0 charges verbraucht
+    total_bomb_types: int = 12  # Gesamtanzahl Bomb-Typen (für Battery/D20 Berechnung)
     
     # Gem Bomb
-    gem_bomb_recharge_seconds: float = 35.0  # Recharge Zeit
+    gem_bomb_recharge_seconds: float = 46.0  # Recharge Zeit
     gem_bomb_gem_chance: float = 0.03  # 3% Chance per charge auf 1 Gem
     
     # Cherry Bomb
-    cherry_bomb_recharge_seconds: float = 37.0  # Recharge Zeit
+    cherry_bomb_recharge_seconds: float = 48.0  # Recharge Zeit
+    
+    # Battery Bomb
+    battery_bomb_recharge_seconds: float = 31.0  # Recharge Zeit
+    battery_bomb_charges_per_charge: float = 2.0  # +2 charges to random bomb
+    battery_bomb_cap_increase_chance: float = 0.001  # 0.1% chance to increase bomb cap by 1
+    
+    # D20 Bomb
+    d20_bomb_recharge_seconds: float = 36.0  # Recharge Zeit
+    d20_bomb_refill_chance: float = 0.05  # 5% chance to refill
+    d20_bomb_charges_distributed: int = 42  # Anzahl Charges die verteilt werden
     
     # Founder Bomb
-    founder_bomb_interval_seconds: float = 60.0 # recharge zeit
+    founder_bomb_interval_seconds: float = 87.0  # recharge zeit
     founder_bomb_charges_per_drop: float = 2.0  # 100% Chance auf 2 Charges
     founder_bomb_speed_chance: float = 0.10  # 10%
     founder_bomb_speed_multiplier: float = 2.0
@@ -349,11 +360,14 @@ class FreebieEVCalculator:
         """
         Berechnet Gem Bomb Gems pro Stunde.
         
+        Strategie: Gem zum Platzschaffen -> [Cherry -> Battery -> D20 -> Gem] repeat
+        
         Mechanik:
         - Gem Bomb rechargt kontinuierlich (jeder Recharge = 1 Charge)
-        - Bei optimalem Spielen: Click sofort nach Recharge (1 Charge pro Click)
-        - Cherry Bomb: Jeder Cherry Click gibt einen free Gem Bomb Click
-        - Free Bomb Chance: 16% dass ein Click keine Charges verbraucht (rekursiv)
+        - Cherry Bomb: Next bomb click consumes 0 charges (triggers free Gem Bomb)
+        - Battery Bomb: Charges 2 random bombs (except itself)
+        - D20 Bomb: 5% chance to distribute 42 charges to other bombs (except itself)
+        - Free Bomb Chance: 16% dass ein Click keine Charges verbraucht (affects ALL bombs)
         - 2× Game Speed: Halbiert alle Bomb Recharge-Zeiten
         
         Returns:
@@ -362,11 +376,6 @@ class FreebieEVCalculator:
         seconds_per_hour = 3600.0
         
         # Berücksichtige 2× Game Speed von Founder Speed Boost
-        # Founder Speed Boost läuft durchschnittlich X Minuten pro Stunde
-        # Das halbiert die Recharge-Zeiten während dieser Zeit
-        # Vereinfacht: Durchschnittliche Recharge-Zeit mit Speed-Berücksichtigung
-        
-        # Founder Speed: Wie viel Prozent der Zeit läuft 2× Speed?
         founder_drop_interval = self.get_founder_drop_interval_minutes()
         founder_drops_per_hour = 60.0 / founder_drop_interval
         
@@ -390,9 +399,7 @@ class FreebieEVCalculator:
         # Prozent der Zeit mit 2× Speed
         speed_percentage = speed_minutes_per_hour / 60.0
         
-        # Effektive Recharge-Zeit (gewichtet)
-        # Zeit mit 2× Speed: Recharge halbiert
-        # Zeit ohne Speed: Normale Recharge
+        # Effektive Recharge-Zeiten (gewichtet mit Speed)
         effective_gem_bomb_recharge = (
             self.params.gem_bomb_recharge_seconds * (1.0 - speed_percentage) +
             (self.params.gem_bomb_recharge_seconds / 2.0) * speed_percentage
@@ -403,20 +410,118 @@ class FreebieEVCalculator:
             (self.params.cherry_bomb_recharge_seconds / 2.0) * speed_percentage
         )
         
-        # Clicks pro Stunde (ohne Free Bomb Chance)
-        gem_bomb_clicks_base = seconds_per_hour / effective_gem_bomb_recharge
-        cherry_bomb_clicks_base = seconds_per_hour / effective_cherry_bomb_recharge
+        effective_battery_bomb_recharge = (
+            self.params.battery_bomb_recharge_seconds * (1.0 - speed_percentage) +
+            (self.params.battery_bomb_recharge_seconds / 2.0) * speed_percentage
+        )
+        
+        effective_d20_bomb_recharge = (
+            self.params.d20_bomb_recharge_seconds * (1.0 - speed_percentage) +
+            (self.params.d20_bomb_recharge_seconds / 2.0) * speed_percentage
+        )
         
         # Free Bomb Chance: Multipliziert die effektiven Clicks
-        # 16% Chance dass Click free ist → 1 / (1 - 0.16) = 1.19 effektive Clicks
+        # 16% Chance dass Click free ist → 1 / (1 - 0.16) = 1.1905 effektive Clicks
         free_bomb_multiplier = 1.0 / (1.0 - self.params.free_bomb_chance)
+        
+        # Basis Clicks pro Stunde (ohne Free Bomb Chance)
+        gem_bomb_clicks_base = seconds_per_hour / effective_gem_bomb_recharge
+        cherry_bomb_clicks_base = seconds_per_hour / effective_cherry_bomb_recharge
+        battery_bomb_clicks_base = seconds_per_hour / effective_battery_bomb_recharge
+        d20_bomb_clicks_base = seconds_per_hour / effective_d20_bomb_recharge
         
         # Effektive Clicks pro Stunde (mit Free Bomb Chance)
         gem_bomb_clicks = gem_bomb_clicks_base * free_bomb_multiplier
         cherry_bomb_clicks = cherry_bomb_clicks_base * free_bomb_multiplier
+        battery_bomb_clicks = battery_bomb_clicks_base * free_bomb_multiplier
+        d20_bomb_clicks = d20_bomb_clicks_base * free_bomb_multiplier
         
-        # Cherry Bomb: Jeder Click gibt einen free Gem Bomb Click
-        total_gem_bomb_clicks = gem_bomb_clicks + cherry_bomb_clicks
+        # Strategie: Gem zum Platzschaffen -> [Cherry -> Battery -> D20 -> Gem] repeat
+        # 
+        # REKURSIVES SYSTEM: Battery und D20 refillen sich gegenseitig und Cherry,
+        # was zu mehr Clicks führt, was wiederum zu mehr Refills führt.
+        #
+        # Wir lösen das iterativ:
+        # 1. Start mit Basis-Clicks (durch Recharge)
+        # 2. Berechne Refills basierend auf aktuellen Clicks
+        # 3. Addiere Refills zu Clicks
+        # 4. Wiederhole bis Konvergenz
+        
+        # Basis-Clicks (durch Recharge, ohne Refills)
+        gem_bomb_base_clicks = gem_bomb_clicks
+        cherry_bomb_base_clicks = cherry_bomb_clicks
+        battery_bomb_base_clicks = battery_bomb_clicks
+        d20_bomb_base_clicks = d20_bomb_clicks
+        
+        # Refill-Raten (pro Click der Quelle)
+        # Battery gibt +2 charges zu einer zufälligen Bombe (außer sich selbst)
+        battery_refill_per_click = self.params.battery_bomb_charges_per_charge / (self.params.total_bomb_types - 1)
+        
+        # D20 gibt 42 charges zu anderen Bomben (bei 5% Chance, außer sich selbst)
+        d20_refill_per_click = (
+            self.params.d20_bomb_refill_chance *
+            self.params.d20_bomb_charges_distributed /
+            (self.params.total_bomb_types - 1)
+        )
+        
+        # Iterative Lösung (konvergiert, da Refills < 1 pro Click)
+        # 
+        # Konvergenz-Garantie:
+        # - Battery gibt 2 charges zu einer zufälligen Bombe → erwarteter Wert pro Bombe = 2/(total-1) < 1
+        # - D20 gibt 42 charges (5% Chance) → erwarteter Wert pro Bombe = 0.05*42/(total-1) < 1
+        # - Da beide < 1 sind, konvergiert die Reihe (geometrische Reihe)
+        #
+        # Wir iterieren bis die Änderung < 0.01 Clicks pro Stunde ist
+        gem_bomb_total = gem_bomb_base_clicks
+        cherry_bomb_total = cherry_bomb_base_clicks
+        battery_bomb_total = battery_bomb_base_clicks
+        d20_bomb_total = d20_bomb_base_clicks
+        
+        max_iterations = 100
+        convergence_threshold = 0.01
+        
+        for iteration in range(max_iterations):
+            # Berechne Refills basierend auf aktuellen Clicks
+            # Battery refills alle anderen Bomben
+            battery_refills_to_gem = battery_bomb_total * battery_refill_per_click
+            battery_refills_to_cherry = battery_bomb_total * battery_refill_per_click
+            battery_refills_to_battery = battery_bomb_total * battery_refill_per_click  # Selbst-refill
+            battery_refills_to_d20 = battery_bomb_total * battery_refill_per_click
+            
+            # D20 refills alle anderen Bomben
+            d20_refills_to_gem = d20_bomb_total * d20_refill_per_click
+            d20_refills_to_cherry = d20_bomb_total * d20_refill_per_click
+            d20_refills_to_battery = d20_bomb_total * d20_refill_per_click
+            d20_refills_to_d20 = d20_bomb_total * d20_refill_per_click  # Selbst-refill
+            
+            # Neue Totals = Basis + Refills
+            gem_bomb_new = gem_bomb_base_clicks + battery_refills_to_gem + d20_refills_to_gem
+            cherry_bomb_new = cherry_bomb_base_clicks + battery_refills_to_cherry + d20_refills_to_cherry
+            battery_bomb_new = battery_bomb_base_clicks + battery_refills_to_battery + d20_refills_to_battery
+            d20_bomb_new = d20_bomb_base_clicks + battery_refills_to_d20 + d20_refills_to_d20
+            
+            # Prüfe Konvergenz
+            change = abs(gem_bomb_new - gem_bomb_total) + abs(cherry_bomb_new - cherry_bomb_total) + \
+                     abs(battery_bomb_new - battery_bomb_total) + abs(d20_bomb_new - d20_bomb_total)
+            
+            if change < convergence_threshold:
+                break
+            
+            # Update für nächste Iteration
+            gem_bomb_total = gem_bomb_new
+            cherry_bomb_total = cherry_bomb_new
+            battery_bomb_total = battery_bomb_new
+            d20_bomb_total = d20_bomb_new
+        
+        # Cherry Bomb: Jeder Cherry Click gibt einen free Gem Bomb Click
+        cherry_free_gem_bomb_clicks = cherry_bomb_total
+        
+        # Gesamte Gem Bomb Clicks pro Stunde:
+        # 1. Normale Gem Bomb Clicks (zum Platzschaffen)
+        # 2. Free Gem Bomb Clicks durch Cherry (inkl. refilled Cherry Clicks)
+        # 3. Zusätzliche Charges durch Battery (als zusätzliche Clicks, inkl. rekursiver Refills)
+        # 4. Zusätzliche Charges durch D20 (als zusätzliche Clicks, inkl. rekursiver Refills)
+        total_gem_bomb_clicks = gem_bomb_total + cherry_free_gem_bomb_clicks
         
         # Gems: Jeder Click = 1 Charge mit 3% Chance auf 1 Gem
         gems_per_hour = total_gem_bomb_clicks * self.params.gem_bomb_gem_chance
@@ -934,8 +1039,13 @@ class FreebieEVCalculator:
         print(f"  Founder Speed: {self.params.founder_speed_multiplier}× für {self.params.founder_speed_duration_minutes} Minuten")
         print(f"  Founder Bomb Intervall: {self.params.founder_bomb_interval_seconds} Sekunden")
         print(f"  Founder Bomb Charges pro Drop: {self.params.founder_bomb_charges_per_drop}")
-        print(f"  Founder Bomb Free Chance: {self.params.founder_bomb_free_chance * 100:.1f}%")
         print(f"  Founder Bomb Speed Chance: {self.params.founder_bomb_speed_chance * 100:.1f}%")
+        print(f"  Free Bomb Chance: {self.params.free_bomb_chance * 100:.1f}%")
+        print(f"  Total Bomb Types: {self.params.total_bomb_types}")
+        print(f"  Battery Bomb Recharge: {self.params.battery_bomb_recharge_seconds} Sekunden")
+        print(f"  D20 Bomb Recharge: {self.params.d20_bomb_recharge_seconds} Sekunden")
+        print(f"  D20 Bomb Refill Chance: {self.params.d20_bomb_refill_chance * 100:.1f}%")
+        print(f"  D20 Bomb Charges Distributed: {self.params.d20_bomb_charges_distributed}")
         print(f"  Founder Bomb Speed: {self.params.founder_bomb_speed_multiplier}× für {self.params.founder_bomb_speed_duration_seconds} Sekunden")
         print()
         

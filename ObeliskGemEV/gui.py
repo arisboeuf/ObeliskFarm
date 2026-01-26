@@ -843,17 +843,17 @@ class ObeliskGemEVGUI:
             "Free Bomb Chance:\n"
             "• 16% chance that a bomb click consumes 0 charges\n"
             "• Applies to the ENTIRE dump (all charges at once)\n"
-            "• Stacks multiplicatively with Cherry Bomb\n"
+            "• Affects ALL bomb types\n"
             "\n"
-            "Bomb Types:\n"
-            "• Gem Bomb: 3% chance per charge for 1 Gem\n"
-            "• Cherry Bomb: Next bomb click consumes 0 charges\n"
-            "• Battery Bomb: +2 charges to random bomb\n"
-            "• D20 Bomb: 5% chance to distribute 42 charges\n"
+            "Strategy Cycle:\n"
+            "• Gem (to create space) → [Cherry → Battery → D20 → Gem] repeat\n"
+            "• Cherry triggers many batteries, then D20, then Gem comes into play\n"
             "\n"
-            "Strategy:\n"
-            "• Cherry → Gem Bomb is highest value\n"
-            "• Maximize free Gem Bomb dumps"
+            "Recursive Refills:\n"
+            "• Battery and D20 refill each other and Cherry\n"
+            "• More Battery/D20 clicks → more refills → even more clicks\n"
+            "• This creates a recursive amplification effect\n"
+            "• All refills ultimately benefit Gem Bomb (directly or via Cherry)"
         )
         self.create_tooltip(bomb_help_label, bombs_info)
         
@@ -869,48 +869,21 @@ class ObeliskGemEVGUI:
         )
         row += 1
         
-        # Gem Bomb
-        tk.Label(bomb_frame, text="Gem Bomb:", font=("Arial", 9, "bold"), background="#FFF3E0").grid(
-            row=row, column=0, columnspan=2, sticky=tk.W, pady=(0, 3)
-        )
-        row += 1
-        
-        self.create_entry(bomb_frame, "gem_bomb_recharge_seconds", "  Gem Bomb Recharge (Seconds):", row, "46.0", bg_color="#FFF3E0")
-        row += 1
-        
-        self.create_entry(bomb_frame, "gem_bomb_gem_chance", "  Gem Chance per Charge (%):", row, "3.0", is_percent=True, bg_color="#FFF3E0")
-        row += 1
-        
-        # Separator
-        ttk.Separator(bomb_frame, orient='horizontal').grid(
-            row=row, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=8
-        )
-        row += 1
-        
-        # Cherry Bomb
-        tk.Label(bomb_frame, text="Cherry Bomb:", font=("Arial", 9, "bold"), background="#FFF3E0").grid(
-            row=row, column=0, columnspan=2, sticky=tk.W, pady=(0, 3)
-        )
-        row += 1
-        
-        self.create_entry(bomb_frame, "cherry_bomb_recharge_seconds", "  Cherry Bomb Recharge (Seconds):", row, "48.0", bg_color="#FFF3E0")
-        row += 1
-        
-        # Separator
-        ttk.Separator(bomb_frame, orient='horizontal').grid(
-            row=row, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=8
-        )
-        row += 1
-        
-        # Founder Bomb Sub-Section mit Icon
+        # ============================================
+        # FOUNDER BOMB (zusammengefasst mit Speed)
+        # ============================================
         founder_bomb_header_frame = tk.Frame(bomb_frame, background="#FFF3E0")
         founder_bomb_header_frame.grid(row=row, column=0, columnspan=2, sticky=tk.W, pady=(0, 3))
         
         tk.Label(founder_bomb_header_frame, text="Founder Bomb:", font=("Arial", 9, "bold"), background="#FFF3E0").pack(side=tk.LEFT)
         
-        # Versuche, das Bomb Icon zu laden
+        # Versuche, das Founders Bomb Icon zu laden
         try:
-            bomb_icon_path = get_resource_path("sprites/event/founderbomb.png")
+            # Zuerst versuche founders_bomb.png in common
+            bomb_icon_path = get_resource_path("sprites/common/founders_bomb.png")
+            if not bomb_icon_path.exists():
+                # Fallback zu event/founderbomb.png
+                bomb_icon_path = get_resource_path("sprites/event/founderbomb.png")
             if bomb_icon_path.exists():
                 bomb_image = Image.open(bomb_icon_path)
                 bomb_image = bomb_image.resize((16, 16), Image.Resampling.LANCZOS)
@@ -925,24 +898,212 @@ class ObeliskGemEVGUI:
         self.create_entry(bomb_frame, "founder_bomb_interval_seconds", "  Founder Bomb Interval (Seconds):", row, "87.0", bg_color="#FFF3E0")
         row += 1
         
+        self.create_entry(bomb_frame, "founder_bomb_speed_chance", "  Speed Chance (%):", row, "10.0", is_percent=True, bg_color="#FFF3E0")
+        row += 1
+        
+        self.create_entry(bomb_frame, "founder_bomb_speed_multiplier", "  Speed Multiplier:", row, "2.0", bg_color="#FFF3E0")
+        row += 1
+        
+        self.create_entry(bomb_frame, "founder_bomb_speed_duration_seconds", "  Speed Duration (Seconds):", row, "10.0", bg_color="#FFF3E0")
+        row += 1
+        
         # Separator
         ttk.Separator(bomb_frame, orient='horizontal').grid(
             row=row, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=8
         )
         row += 1
         
-        tk.Label(bomb_frame, text="  Bomb Speed:", font=("Arial", 9, "bold"), background="#FFF3E0").grid(
+        # ============================================
+        # CHERRY, BATTERY, D20, GEM BOMB SECTION
+        # ============================================
+        tk.Label(bomb_frame, text="Cherry → Battery → D20 → Gem Cycle:", font=("Arial", 9, "bold"), background="#FFF3E0").grid(
             row=row, column=0, columnspan=2, sticky=tk.W, pady=(0, 3)
         )
         row += 1
         
-        self.create_entry(bomb_frame, "founder_bomb_speed_chance", "    Speed Chance (%):", row, "10.0", is_percent=True, bg_color="#FFF3E0")
+        # Total Bomb Types (für Battery/D20 Berechnung)
+        self.create_entry(bomb_frame, "total_bomb_types", "  Total Bomb Types:", row, "12", is_int=True, bg_color="#FFF3E0")
         row += 1
         
-        self.create_entry(bomb_frame, "founder_bomb_speed_multiplier", "    Speed Multiplier:", row, "2.0", bg_color="#FFF3E0")
+        # Separator
+        ttk.Separator(bomb_frame, orient='horizontal').grid(
+            row=row, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=4
+        )
         row += 1
         
-        self.create_entry(bomb_frame, "founder_bomb_speed_duration_seconds", "    Speed Duration (Seconds):", row, "10.0", bg_color="#FFF3E0")
+        # Gem Bomb
+        gem_bomb_header_frame = tk.Frame(bomb_frame, background="#FFF3E0")
+        gem_bomb_header_frame.grid(row=row, column=0, columnspan=2, sticky=tk.W, pady=(0, 3))
+        
+        tk.Label(gem_bomb_header_frame, text="Gem Bomb:", font=("Arial", 9, "bold"), background="#FFF3E0").pack(side=tk.LEFT)
+        
+        # Versuche, das Gem Bomb Icon zu laden
+        try:
+            gem_bomb_icon_path = get_resource_path("sprites/common/gem_bomb.png")
+            if gem_bomb_icon_path.exists():
+                gem_bomb_image = Image.open(gem_bomb_icon_path)
+                gem_bomb_image = gem_bomb_image.resize((16, 16), Image.Resampling.LANCZOS)
+                self.gem_bomb_icon_photo = ImageTk.PhotoImage(gem_bomb_image)
+                gem_bomb_icon_label = tk.Label(gem_bomb_header_frame, image=self.gem_bomb_icon_photo, background="#FFF3E0")
+                gem_bomb_icon_label.pack(side=tk.LEFT, padx=(5, 0))
+        except:
+            pass
+        
+        # Fragezeichen-Icon für Gem Bomb Tooltip
+        gem_bomb_help_label = tk.Label(gem_bomb_header_frame, text="❓", font=("Arial", 8), cursor="hand2", foreground="gray", background="#FFF3E0")
+        gem_bomb_help_label.pack(side=tk.LEFT, padx=(5, 0))
+        
+        gem_bomb_info = (
+            "Gem Bomb:\n"
+            "• 3% chance per charge to gain 1 Gem\n"
+            "• Primary gem source from bombs\n"
+            "• Receives refills from Battery and D20\n"
+            "• Cherry Bomb gives free Gem Bomb clicks (no charge cost)\n"
+            "• Benefits from recursive refill amplification"
+        )
+        self.create_tooltip(gem_bomb_help_label, gem_bomb_info)
+        
+        row += 1
+        
+        self.create_entry(bomb_frame, "gem_bomb_recharge_seconds", "  Gem Bomb Recharge (Seconds):", row, "46.0", bg_color="#FFF3E0")
+        row += 1
+        
+        self.create_entry(bomb_frame, "gem_bomb_gem_chance", "  Gem Chance per Charge (%):", row, "3.0", is_percent=True, bg_color="#FFF3E0")
+        row += 1
+        
+        # Separator
+        ttk.Separator(bomb_frame, orient='horizontal').grid(
+            row=row, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=4
+        )
+        row += 1
+        
+        # Cherry Bomb
+        cherry_bomb_header_frame = tk.Frame(bomb_frame, background="#FFF3E0")
+        cherry_bomb_header_frame.grid(row=row, column=0, columnspan=2, sticky=tk.W, pady=(0, 3))
+        
+        tk.Label(cherry_bomb_header_frame, text="Cherry Bomb:", font=("Arial", 9, "bold"), background="#FFF3E0").pack(side=tk.LEFT)
+        
+        # Versuche, das Cherry Bomb Icon zu laden
+        try:
+            cherry_bomb_icon_path = get_resource_path("sprites/common/cherry_bomb.png")
+            if cherry_bomb_icon_path.exists():
+                cherry_bomb_image = Image.open(cherry_bomb_icon_path)
+                cherry_bomb_image = cherry_bomb_image.resize((16, 16), Image.Resampling.LANCZOS)
+                self.cherry_bomb_icon_photo = ImageTk.PhotoImage(cherry_bomb_image)
+                cherry_bomb_icon_label = tk.Label(cherry_bomb_header_frame, image=self.cherry_bomb_icon_photo, background="#FFF3E0")
+                cherry_bomb_icon_label.pack(side=tk.LEFT, padx=(5, 0))
+        except:
+            pass
+        
+        # Fragezeichen-Icon für Cherry Bomb Tooltip
+        cherry_bomb_help_label = tk.Label(cherry_bomb_header_frame, text="❓", font=("Arial", 8), cursor="hand2", foreground="gray", background="#FFF3E0")
+        cherry_bomb_help_label.pack(side=tk.LEFT, padx=(5, 0))
+        
+        cherry_bomb_info = (
+            "Cherry Bomb:\n"
+            "• Next bomb click consumes 0 charges\n"
+            "• Applies to the ENTIRE dump (all charges at once)\n"
+            "• Cherry → Gem Bomb is the highest value interaction\n"
+            "• Receives refills from Battery and D20\n"
+            "• More Cherry clicks → more free Gem Bomb clicks"
+        )
+        self.create_tooltip(cherry_bomb_help_label, cherry_bomb_info)
+        
+        row += 1
+        
+        self.create_entry(bomb_frame, "cherry_bomb_recharge_seconds", "  Cherry Bomb Recharge (Seconds):", row, "48.0", bg_color="#FFF3E0")
+        row += 1
+        
+        # Separator
+        ttk.Separator(bomb_frame, orient='horizontal').grid(
+            row=row, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=4
+        )
+        row += 1
+        
+        # Battery Bomb
+        battery_header_frame = tk.Frame(bomb_frame, background="#FFF3E0")
+        battery_header_frame.grid(row=row, column=0, columnspan=2, sticky=tk.W, pady=(0, 3))
+        
+        tk.Label(battery_header_frame, text="Battery Bomb:", font=("Arial", 9, "bold"), background="#FFF3E0").pack(side=tk.LEFT)
+        
+        # Versuche, das Battery Bomb Icon zu laden
+        try:
+            battery_bomb_icon_path = get_resource_path("sprites/common/battery_bomb.png")
+            if battery_bomb_icon_path.exists():
+                battery_bomb_image = Image.open(battery_bomb_icon_path)
+                battery_bomb_image = battery_bomb_image.resize((16, 16), Image.Resampling.LANCZOS)
+                self.battery_bomb_icon_photo = ImageTk.PhotoImage(battery_bomb_image)
+                battery_bomb_icon_label = tk.Label(battery_header_frame, image=self.battery_bomb_icon_photo, background="#FFF3E0")
+                battery_bomb_icon_label.pack(side=tk.LEFT, padx=(5, 0))
+        except:
+            pass
+        
+        # Fragezeichen-Icon für Battery Tooltip
+        battery_help_label = tk.Label(battery_header_frame, text="❓", font=("Arial", 8), cursor="hand2", foreground="gray", background="#FFF3E0")
+        battery_help_label.pack(side=tk.LEFT, padx=(5, 0))
+        
+        battery_info = (
+            "Battery Bomb:\n"
+            "• Charges 2 random bombs (except itself)\n"
+            "• Distributes to (Total Bomb Types - 1) bombs\n"
+            "• Can refill Gem Bomb, Cherry, D20, and itself\n"
+            "• Creates recursive amplification (more Battery → more refills → more Battery)\n"
+            "• 0.1% chance to increase bomb cap by 1 (tooltip only)"
+        )
+        self.create_tooltip(battery_help_label, battery_info)
+        
+        row += 1
+        
+        self.create_entry(bomb_frame, "battery_bomb_recharge_seconds", "  Battery Bomb Recharge (Seconds):", row, "31.0", bg_color="#FFF3E0")
+        row += 1
+        
+        # Separator
+        ttk.Separator(bomb_frame, orient='horizontal').grid(
+            row=row, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=4
+        )
+        row += 1
+        
+        # D20 Bomb
+        d20_header_frame = tk.Frame(bomb_frame, background="#FFF3E0")
+        d20_header_frame.grid(row=row, column=0, columnspan=2, sticky=tk.W, pady=(0, 3))
+        
+        tk.Label(d20_header_frame, text="D20 Bomb:", font=("Arial", 9, "bold"), background="#FFF3E0").pack(side=tk.LEFT)
+        
+        # Versuche, das D20 Bomb Icon zu laden
+        try:
+            d20_bomb_icon_path = get_resource_path("sprites/common/d20_bomb.png")
+            if d20_bomb_icon_path.exists():
+                d20_bomb_image = Image.open(d20_bomb_icon_path)
+                d20_bomb_image = d20_bomb_image.resize((16, 16), Image.Resampling.LANCZOS)
+                self.d20_bomb_icon_photo = ImageTk.PhotoImage(d20_bomb_image)
+                d20_bomb_icon_label = tk.Label(d20_header_frame, image=self.d20_bomb_icon_photo, background="#FFF3E0")
+                d20_bomb_icon_label.pack(side=tk.LEFT, padx=(5, 0))
+        except:
+            pass
+        
+        # Fragezeichen-Icon für D20 Tooltip
+        d20_help_label = tk.Label(d20_header_frame, text="❓", font=("Arial", 8), cursor="hand2", foreground="gray", background="#FFF3E0")
+        d20_help_label.pack(side=tk.LEFT, padx=(5, 0))
+        
+        d20_info = (
+            "D20 Bomb:\n"
+            "• 5% chance to refill other bomb charges\n"
+            "• Distributes 42 charges randomly\n"
+            "• Charges distributed to (Total Bomb Types - 1) bombs\n"
+            "• Can refill Gem Bomb, Cherry, Battery, and itself\n"
+            "• Creates recursive amplification (more D20 → more refills → more D20)"
+        )
+        self.create_tooltip(d20_help_label, d20_info)
+        
+        row += 1
+        
+        self.create_entry(bomb_frame, "d20_bomb_recharge_seconds", "  D20 Bomb Recharge (Seconds):", row, "36.0", bg_color="#FFF3E0")
+        row += 1
+        
+        self.create_entry(bomb_frame, "d20_bomb_charges_distributed", "  Charges Distributed:", row, "42", is_int=True, bg_color="#FFF3E0")
+        row += 1
+        
+        self.create_entry(bomb_frame, "d20_bomb_refill_chance", "  Refill Chance (%):", row, "5.0", is_percent=True, bg_color="#FFF3E0")
     
     def open_archaeology_simulator(self):
         """Opens the Archaeology Simulator window"""
@@ -1291,9 +1452,18 @@ class ObeliskGemEVGUI:
         # Founder Speed Parameter sind fix (2.0x für 5 Minuten), werden nicht im GUI angezeigt
         # Bombs
         self.vars['free_bomb_chance']['var'].set(str(defaults.free_bomb_chance * 100))
+        self.vars['total_bomb_types']['var'].set(str(defaults.total_bomb_types))
+        # Gem Bomb
         self.vars['gem_bomb_recharge_seconds']['var'].set(str(defaults.gem_bomb_recharge_seconds))
         self.vars['gem_bomb_gem_chance']['var'].set(str(defaults.gem_bomb_gem_chance * 100))
+        # Cherry Bomb
         self.vars['cherry_bomb_recharge_seconds']['var'].set(str(defaults.cherry_bomb_recharge_seconds))
+        # Battery Bomb
+        self.vars['battery_bomb_recharge_seconds']['var'].set(str(defaults.battery_bomb_recharge_seconds))
+        # D20 Bomb
+        self.vars['d20_bomb_recharge_seconds']['var'].set(str(defaults.d20_bomb_recharge_seconds))
+        self.vars['d20_bomb_charges_distributed']['var'].set(str(defaults.d20_bomb_charges_distributed))
+        self.vars['d20_bomb_refill_chance']['var'].set(str(defaults.d20_bomb_refill_chance * 100))
         # Founder Bomb
         self.vars['founder_bomb_interval_seconds']['var'].set(str(defaults.founder_bomb_interval_seconds))
         self.vars['founder_bomb_speed_chance']['var'].set(str(defaults.founder_bomb_speed_chance * 100))
