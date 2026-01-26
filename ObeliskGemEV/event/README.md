@@ -112,10 +112,10 @@ Wave required = (Prestige + 1) × 5
 ## Usage
 
 ```python
-from ObeliskGemEV.event import EventSimulatorWindow
+from ObeliskFarm.event import EventSimulatorWindow
 
 # Open from main GUI
 window = EventSimulatorWindow(parent_tk_window)
 ```
 
-Or launch directly from the main ObeliskGemEV Calculator using the Event button.
+Or launch directly from the main ObeliskFarm Calculator using the Event button.

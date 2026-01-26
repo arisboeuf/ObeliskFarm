@@ -1,5 +1,5 @@
 """
-Event Simulator Module for ObeliskGemEV
+Event Simulator Module for ObeliskFarm
 
 Simulates the bimonthly event mechanics in Idle Obelisk Miner.
 Ported from Lua/LÖVE2D implementation.

@@ -37,7 +37,7 @@ def get_user_data_path() -> Path:
     """Get path for user data (saves) - persists outside of bundle."""
     if getattr(sys, 'frozen', False):
         app_data = os.environ.get('APPDATA', os.path.expanduser('~'))
-        save_dir = Path(app_data) / 'ObeliskGemEV' / 'save'
+        save_dir = Path(app_data) / 'ObeliskFarm' / 'save'
     else:
         save_dir = Path(__file__).parent.parent.parent / 'save'
     save_dir.mkdir(parents=True, exist_ok=True)
