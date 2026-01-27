@@ -5,15 +5,17 @@ Build with: pyinstaller ObeliskFarm.spec
 """
 
 import os
+import re
 from pathlib import Path
 
 # Get the absolute path to the project root
 PROJECT_ROOT = Path(SPECPATH)
 OBELISK_DIR = PROJECT_ROOT / 'ObeliskGemEV'
 
-# Version from __init__.py
-exec(open(OBELISK_DIR / '__init__.py').read())
-VERSION = __version__
+# Version from __init__.py (parse only; avoid imports during spec execution)
+_init_text = (OBELISK_DIR / '__init__.py').read_text(encoding='utf-8')
+_m = re.search(r"^__version__\s*=\s*['\"]([^'\"]+)['\"]", _init_text, re.MULTILINE)
+VERSION = _m.group(1) if _m else "0.0.0"
 
 # Windows EXE icon: PyInstaller expects .ico on Windows. Generate one from the
 # existing PNG (Pillow is already a project dependency).
