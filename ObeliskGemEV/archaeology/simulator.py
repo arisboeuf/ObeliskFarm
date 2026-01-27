@@ -7111,6 +7111,9 @@ class ArchaeologySimulatorWindow:
                 frag_per_hour_samples = []
                 
                 for _ in range(local_screening_sims):
+                    if cancel_event.is_set():
+                        self.skill_points = original_points.copy()
+                        return
                     result = simulator.simulate_run(
                         new_stats, starting_floor, use_crit=True,
                         enrage_enabled=enrage_enabled, flurry_enabled=flurry_enabled,
@@ -7199,6 +7202,9 @@ class ArchaeologySimulatorWindow:
                 frag_per_hour_samples = []
                 
                 for _ in range(local_refinement_sims):
+                    if cancel_event.is_set():
+                        self.skill_points = original_points.copy()
+                        return
                     result = simulator.simulate_run(
                         new_stats, starting_floor, use_crit=True,
                         enrage_enabled=enrage_enabled, flurry_enabled=flurry_enabled,
@@ -7510,6 +7516,9 @@ class ArchaeologySimulatorWindow:
                 xp_per_hour_samples = []
                 
                 for _ in range(local_screening_sims):
+                    if cancel_event.is_set():
+                        self.skill_points = original_points.copy()
+                        return
                     result = simulator.simulate_run(
                         new_stats, starting_floor, use_crit=True,
                         enrage_enabled=enrage_enabled, flurry_enabled=flurry_enabled,
@@ -7592,6 +7601,9 @@ class ArchaeologySimulatorWindow:
                 xp_per_hour_samples = []
                 
                 for _ in range(local_refinement_sims):
+                    if cancel_event.is_set():
+                        self.skill_points = original_points.copy()
+                        return
                     result = simulator.simulate_run(
                         new_stats, starting_floor, use_crit=True,
                         enrage_enabled=enrage_enabled, flurry_enabled=flurry_enabled,
@@ -7882,6 +7894,9 @@ class ArchaeologySimulatorWindow:
                 metrics_samples_screening = []
                 
                 for _ in range(screening_sims):
+                    if cancel_event.is_set():
+                        self.skill_points = original_points.copy()
+                        return
                     result = simulator.simulate_run(
                         new_stats, starting_floor, use_crit=True,
                         enrage_enabled=enrage_enabled, flurry_enabled=flurry_enabled,
@@ -8023,6 +8038,9 @@ class ArchaeologySimulatorWindow:
                 metrics_samples_refinement = []
                 
                 for _ in range(refinement_sims):
+                    if cancel_event.is_set():
+                        self.skill_points = original_points.copy()
+                        return
                     result = simulator.simulate_run(
                         new_stats, starting_floor, use_crit=True,
                         enrage_enabled=enrage_enabled, flurry_enabled=flurry_enabled,
@@ -8298,6 +8316,9 @@ class ArchaeologySimulatorWindow:
                         max_stage_samples = []
                         m_screening = []
                         for _ in range(screening_sims):
+                            if cancel_event.is_set():
+                                self.skill_points = original_points.copy()
+                                return
                             result = simulator.simulate_run(
                                 new_stats, starting_floor, use_crit=True,
                                 enrage_enabled=enrage_enabled, flurry_enabled=flurry_enabled,
@@ -8575,44 +8596,26 @@ Fragments/h: {fragments_per_hour:.2f}"""
         # Set row weight for histogram row to allow expansion
         main_frame.rowconfigure(hist_row, weight=1)
         
-        # Skill distribution display - show added points only
-        skill_frame = ttk.LabelFrame(main_frame, text="Optimal Skill Distribution (Points Added)", padding="5")
-        skill_frame.grid(row=skill_row, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 10))
-        
-        # Track if we added top3 frame to adjust hist_row
+        # Track if we inserted an extra "Top 3" row (only when skill frame is shown)
         top3_added = False
-        
-        skill_text_parts = []
-        for skill in ['strength', 'agility', 'perception', 'intellect', 'luck']:
-            points = added_distribution.get(skill, 0)
-            skill_short = skill[:3].upper()
-            skill_text_parts.append(f"{skill_short}: {points}")
-        
-        skill_label = ttk.Label(skill_frame, text=" | ".join(skill_text_parts), font=("Arial", 10, "bold"))
-        skill_label.pack()
-        
-        # Verify total matches Arch Level
-        total_added = sum(added_distribution.values())
-        info_text = f"Total points added: {total_added} (Arch Level: {num_points})"
-        if total_added != num_points:
-            info_text += f" ⚠️ MISMATCH!"
-        info_label = ttk.Label(skill_frame, text=info_text, font=("Arial", 8), 
-                              foreground="#C73E1D" if total_added != num_points else "#666666")
-        info_label.pack(pady=(3, 0))
-        
-        # Top 3 candidates comparison (if there were ties)
+
+        # Determine tie-break situation (multiple near-optimal candidates)
         if top_3_candidates is None:
             top_3_candidates = []
-        
+
+        show_top_candidates = False
+        frags_within_tolerance = False
+        best_max_stage = 0
+        tied_candidates = []
+
         if top_3_candidates and len(top_3_candidates) > 1:
             # Check if there's actually a tie (same max stage)
             best_max_stage = top_3_candidates[0][1] if top_3_candidates else 0
             tied_candidates = [c for c in top_3_candidates if c[1] == best_max_stage]
-            
+
             # Further filter: if fragments/h are within 15% relative difference, also consider them tied
             if len(tied_candidates) > 1:
                 best_frags_h = tied_candidates[0][2] if tied_candidates else 0.0
-                # Check if any candidates have fragments/h within 15% relative difference of the best
                 if best_frags_h > 0:
                     closely_tied = [c for c in tied_candidates if abs(c[2] - best_frags_h) / best_frags_h <= 0.15]
                 else:
@@ -8620,78 +8623,155 @@ Fragments/h: {fragments_per_hour:.2f}"""
                     closely_tied = [c for c in tied_candidates if c[2] == 0.0]
                 if len(closely_tied) > 1:
                     tied_candidates = closely_tied
-            
+
             if len(tied_candidates) > 1:
-                # Determine tie-breaker text
+                # Determine tie-breaker label
                 best_frags_h = tied_candidates[0][2] if tied_candidates else 0.0
                 if best_frags_h > 0:
-                    frags_within_tolerance = any(abs(c[2] - best_frags_h) / best_frags_h <= 0.15 for c in tied_candidates[1:])
+                    frags_within_tolerance = any(
+                        abs(c[2] - best_frags_h) / best_frags_h <= 0.15 for c in tied_candidates[1:]
+                    )
                 else:
                     frags_within_tolerance = any(c[2] == 0.0 for c in tied_candidates[1:])
-                if frags_within_tolerance:
-                    tie_text = "Top Candidates (Tie-Breaker: XP/h, Fragments/h within 15%)"
-                else:
-                    tie_text = "Top Candidates (Tie-Breaker: Fragments/h)"
-                
-                top3_frame = ttk.LabelFrame(main_frame, text=tie_text, padding="5")
-                top3_frame.grid(row=skill_row + 1, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 10))
-                
-                # Create a small bar chart or list
-                if MATPLOTLIB_AVAILABLE:
-                    fig_top3 = Figure(figsize=(5, 2.5), dpi=100)
-                    ax_top3 = fig_top3.add_subplot(111)
-                    
-                    # Prepare data
-                    labels = []
-                    frags_values = []
-                    xp_values = []
-                    colors = ['#9C27B0', '#BA68C8', '#CE93D8']  # Purple gradient
-                    
-                    for idx, (dist_dict, max_stage_int, frags_h, xp_h) in enumerate(tied_candidates[:3]):
-                        # Create skill label
-                        skill_parts = []
-                        for skill in ['strength', 'agility', 'perception', 'intellect', 'luck']:
-                            points = dist_dict.get(skill, 0)
-                            if points > 0:
-                                skill_parts.append(f"{skill[:3].upper()}:{points}")
-                        skill_label = " | ".join(skill_parts) if skill_parts else "All 0"
-                        labels.append(f"#{idx+1}: {skill_label}")
-                        frags_values.append(frags_h)
-                        xp_values.append(xp_h)
-                    
-                    # Create grouped bar chart (fragments/h and xp/h side by side)
-                    x_pos = np.arange(len(labels))
-                    width = 0.35
-                    
-                    # Use same color for both, but different hatch patterns
-                    bars1 = ax_top3.barh(x_pos - width/2, frags_values, width, label='Fragments/h', 
-                                        color=colors[:len(labels)], alpha=0.7, edgecolor='#4A148C', linewidth=1, hatch='')
-                    bars2 = ax_top3.barh(x_pos + width/2, xp_values, width, label='XP/h', 
-                                        color=colors[:len(labels)], alpha=0.7, edgecolor='#4A148C', linewidth=1, hatch='///')
-                    
-                    # Add value labels on bars
-                    for i, (bar1, bar2, frag_val, xp_val) in enumerate(zip(bars1, bars2, frags_values, xp_values)):
-                        width1 = bar1.get_width()
-                        width2 = bar2.get_width()
-                        ax_top3.text(width1, bar1.get_y() + bar1.get_height()/2, 
-                                   f' {frag_val:.2f}', ha='left', va='center', fontsize=7, fontweight='bold')
-                        ax_top3.text(width2, bar2.get_y() + bar2.get_height()/2, 
-                                   f' {xp_val:.1f}', ha='left', va='center', fontsize=7, fontweight='bold')
-                    
-                    ax_top3.set_yticks(x_pos)
-                    ax_top3.set_yticklabels(labels, fontsize=8)
-                    ax_top3.set_xlabel('Rate (/h)', fontsize=9, fontweight='bold')
-                    ax_top3.set_title(f'Top {len(tied_candidates)} Candidates (Max Stage: {best_max_stage})', 
-                                    fontsize=9, fontweight='bold')
-                    ax_top3.legend(fontsize=8, loc='upper left', bbox_to_anchor=(1.02, 1))
-                    ax_top3.grid(axis='x', alpha=0.3, linestyle='--')
-                    
-                    fig_top3.tight_layout(pad=1.5)
-                    
-                    canvas_top3 = FigureCanvasTkAgg(fig_top3, top3_frame)
-                    canvas_top3.draw()
-                    canvas_top3.get_tk_widget().pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
-                    
+                show_top_candidates = True
+
+        # If we have a tie-break situation, the "optimal skill distribution" display is misleading
+        # (selection is effectively governed by the tie-break graph), so hide it.
+        hide_skill_distribution = show_top_candidates
+
+        # Skill distribution display - show added points only (hidden when tie-breaks exist)
+        if not hide_skill_distribution:
+            skill_frame = ttk.LabelFrame(main_frame, text="Optimal Skill Distribution (Points Added)", padding="5")
+            skill_frame.grid(row=skill_row, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 10))
+
+            skill_text_parts = []
+            for skill in ['strength', 'agility', 'perception', 'intellect', 'luck']:
+                points = added_distribution.get(skill, 0)
+                skill_short = skill[:3].upper()
+                skill_text_parts.append(f"{skill_short}: {points}")
+
+            skill_label = ttk.Label(skill_frame, text=" | ".join(skill_text_parts), font=("Arial", 10, "bold"))
+            skill_label.pack()
+
+            # Verify total matches Arch Level
+            total_added = sum(added_distribution.values())
+            info_text = f"Total points added: {total_added} (Arch Level: {num_points})"
+            if total_added != num_points:
+                info_text += f" ⚠️ MISMATCH!"
+            info_label = ttk.Label(
+                skill_frame,
+                text=info_text,
+                font=("Arial", 8),
+                foreground="#C73E1D" if total_added != num_points else "#666666",
+            )
+            info_label.pack(pady=(3, 0))
+
+        # Top candidates comparison (only when we truly have a tie-break situation)
+        if show_top_candidates:
+            if frags_within_tolerance:
+                tie_text = "Top Candidates (Tie-Breaker: XP/h, Fragments/h within 15%)"
+            else:
+                tie_text = "Top Candidates (Tie-Breaker: Fragments/h)"
+
+            # If we hid the skill frame, occupy its row; otherwise insert below it.
+            top3_row = skill_row if hide_skill_distribution else (skill_row + 1)
+
+            top3_frame = ttk.LabelFrame(main_frame, text=tie_text, padding="5")
+            top3_frame.grid(row=top3_row, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 10))
+
+            # Create a small bar chart or list
+            if MATPLOTLIB_AVAILABLE:
+                fig_top3 = Figure(figsize=(5, 2.5), dpi=100)
+                ax_top3 = fig_top3.add_subplot(111)
+
+                # Prepare data
+                labels = []
+                frags_values = []
+                xp_values = []
+                colors = ['#9C27B0', '#BA68C8', '#CE93D8']  # Purple gradient
+
+                for idx, (dist_dict, max_stage_int, frags_h, xp_h) in enumerate(tied_candidates[:3]):
+                    # Create skill label
+                    skill_parts = []
+                    for skill in ['strength', 'agility', 'perception', 'intellect', 'luck']:
+                        points = dist_dict.get(skill, 0)
+                        if points > 0:
+                            skill_parts.append(f"{skill[:3].upper()}:{points}")
+                    skill_label = " | ".join(skill_parts) if skill_parts else "All 0"
+                    labels.append(f"#{idx+1}: {skill_label}")
+                    frags_values.append(frags_h)
+                    xp_values.append(xp_h)
+
+                # Create grouped bar chart (fragments/h and xp/h side by side)
+                x_pos = np.arange(len(labels))
+                width = 0.35
+
+                # Use same color for both, but different hatch patterns
+                bars1 = ax_top3.barh(
+                    x_pos - width / 2,
+                    frags_values,
+                    width,
+                    label='Fragments/h',
+                    color=colors[:len(labels)],
+                    alpha=0.7,
+                    edgecolor='#4A148C',
+                    linewidth=1,
+                    hatch='',
+                )
+                bars2 = ax_top3.barh(
+                    x_pos + width / 2,
+                    xp_values,
+                    width,
+                    label='XP/h',
+                    color=colors[:len(labels)],
+                    alpha=0.7,
+                    edgecolor='#4A148C',
+                    linewidth=1,
+                    hatch='///',
+                )
+
+                # Add value labels on bars
+                for bar1, bar2, frag_val, xp_val in zip(bars1, bars2, frags_values, xp_values):
+                    width1 = bar1.get_width()
+                    width2 = bar2.get_width()
+                    ax_top3.text(
+                        width1,
+                        bar1.get_y() + bar1.get_height() / 2,
+                        f' {frag_val:.2f}',
+                        ha='left',
+                        va='center',
+                        fontsize=7,
+                        fontweight='bold',
+                    )
+                    ax_top3.text(
+                        width2,
+                        bar2.get_y() + bar2.get_height() / 2,
+                        f' {xp_val:.1f}',
+                        ha='left',
+                        va='center',
+                        fontsize=7,
+                        fontweight='bold',
+                    )
+
+                ax_top3.set_yticks(x_pos)
+                ax_top3.set_yticklabels(labels, fontsize=8)
+                ax_top3.set_xlabel('Rate (/h)', fontsize=9, fontweight='bold')
+                ax_top3.set_title(
+                    f'Top {len(tied_candidates)} Candidates (Max Stage: {best_max_stage})',
+                    fontsize=9,
+                    fontweight='bold',
+                )
+                ax_top3.legend(fontsize=8, loc='upper left', bbox_to_anchor=(1.02, 1))
+                ax_top3.grid(axis='x', alpha=0.3, linestyle='--')
+
+                fig_top3.tight_layout(pad=1.5)
+
+                canvas_top3 = FigureCanvasTkAgg(fig_top3, top3_frame)
+                canvas_top3.draw()
+                canvas_top3.get_tk_widget().pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+
+                # Only shift histogram row when we inserted an extra row (skill frame is visible)
+                if not hide_skill_distribution:
                     top3_added = True
         
         # Adjust hist_row if top3 was added
@@ -9145,6 +9225,9 @@ Fragments/h: {fragments_per_hour:.2f}"""
                 
                 max_stage_samples = []
                 for _ in range(screening_sims):
+                    if cancel_event.is_set():
+                        self.skill_points = original_points.copy()
+                        return
                     result = simulator.simulate_run(
                         new_stats, starting_floor, use_crit=True,
                         enrage_enabled=enrage_enabled, flurry_enabled=flurry_enabled,
@@ -9195,6 +9278,9 @@ Fragments/h: {fragments_per_hour:.2f}"""
                 
                 max_stage_samples = []
                 for _ in range(screening_sims):
+                    if cancel_event.is_set():
+                        self.skill_points = original_points.copy()
+                        return
                     result = simulator.simulate_run(
                         new_stats, starting_floor, use_crit=True,
                         enrage_enabled=enrage_enabled, flurry_enabled=flurry_enabled,
@@ -9240,6 +9326,9 @@ Fragments/h: {fragments_per_hour:.2f}"""
                 
                 max_stage_samples = []
                 for _ in range(refinement_sims):
+                    if cancel_event.is_set():
+                        self.skill_points = original_points.copy()
+                        return
                     result = simulator.simulate_run(
                         new_stats, starting_floor, use_crit=True,
                         enrage_enabled=enrage_enabled, flurry_enabled=flurry_enabled,
@@ -9294,6 +9383,9 @@ Fragments/h: {fragments_per_hour:.2f}"""
                 
                 max_stage_samples = []
                 for _ in range(refinement_sims):
+                    if cancel_event.is_set():
+                        self.skill_points = original_points.copy()
+                        return
                     result = simulator.simulate_run(
                         new_stats, starting_floor, use_crit=True,
                         enrage_enabled=enrage_enabled, flurry_enabled=flurry_enabled,
