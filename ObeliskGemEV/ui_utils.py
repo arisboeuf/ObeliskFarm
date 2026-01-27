@@ -92,6 +92,14 @@ def create_tooltip(widget, text, position="auto"):
                   "auto" will intelligently position to avoid going off-screen
     """
     def on_enter(event):
+        # If a tooltip is already open for this widget, close it first
+        try:
+            if hasattr(widget, 'tooltip'):
+                widget.tooltip.destroy()
+                del widget.tooltip
+        except Exception:
+            pass
+        
         tooltip = tk.Toplevel()
         tooltip.wm_overrideredirect(True)
         
@@ -160,12 +168,21 @@ def create_tooltip(widget, text, position="auto"):
         widget.tooltip = tooltip
     
     def on_leave(event):
-        if hasattr(widget, 'tooltip'):
-            widget.tooltip.destroy()
-            del widget.tooltip
+        try:
+            if hasattr(widget, 'tooltip'):
+                widget.tooltip.destroy()
+                del widget.tooltip
+        except Exception:
+            pass
+    
+    # If the widget gets destroyed while the tooltip is open (e.g. UI refresh),
+    # the <Leave> event never fires. Clean up the tooltip on destroy as well.
+    def on_destroy(event):
+        on_leave(event)
     
     widget.bind("<Enter>", on_enter)
     widget.bind("<Leave>", on_leave)
+    widget.bind("<Destroy>", on_destroy)
 
 
 def create_simple_tooltip(widget, lines, title=None, title_color="#1976D2", border_color="#2C3E50", position="auto"):
@@ -181,6 +198,14 @@ def create_simple_tooltip(widget, lines, title=None, title_color="#1976D2", bord
         position: "auto", "left", or "right"
     """
     def on_enter(event):
+        # If a tooltip is already open for this widget, close it first
+        try:
+            if hasattr(widget, 'tooltip'):
+                widget.tooltip.destroy()
+                del widget.tooltip
+        except Exception:
+            pass
+        
         tooltip = tk.Toplevel()
         tooltip.wm_overrideredirect(True)
         
@@ -223,9 +248,16 @@ def create_simple_tooltip(widget, lines, title=None, title_color="#1976D2", bord
         widget.tooltip = tooltip
     
     def on_leave(event):
-        if hasattr(widget, 'tooltip'):
-            widget.tooltip.destroy()
-            del widget.tooltip
+        try:
+            if hasattr(widget, 'tooltip'):
+                widget.tooltip.destroy()
+                del widget.tooltip
+        except Exception:
+            pass
+    
+    def on_destroy(event):
+        on_leave(event)
     
     widget.bind("<Enter>", on_enter)
     widget.bind("<Leave>", on_leave)
+    widget.bind("<Destroy>", on_destroy)
