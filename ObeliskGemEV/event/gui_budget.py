@@ -279,11 +279,11 @@ class BudgetOptimizerPanel:
                              background="#E8EAF6", foreground="#7986CB", cursor="hand2")
         info_label.pack(side=tk.LEFT, padx=(5, 0))
         create_tooltip(info_label, 
-                      "Permanente Upgrades (nicht Event Currency):\n"
-                      "• Werden mit Gems gekauft (außerhalb des Events)\n"
-                      "• Beeinflussen alle Simulationen\n"
-                      "• Werden NICHT vom MC Optimizer optimiert\n"
-                      "• Max Level hängt von Prestige ab")
+                      "Permanent upgrades (not event currency):\n"
+                      "• Purchased with gems (outside the event)\n"
+                      "• Affect all simulations\n"
+                      "• NOT optimized by the MC optimizer\n"
+                      "• Max level depends on prestige")
         
         # Gem upgrades grid (2x2) - kompakter
         gem_grid = tk.Frame(gem_section_frame, background="#E8EAF6")
@@ -301,85 +301,111 @@ class BudgetOptimizerPanel:
             row = idx // 2
             col = idx % 2
             
-            # Individual gem upgrade frame - dezenteres Design
-            gem_frame = tk.Frame(gem_grid, background="#C5CAE9", relief=tk.RAISED, borderwidth=1)
+            # Individual gem upgrade frame - match normal upgrade layout:
+            # buttons (vertical) | name (+icon) | level (+forecast)
+            gem_frame = tk.Frame(gem_grid, background="#FFFFFF", relief=tk.RAISED, borderwidth=1)
             gem_frame.grid(row=row, column=col, padx=2, pady=2, sticky="nsew")
-            gem_frame.columnconfigure(0, weight=1)
+            gem_frame.columnconfigure(0, weight=0, minsize=25)   # Buttons column (vertical)
+            gem_frame.columnconfigure(1, weight=1, minsize=110)  # Name column
+            gem_frame.columnconfigure(2, weight=0, minsize=70)   # Level + Forecast column
             
-            # Icon and name - kompakter
-            icon_name_frame = tk.Frame(gem_frame, background="#C5CAE9")
-            icon_name_frame.pack(fill=tk.X, padx=3, pady=(3, 1))
-            
-            # Icon - kleiner (20x20 statt 32x32)
-            if idx in self.gem_icons:
-                icon_label = tk.Label(icon_name_frame, image=self.gem_icons[idx],
-                                     background="#C5CAE9")
-                icon_label.pack(side=tk.LEFT, padx=(0, 3))
-            
-            # Name - kleiner
-            name_label = tk.Label(icon_name_frame, text=gem_name, font=("Arial", 8),
-                                background="#C5CAE9", foreground="#3F51B5", wraplength=100, justify=tk.LEFT)
-            name_label.pack(side=tk.LEFT, fill=tk.X, expand=True)
-            
-            # Level display and controls - kompakter
-            level_frame = tk.Frame(gem_frame, background="#C5CAE9")
-            level_frame.pack(fill=tk.X, padx=3, pady=1)
-            
-            # Current/Max level display - kleiner
+            # Current/Max level
             prestige = self.budget_prestige_var.get()
             max_level = get_gem_max_level(prestige, idx)
             current_level = self.current_gem_levels[idx]
             
-            level_display = tk.Label(level_frame, 
-                                    text=f"Lvl: {current_level}/{max_level}",
-                                    font=("Arial", 7),
-                                    background="#C5CAE9", foreground="#5C6BC0")
-            level_display.pack(side=tk.LEFT)
+            # Buttons column (vertical: + on top, - below)
+            buttons_frame = tk.Frame(gem_frame, background="#FFFFFF")
+            buttons_frame.grid(row=0, column=0, padx=2, pady=2, sticky="n")
             
-            # Control buttons - kleiner
-            controls_frame = tk.Frame(level_frame, background="#C5CAE9")
-            controls_frame.pack(side=tk.RIGHT)
+            plus_btn = tk.Button(
+                buttons_frame, text="+", width=2, height=1, font=("Arial", 9, "bold"),
+                command=lambda i=idx: self._increment_gem(i),
+                state=tk.NORMAL if current_level < max_level else tk.DISABLED,
+                bg="#CCCCCC", fg="black",
+                relief=tk.RAISED, borderwidth=1,
+                cursor="hand2" if current_level < max_level else "arrow",
+            )
+            plus_btn.pack(pady=(0, 1))
             
-            minus_btn = tk.Button(controls_frame, text="−", width=1, height=1, font=("Arial", 8, "bold"),
-                                 command=lambda i=idx: self._decrement_gem(i),
-                                 bg="#CCCCCC", fg="black",
-                                 relief=tk.RAISED, borderwidth=1, cursor="hand2",
-                                 state=tk.NORMAL if current_level > 0 else tk.DISABLED)
-            minus_btn.pack(side=tk.LEFT, padx=1)
+            minus_btn = tk.Button(
+                buttons_frame, text="−", width=2, height=1, font=("Arial", 9, "bold"),
+                command=lambda i=idx: self._decrement_gem(i),
+                state=tk.NORMAL if current_level > 0 else tk.DISABLED,
+                bg="#CCCCCC", fg="black",
+                relief=tk.RAISED, borderwidth=1,
+                cursor="hand2" if current_level > 0 else "arrow",
+            )
+            minus_btn.pack(pady=(1, 0))
             
-            plus_btn = tk.Button(controls_frame, text="+", width=1, height=1, font=("Arial", 8, "bold"),
-                                command=lambda i=idx: self._increment_gem(i),
-                                bg="#CCCCCC", fg="black",
-                                relief=tk.RAISED, borderwidth=1, cursor="hand2",
-                                state=tk.NORMAL if current_level < max_level else tk.DISABLED)
-            plus_btn.pack(side=tk.LEFT, padx=1)
+            # Name (with icon) + details tooltip
+            name_frame = tk.Frame(gem_frame, background="#FFFFFF")
+            name_frame.grid(row=0, column=1, sticky="w", padx=3, pady=2)
             
-            # Forecast display - zeigt welches Upgrade +1 am meisten bringt
-            forecast_frame = tk.Frame(gem_frame, background="#C5CAE9")
-            forecast_frame.pack(fill=tk.X, padx=3, pady=(0, 2))
+            if idx in self.gem_icons:
+                icon_label = tk.Label(name_frame, image=self.gem_icons[idx], background="#FFFFFF")
+                icon_label.pack(side=tk.LEFT, padx=(0, 4))
             
-            forecast_label = tk.Label(forecast_frame, text="", font=("Arial", 7),
-                                     background="#C5CAE9", foreground="#1A237E", wraplength=120)
-            forecast_label.pack(side=tk.LEFT, fill=tk.X, expand=True)
+            name_label = tk.Label(
+                name_frame,
+                text=gem_name,
+                font=("Arial", 9),
+                background="#FFFFFF",
+                anchor="w",
+                wraplength=140,
+                justify=tk.LEFT,
+            )
+            name_label.pack(side=tk.LEFT, fill=tk.X, expand=True)
             
-            # "?" Icon für Tooltip
-            forecast_info_icon = tk.Label(forecast_frame, text="?", font=("Arial", 8, "bold"),
-                                         background="#C5CAE9", foreground="#5C6BC0", cursor="hand2")
-            forecast_info_icon.pack(side=tk.RIGHT, padx=(3, 0))
-            create_tooltip(forecast_info_icon,
-                "Forecast: Zeigt wie viele Wellen du durchschnittlich weiter kommst,\n"
-                "wenn du dieses Gem Upgrade um +1 Level erhöhst.\n"
-                "Berechnet basierend auf deinen aktuellen Upgrades.\n"
-                "⭐ = Bestes Upgrade (bringt am meisten)")
+            gem_info_icon = tk.Label(
+                name_frame, text="?", font=("Arial", 9, "bold"),
+                background="#FFFFFF", foreground="#5C6BC0", cursor="hand2"
+            )
+            gem_info_icon.pack(side=tk.RIGHT, padx=(6, 0))
+            self._create_gem_tooltip(gem_info_icon, idx, gem_name)
+            
+            # Level display with forecast below (like cost label in normal upgrades)
+            level_frame = tk.Frame(gem_frame, background="#FFFFFF")
+            level_frame.grid(row=0, column=2, padx=2, pady=2)
+            
+            level_display = tk.Label(
+                level_frame,
+                text=f"{current_level}/{max_level}",
+                font=("Arial", 9, "bold"),
+                background="#FFFFFF",
+                anchor=tk.CENTER,
+            )
+            level_display.pack()
+            
+            forecast_row = tk.Frame(level_frame, background="#FFFFFF")
+            forecast_row.pack()
+            
+            forecast_label = tk.Label(
+                forecast_row,
+                text="",
+                font=("Arial", 7),
+                background="#FFFFFF",
+                foreground="#1A237E",
+                wraplength=120,
+                justify=tk.CENTER,
+            )
+            forecast_label.pack(side=tk.LEFT)
+            
+            forecast_info_icon = tk.Label(
+                forecast_row, text="?", font=("Arial", 8, "bold"),
+                background="#FFFFFF", foreground="#5C6BC0", cursor="hand2"
+            )
+            forecast_info_icon.pack(side=tk.LEFT, padx=(4, 0))
+            create_tooltip(
+                forecast_info_icon,
+                "Forecast: Shows how many additional waves you gain on average\n"
+                "when you increase this gem upgrade by +1 level.\n"
+                "Calculated based on your current upgrades.\n"
+                "⭐ = Best upgrade (largest wave gain)",
+            )
             
             # Store references for updates (including forecast label)
             self.gem_display_frames.append((gem_frame, level_display, minus_btn, plus_btn, forecast_label))
-            
-            # "?" Icon für Gem Upgrade Details Tooltip
-            gem_info_icon = tk.Label(icon_name_frame, text="?", font=("Arial", 8, "bold"),
-                                    background="#C5CAE9", foreground="#5C6BC0", cursor="hand2")
-            gem_info_icon.pack(side=tk.RIGHT, padx=(3, 0))
-            self._create_gem_tooltip(gem_info_icon, idx, gem_name)
         
         # === CURRENT UPGRADE LEVELS (Forecast Mode) ===
         current_upgrades_frame = tk.Frame(left_column, background="#FFF3E0", relief=tk.RIDGE, borderwidth=2)
@@ -852,6 +878,12 @@ class BudgetOptimizerPanel:
                 base_state.levels, PlayerStats(), EnemyStats(), prestige, base_state.gem_levels
             )
             
+            # Compute base wave once (used for all +1 tests)
+            try:
+                wave_base, _ = estimate_max_wave(player_base, enemy, runs=20)
+            except Exception:
+                wave_base = 0.0
+            
             # Calculate wave improvement for each upgrade
             for idx in range(4):
                 current_level = self.current_gem_levels[idx]
@@ -868,7 +900,6 @@ class BudgetOptimizerPanel:
                     )
                     
                     try:
-                        wave_base, _ = estimate_max_wave(player_base, enemy, runs=20)
                         wave_test, _ = estimate_max_wave(player_test, enemy, runs=20)
                         wave_improvement = wave_test - wave_base
                         forecast_values[idx] = wave_improvement
@@ -898,6 +929,11 @@ class BudgetOptimizerPanel:
                     
                     # Update forecast display - besserer Kontrast
                     if forecast_label is not None:
+                        # Keep background consistent with current widget styling
+                        try:
+                            forecast_bg = forecast_label.master.cget("background")
+                        except Exception:
+                            forecast_bg = forecast_label.cget("background")
                         if current_level < max_level and idx in forecast_values:
                             wave_improvement = forecast_values[idx]
                             is_best = (idx == best_idx and wave_improvement > 0)
@@ -906,21 +942,21 @@ class BudgetOptimizerPanel:
                                 forecast_label.config(
                                     text=f"⭐ +{wave_improvement:.1f} Wave (BEST)",
                                     foreground="#1B5E20",  # Dunkles Grün für besseren Kontrast
-                                    background="#C5CAE9",  # Sicherstellen dass Hintergrund gesetzt ist
+                                    background=forecast_bg,
                                     font=("Arial", 7, "bold")
                                 )
                             else:
                                 forecast_label.config(
                                     text=f"+{wave_improvement:.1f} Wave",
                                     foreground="#1A237E",  # Dunkles Blau für besseren Kontrast
-                                    background="#C5CAE9",
+                                    background=forecast_bg,
                                     font=("Arial", 7)
                                 )
                         else:
                             forecast_label.config(
                                 text="MAX",
                                 foreground="#424242",  # Dunkles Grau
-                                background="#C5CAE9"
+                                background=forecast_bg
                             )
         
         # Also update old format if it exists
@@ -983,9 +1019,33 @@ class BudgetOptimizerPanel:
                     
                     forecast_text += f"\nNext Level Forecast:\n"
                     forecast_text += f"  +{wave_improvement:.1f} Wave ({wave_pct:+.1f}%)\n"
-                    forecast_text += f"  → Bedeutet: Mit +1 Level kannst du\n"
-                    forecast_text += f"     durchschnittlich {wave_improvement:.1f} Wellen weiter kommen\n"
-                    forecast_text += f"     (basierend auf aktuellen Upgrades)\n"
+                    forecast_text += f"  Meaning: With +1 level you can\n"
+                    forecast_text += f"     reach about {wave_improvement:.1f} more waves on average\n"
+                    forecast_text += f"     (based on your current upgrades)\n"
+                    
+                    # Long-term value notes (especially for speed/currency)
+                    forecast_text += f"\nLong-term value:\n"
+                    if idx == 2:  # +125% Event Game Speed (implemented as +1.0 game_speed per level)
+                        # In this simulator, game_speed scales real time only; wave outcome is (mostly) unchanged.
+                        cur_speed = player_current.game_speed if getattr(player_current, "game_speed", 0) else 0.0
+                        next_speed = player_next.game_speed if getattr(player_next, "game_speed", 0) else 0.0
+                        if cur_speed > 0:
+                            factor = next_speed / cur_speed
+                            pct_gain = (factor - 1.0) * 100.0
+                            forecast_text += f"  • Game speed reduces real time (wave stays the same)\n"
+                            forecast_text += f"  • Runs/hour and currencies/hour scale by x{factor:.2f} ({pct_gain:+.0f}%)\n"
+                        else:
+                            forecast_text += f"  • Game speed reduces real time (more runs per hour)\n"
+                    elif idx == 3:  # 2x Event Currencies
+                        cur_mult = (1 + player_current.x2_money) * (1 + 4 * (player_current.x5_money / 100.0))
+                        next_mult = (1 + player_next.x2_money) * (1 + 4 * (player_next.x5_money / 100.0))
+                        factor = (next_mult / cur_mult) if cur_mult > 0 else 1.0
+                        forecast_text += f"  • Directly multiplies all event currencies/materials\n"
+                        forecast_text += f"  • Currency multiplier: x{cur_mult:.2f} → x{next_mult:.2f} (x{factor:.2f})\n"
+                        forecast_text += f"  • Stacks multiplicatively with 5x drop chance\n"
+                    else:
+                        forecast_text += f"  • Dmg/HP matter most when they increase your max wave\n"
+                        forecast_text += f"  • More wave → more currency per run (scales up quickly)\n"
                     
                     # Show stat changes
                     if idx == 0:  # +10% Dmg
@@ -1201,12 +1261,25 @@ class BudgetOptimizerPanel:
         
         # Rebuild UI
         self._build_upgrade_level_inputs()
+        if hasattr(self, 'gem_display_frames') or hasattr(self, 'gem_control_frames'):
+            try:
+                self._update_gem_display()
+            except Exception:
+                pass
+        self._update_player_stats()
+        self._update_expected_results()
         
         # Save state
         self.save_state()
     
     def _refresh_stats_and_results(self):
         """Refresh both player stats and expected results"""
+        # Keep gem +wave forecasts current (depends on current upgrades)
+        if hasattr(self, 'gem_display_frames') or hasattr(self, 'gem_control_frames'):
+            try:
+                self._update_gem_display()
+            except Exception:
+                pass
         self._update_player_stats()
         self._update_expected_results()
     
