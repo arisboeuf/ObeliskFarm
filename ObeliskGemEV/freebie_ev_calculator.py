@@ -61,7 +61,9 @@ class GameParameters:
     
     # Cherry Bomb
     cherry_bomb_recharge_seconds: float = 48.0  # Recharge Zeit
-    cherry_bomb_triple_charge_chance: float = 0.0  # Workshop: chance to get 3x charges on recharge (on top)
+    # Workshop upgrade: chance that a Cherry Bomb click yields 3 free bomb clicks instead of 1.
+    # (i.e., 1 Cherry click can "count as 3" for the free-click effect)
+    cherry_bomb_triple_charge_chance: float = 0.0
     
     # Battery Bomb
     battery_bomb_recharge_seconds: float = 31.0  # Recharge Zeit
@@ -458,10 +460,10 @@ class FreebieEVCalculator:
         d20_mult = self._get_recharge_charge_multiplier(self.params.d20_bomb_recharge_card_level)
         
         gem_bomb_clicks_base = (seconds_per_hour / effective_gem_bomb_recharge) * gem_mult
-        # Cherry workshop upgrade stacks on top of the recharge card:
-        # p chance to get 3x charges -> expected multiplier = (1-p)*1 + p*3 = 1 + 2p
-        cherry_workshop_mult = 1.0 + 2.0 * self.params.cherry_bomb_triple_charge_chance
-        cherry_bomb_clicks_base = (seconds_per_hour / effective_cherry_bomb_recharge) * cherry_mult * cherry_workshop_mult
+        # Cherry recharge cards affect Cherry's own periodic charges (i.e., how often you can click Cherry),
+        # but the workshop upgrade affects the *effect* of a Cherry click (how many free clicks it grants),
+        # not how many Cherry charges you receive from recharges/refills.
+        cherry_bomb_clicks_base = (seconds_per_hour / effective_cherry_bomb_recharge) * cherry_mult
         battery_bomb_clicks_base = (seconds_per_hour / effective_battery_bomb_recharge) * battery_mult
         d20_bomb_clicks_base = (seconds_per_hour / effective_d20_bomb_recharge) * d20_mult
         
@@ -548,8 +550,11 @@ class FreebieEVCalculator:
             battery_bomb_total = battery_bomb_new
             d20_bomb_total = d20_bomb_new
         
-        # Cherry Bomb: Jeder Cherry Click gibt einen free Gem Bomb Click
-        cherry_free_gem_bomb_clicks = cherry_bomb_total
+        # Cherry Bomb: each Cherry click grants free Gem Bomb clicks.
+        # Workshop upgrade: p chance for a Cherry click to grant 3 free clicks instead of 1.
+        # Expected multiplier = (1-p)*1 + p*3 = 1 + 2p
+        cherry_effect_mult = 1.0 + 2.0 * self.params.cherry_bomb_triple_charge_chance
+        cherry_free_gem_bomb_clicks = cherry_bomb_total * cherry_effect_mult
         
         # Gesamte Gem Bomb Clicks pro Stunde:
         # 1. Normale Gem Bomb Clicks (zum Platzschaffen)
