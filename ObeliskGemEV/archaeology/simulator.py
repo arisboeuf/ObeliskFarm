@@ -37,9 +37,46 @@ except (ImportError, ValueError):
 SAVE_DIR = get_save_dir()
 SAVE_FILE = SAVE_DIR / "archaeology_save.json"
 
+# Skill point caps (game rules)
+# STR/AGI can be allocated up to 50, PER/INT/LUC up to 25.
+SKILL_POINT_CAPS = {
+    "strength": 50,
+    "agility": 50,
+    "perception": 25,
+    "intellect": 25,
+    "luck": 25,
+}
 
-def generate_dirichlet_samples(n_points: int, n_skills: int, n_samples: int, 
-                               require_str: bool = False, original_str: int = 0):
+
+def get_skill_point_cap(skill_name: str) -> int:
+    """Return the max allocatable points for a given skill (Arch stat cap)."""
+    return SKILL_POINT_CAPS.get(skill_name, 0)
+
+
+def generate_distributions_capped(n_points: int, caps: list[int]):
+    """Yield integer distributions summing to n_points, each value <= caps[i]."""
+    if not caps:
+        return
+    if n_points < 0:
+        return
+    if len(caps) == 1:
+        if n_points <= caps[0]:
+            yield (n_points,)
+        return
+    first_cap = caps[0]
+    for i in range(min(n_points, first_cap) + 1):
+        for rest in generate_distributions_capped(n_points - i, caps[1:]):
+            yield (i,) + rest
+
+
+def generate_dirichlet_samples(
+    n_points: int,
+    skills_or_n_skills,
+    n_samples: int,
+    require_str: bool = False,
+    original_str: int = 0,
+    caps=None,
+):
     """
     Generate skill point distributions using Dirichlet-based sampling (space-filling design).
     
@@ -48,14 +85,68 @@ def generate_dirichlet_samples(n_points: int, n_skills: int, n_samples: int,
     
     Args:
         n_points: Total skill points to distribute
-        n_skills: Number of skills (typically 5)
+        n_skills: Number of skills (typically 5) OR a list of skill names
         n_samples: Number of samples to generate (e.g., 500-1000)
         require_str: If True, only return samples where STR > 0 (after adding to original_str)
         original_str: Original STR points (for require_str check)
+        caps: Optional list of per-skill caps (same order as skills)
     
     Yields:
         Tuples of (skill1_points, skill2_points, ..., skillN_points) with sum = n_points
     """
+    if isinstance(skills_or_n_skills, int):
+        n_skills = skills_or_n_skills
+        skill_names = None
+    else:
+        skill_names = list(skills_or_n_skills)
+        n_skills = len(skill_names)
+
+    if caps is None:
+        if skill_names is None:
+            # No skill names → fall back to "no caps" behavior.
+            caps = [n_points] * n_skills
+        else:
+            caps = [min(get_skill_point_cap(s), n_points) for s in skill_names]
+
+    if len(caps) != n_skills:
+        raise ValueError("Invalid caps length for Dirichlet sampling")
+
+    if sum(caps) < n_points:
+        raise ValueError(f"Cannot allocate {n_points} points within caps (max {sum(caps)}).")
+
+    str_idx = 0
+    if skill_names and "strength" in skill_names:
+        str_idx = skill_names.index("strength")
+
+    def _allocate_capped(weights):
+        # Convert weights → integer allocation with caps while preserving total sum.
+        desired = [float(w) * n_points for w in weights]
+        base = [min(int(math.floor(d)), caps[i]) for i, d in enumerate(desired)]
+        remaining = n_points - sum(base)
+        if remaining < 0:
+            # Should not happen with floor+cap, but keep it safe.
+            remaining = 0
+        remainders = [desired[i] - math.floor(desired[i]) for i in range(n_skills)]
+
+        # Allocate remaining points to highest remainders with available capacity.
+        while remaining > 0:
+            candidates = [i for i in range(n_skills) if base[i] < caps[i]]
+            if not candidates:
+                # Caps exhausted (should not happen due to validation)
+                break
+            best_i = max(candidates, key=lambda i: remainders[i])
+            base[best_i] += 1
+            remaining -= 1
+
+        # Final sanity: if still short, distribute arbitrarily to any non-full skill.
+        while sum(base) < n_points:
+            candidates = [i for i in range(n_skills) if base[i] < caps[i]]
+            if not candidates:
+                break
+            base[random.choice(candidates)] += 1
+
+        return base
+
     # Try to use numpy if available (more efficient)
     try:
         import numpy as np
@@ -69,8 +160,7 @@ def generate_dirichlet_samples(n_points: int, n_skills: int, n_samples: int,
             # Generate Dirichlet sample: n_skills values that sum to 1
             # Using alpha=1 for uniform distribution on simplex
             dirichlet_sample = np.random.dirichlet([1.0] * n_skills)
-            # Scale to n_points
-            scaled = dirichlet_sample * n_points
+            rounded = _allocate_capped(dirichlet_sample.tolist())
         else:
             # Fallback: Generate Dirichlet sample manually using Gamma distribution
             # Dirichlet(α) = Gamma(α) / sum(Gamma(α))
@@ -80,32 +170,11 @@ def generate_dirichlet_samples(n_points: int, n_skills: int, n_samples: int,
             if gamma_sum == 0:
                 continue  # Skip if all zeros (very rare)
             dirichlet_sample = [g / gamma_sum for g in gamma_samples]
-            # Scale to n_points
-            scaled = [s * n_points for s in dirichlet_sample]
-        
-        # Round to integers
-        rounded = [int(round(s)) for s in scaled]
-        
-        # Normalize: ensure sum equals n_points (adjust for rounding errors)
-        current_sum = sum(rounded)
-        if current_sum != n_points:
-            diff = n_points - current_sum
-            # Distribute difference to random skills
-            if diff > 0:
-                # Add points
-                for _ in range(diff):
-                    idx = random.randint(0, n_skills - 1)
-                    rounded[idx] += 1
-            else:
-                # Remove points (but keep non-negative)
-                for _ in range(-diff):
-                    idx = random.randint(0, n_skills - 1)
-                    if rounded[idx] > 0:
-                        rounded[idx] -= 1
+            rounded = _allocate_capped(dirichlet_sample)
         
         # Check STR requirement if needed
         if require_str:
-            total_str = original_str + rounded[0]  # First skill is STR
+            total_str = original_str + rounded[str_idx]
             if total_str == 0:
                 continue  # Skip this sample
         
@@ -115,9 +184,16 @@ def generate_dirichlet_samples(n_points: int, n_skills: int, n_samples: int,
             yield tuple(rounded)
 
 
-def generate_local_refinement_samples(anchor_points: list, n_points: int, n_skills: int, 
-                                     n_samples_per_anchor: int, local_radius: int = 2,
-                                     require_str: bool = False, original_str: int = 0):
+def generate_local_refinement_samples(
+    anchor_points: list,
+    n_points: int,
+    skills_or_n_skills,
+    n_samples_per_anchor: int,
+    local_radius: int = 2,
+    require_str: bool = False,
+    original_str: int = 0,
+    caps=None,
+):
     """
     Generate local refinement samples around promising candidates (anchor points).
     
@@ -127,7 +203,7 @@ def generate_local_refinement_samples(anchor_points: list, n_points: int, n_skil
     Args:
         anchor_points: List of tuples from candidate_scores - first element is dist_tuple
         n_points: Total skill points to distribute
-        n_skills: Number of skills (typically 5)
+        n_skills: Number of skills (typically 5) OR a list of skill names
         n_samples_per_anchor: Number of samples to generate around each anchor
         local_radius: Maximum deviation per skill (e.g., ±2 points)
         require_str: If True, only return samples where STR > 0
@@ -136,6 +212,25 @@ def generate_local_refinement_samples(anchor_points: list, n_points: int, n_skil
     Yields:
         Tuples of (skill1_points, skill2_points, ..., skillN_points) with sum = n_points
     """
+    if isinstance(skills_or_n_skills, int):
+        n_skills = skills_or_n_skills
+        skill_names = None
+    else:
+        skill_names = list(skills_or_n_skills)
+        n_skills = len(skill_names)
+
+    if caps is None:
+        if skill_names is None:
+            caps = [n_points] * n_skills
+        else:
+            caps = [min(get_skill_point_cap(s), n_points) for s in skill_names]
+
+    if len(caps) != n_skills:
+        raise ValueError("Invalid caps length for local refinement sampling")
+
+    if sum(caps) < n_points:
+        raise ValueError(f"Cannot allocate {n_points} points within caps (max {sum(caps)}).")
+
     for anchor_data in anchor_points:
         # Extract dist_tuple (first element) from candidate_scores format
         # candidate_scores format: (dist_tuple, avg_max_stage, stats, fragments_per_hour, xp_per_hour)
@@ -143,9 +238,9 @@ def generate_local_refinement_samples(anchor_points: list, n_points: int, n_skil
         # Define local bounds around anchor point
         # Each skill can vary by ±local_radius, but must stay within [0, n_points]
         local_bounds = []
-        for skill_val in anchor_tuple:
+        for i, skill_val in enumerate(anchor_tuple):
             min_val = max(0, skill_val - local_radius)
-            max_val = min(n_points, skill_val + local_radius)
+            max_val = min(n_points, skill_val + local_radius, caps[i])
             local_bounds.append((min_val, max_val))
         
         # Generate samples in local space
@@ -202,7 +297,7 @@ def generate_local_refinement_samples(anchor_points: list, n_points: int, n_skil
             
             # Check STR requirement
             if require_str:
-                total_str = original_str + local_sample[0]
+                total_str = original_str + local_sample[str_idx]
                 if total_str == 0:
                     continue
             
@@ -728,9 +823,24 @@ class ArchaeologySimulatorWindow:
             
             self.level = state.get('level', 1)
             self.current_stage = state.get('current_stage', 1)
-            self.skill_points = state.get('skill_points', {
+            loaded_skill_points = state.get('skill_points', {
                 'strength': 0, 'agility': 0, 'perception': 0, 'intellect': 0, 'luck': 0,
             })
+            # Clamp loaded points to stat caps (and keep level consistent)
+            prev_sum = sum(loaded_skill_points.values()) if isinstance(loaded_skill_points, dict) else 0
+            self.skill_points = {k: 0 for k in SKILL_POINT_CAPS.keys()}
+            if isinstance(loaded_skill_points, dict):
+                for k in self.skill_points.keys():
+                    try:
+                        v = int(loaded_skill_points.get(k, 0))
+                    except Exception:
+                        v = 0
+                    v = max(0, min(v, get_skill_point_cap(k)))
+                    self.skill_points[k] = v
+            new_sum = sum(self.skill_points.values())
+            removed = max(0, prev_sum - new_sum)
+            if removed:
+                self.level = max(1, self.level - removed)
             self.gem_upgrades = state.get('gem_upgrades', {
                 'stamina': 0, 'xp': 0, 'fragment': 0, 'arch_xp': 0,
             })
@@ -1768,14 +1878,22 @@ class ArchaeologySimulatorWindow:
         return max(10, run_duration)  # Minimum 10 seconds
     
     def add_skill_point(self, skill_name):
+        cap = get_skill_point_cap(skill_name)
+        if self.skill_points[skill_name] >= cap:
+            return
         self.skill_points[skill_name] += 1
         self.level += 1
         self.update_display()
     
     def add_skill_points(self, skill_name, amount):
         """Add multiple skill points at once"""
-        self.skill_points[skill_name] += amount
-        self.level += amount
+        cap = get_skill_point_cap(skill_name)
+        current = self.skill_points[skill_name]
+        to_add = max(0, min(int(amount), cap - current))
+        if to_add <= 0:
+            return
+        self.skill_points[skill_name] += to_add
+        self.level += to_add
         self.update_display()
     
     def remove_skill_point(self, skill_name):
@@ -5967,7 +6085,9 @@ class ArchaeologySimulatorWindow:
     
     def _adjust_shared_planner_points(self, delta: int):
         """Adjust Archaeology Level (used by MC optimizers)"""
-        new_val = max(1, min(100, self.shared_planner_points.get() + delta))
+        # Total allocatable skill points is limited by stat caps.
+        max_total = sum(SKILL_POINT_CAPS.values())
+        new_val = max(1, min(max_total, self.shared_planner_points.get() + delta))
         self.shared_planner_points.set(new_val)
         self.shared_planner_points_label.config(text=str(new_val))
     
@@ -6848,18 +6968,17 @@ class ArchaeologySimulatorWindow:
             'improvement_pct': 0.0,
         }
         
-        # Generate all possible distributions
-        def generate_distributions(n_points, n_skills):
-            if n_skills == 1:
-                yield (n_points,)
-                return
-            for i in range(n_points + 1):
-                for rest in generate_distributions(n_points - i, n_skills - 1):
-                    yield (i,) + rest
-        
         best_frag_per_hour = current_frag_per_hour
-        
-        for dist_tuple in generate_distributions(levels_ahead, len(skills)):
+
+        # Respect per-stat caps when adding levels ahead
+        caps_remaining = [
+            max(0, get_skill_point_cap(skill) - self.skill_points.get(skill, 0))
+            for skill in skills
+        ]
+        if sum(caps_remaining) < levels_ahead:
+            return best_result  # Can't allocate that many additional points within caps
+
+        for dist_tuple in generate_distributions_capped(levels_ahead, caps_remaining):
             # Apply distribution temporarily
             for skill, points in zip(skills, dist_tuple):
                 self.skill_points[skill] += points
@@ -7140,7 +7259,7 @@ class ArchaeologySimulatorWindow:
             
             original_str = 0  # Start from 0, ignore current skill distribution
             for dist_tuple in generate_dirichlet_samples(
-                num_points, len(skills), n_samples,
+                num_points, skills, n_samples,
                 require_str=True, original_str=original_str
             ):
                 if cancel_event.is_set():
@@ -7233,7 +7352,7 @@ class ArchaeologySimulatorWindow:
             refine_count = 0
             
             for refine_sample in generate_local_refinement_samples(
-                top_anchors, num_points, len(skills), n_samples_per_anchor,
+                top_anchors, num_points, skills, n_samples_per_anchor,
                 local_radius=local_radius, require_str=True, original_str=original_str
             ):
                 if cancel_event.is_set():
@@ -7547,7 +7666,7 @@ class ArchaeologySimulatorWindow:
             
             original_str = 0  # Start from 0, ignore current skill distribution
             for dist_tuple in generate_dirichlet_samples(
-                num_points, len(skills), n_samples,
+                num_points, skills, n_samples,
                 require_str=True, original_str=original_str
             ):
                 if cancel_event.is_set():
@@ -7634,7 +7753,7 @@ class ArchaeologySimulatorWindow:
             refine_count = 0
             
             for refine_sample in generate_local_refinement_samples(
-                top_anchors, num_points, len(skills), n_samples_per_anchor,
+                top_anchors, num_points, skills, n_samples_per_anchor,
                 local_radius=local_radius, require_str=True, original_str=original_str
             ):
                 if cancel_event.is_set():
@@ -7939,7 +8058,7 @@ class ArchaeologySimulatorWindow:
             
             original_str = 0  # Start from 0, ignore current skill distribution
             for dist_tuple in generate_dirichlet_samples(
-                num_points, len(skills), n_samples, 
+                num_points, skills, n_samples, 
                 require_str=True, original_str=original_str
             ):
                 if cancel_event.is_set():
@@ -8071,7 +8190,7 @@ class ArchaeologySimulatorWindow:
             refine_count = 0
             
             for refine_sample in generate_local_refinement_samples(
-                top_anchors, num_points, len(skills), n_samples_per_anchor,
+                top_anchors, num_points, skills, n_samples_per_anchor,
                 local_radius=local_radius, require_str=True, original_str=original_str
             ):
                 if cancel_event.is_set():
@@ -8325,20 +8444,13 @@ class ArchaeologySimulatorWindow:
                 block_cards = self.block_cards if hasattr(self, 'block_cards') else None
                 skills = ['strength', 'agility', 'perception', 'intellect', 'luck']
                 cancel_event = loading_window.loading_refs['cancel_event']
-                
-                def generate_distributions(n_pts, n_sk):
-                    if n_sk == 1:
-                        yield (n_pts,)
-                        return
-                    for i in range(n_pts + 1):
-                        for rest in generate_distributions(n_pts - i, n_sk - 1):
-                            yield (i,) + rest
+                caps = [min(get_skill_point_cap(s), num_points) for s in skills]
                 
                 from .monte_carlo_crit import MonteCarloCritSimulator
                 simulator = MonteCarloCritSimulator()
                 results = []
                 actual_valid_count = sum(
-                    1 for dt in generate_distributions(num_points, len(skills))
+                    1 for dt in generate_distributions_capped(num_points, caps)
                     if original_points.get('strength', 0) + dt[0] > 0
                 )
                 total_work = len(n_list) * actual_valid_count
@@ -8368,7 +8480,7 @@ class ArchaeologySimulatorWindow:
                     best_dist_so_far = {s: 0 for s in skills}
                     best_fph_so_far = 0.0
                     best_xph_so_far = 0.0
-                    for dist_tuple in generate_distributions(num_points, len(skills)):
+                    for dist_tuple in generate_distributions_capped(num_points, caps):
                         if cancel_event.is_set():
                             self.skill_points = original_points.copy()
                             return
@@ -8544,7 +8656,7 @@ class ArchaeologySimulatorWindow:
         main_frame.pack(fill=tk.BOTH, expand=True)
         main_frame.columnconfigure(0, weight=1)
         
-        n_sims = len(max_stage_samples) if max_stage_samples else 0
+        n_sims = len(max_stage_samples) if max_stage_samples is not None else 0
         result_window.title("MC Stage Optimizer Results")
         title_lines = [
             f"MC Stage Optimizer Results - {n_sims} simulations",
@@ -8558,7 +8670,7 @@ class ArchaeologySimulatorWindow:
         stats_frame = ttk.LabelFrame(main_frame, text="Statistics", padding="10")
         stats_frame.grid(row=1, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 10))
         
-        if max_stage_samples:
+        if max_stage_samples is not None and len(max_stage_samples) > 0:
             std_val = np.std(max_stage_samples)
             min_val = np.min(max_stage_samples)
             max_val = np.max(max_stage_samples)
@@ -8576,7 +8688,7 @@ Max: {max_val:.0f} stages"""
                      foreground="gray").pack()
         
         # Metrics frame (XP/h, Fragments/h, Floors/run)
-        if metrics_samples:
+        if metrics_samples is not None and len(metrics_samples) > 0:
             metrics_frame = ttk.LabelFrame(main_frame, text="Performance Metrics", padding="10")
             metrics_frame.grid(row=2, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 10))
             
@@ -8850,7 +8962,7 @@ Fragments/h: {fragments_per_hour:.2f}"""
         hist_frame.columnconfigure(0, weight=1)
         hist_frame.rowconfigure(0, weight=1)
         
-        if MATPLOTLIB_AVAILABLE and max_stage_samples:
+        if MATPLOTLIB_AVAILABLE and max_stage_samples is not None and len(max_stage_samples) > 0:
             # Smaller figure size that fits nicely in the window (not too large)
             fig = Figure(figsize=(5, 2.5), dpi=100)
             ax = fig.add_subplot(111)
@@ -8975,7 +9087,7 @@ Fragments/h: {fragments_per_hour:.2f}"""
         stats_frame = ttk.LabelFrame(main_frame, text="XP Statistics", padding="10")
         stats_frame.grid(row=1, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 10))
         
-        if xp_per_hour_samples:
+        if xp_per_hour_samples is not None and len(xp_per_hour_samples) > 0:
             mean_val = np.mean(xp_per_hour_samples)
             median_val = np.median(xp_per_hour_samples)
             std_val = np.std(xp_per_hour_samples)
@@ -8996,7 +9108,7 @@ Max: {max_val:.1f} XP/h"""
                      foreground="gray").pack()
         
         # Metrics frame (XP/h, Fragments/h, Floors/run)
-        if metrics_samples:
+        if metrics_samples is not None and len(metrics_samples) > 0:
             metrics_frame = ttk.LabelFrame(main_frame, text="Performance Metrics", padding="10")
             metrics_frame.grid(row=2, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 10))
             
@@ -9100,7 +9212,7 @@ Fragments/h: {fragments_per_hour:.2f}"""
         hist_frame.columnconfigure(0, weight=1)
         hist_frame.rowconfigure(0, weight=1)
         
-        if MATPLOTLIB_AVAILABLE and xp_per_hour_samples:
+        if MATPLOTLIB_AVAILABLE and xp_per_hour_samples is not None and len(xp_per_hour_samples) > 0:
             # Smaller figure size that fits nicely in the window (not too large)
             fig = Figure(figsize=(5, 2.5), dpi=100)
             ax = fig.add_subplot(111)
@@ -9234,14 +9346,8 @@ Fragments/h: {fragments_per_hour:.2f}"""
             from .monte_carlo_crit import MonteCarloCritSimulator
             simulator = MonteCarloCritSimulator()
             
-            # Brute-Force method (old)
-            def generate_distributions(n_points, n_skills):
-                if n_skills == 1:
-                    yield (n_points,)
-                    return
-                for i in range(n_points + 1):
-                    for rest in generate_distributions(n_points - i, n_skills - 1):
-                        yield (i,) + rest
+            # Brute-Force method (old) - respect stat caps
+            caps = [min(get_skill_point_cap(s), num_points) for s in skills]
             
             original_str = 0  # Start from 0, ignore current skill distribution
             # Use 4× more samples for better coverage (same as main optimizer)
@@ -9250,7 +9356,7 @@ Fragments/h: {fragments_per_hour:.2f}"""
             
             # Count brute-force combinations
             brute_force_count = sum(
-                1 for dt in generate_distributions(num_points, len(skills))
+                1 for dt in generate_distributions_capped(num_points, caps)
                 if dt[0] > 0  # Start from 0, ignore current distribution
             )
             
@@ -9267,7 +9373,7 @@ Fragments/h: {fragments_per_hour:.2f}"""
             # Method 1: Brute-Force
             brute_force_scores = []
             bf_count = 0
-            for dist_tuple in generate_distributions(num_points, len(skills)):
+            for dist_tuple in generate_distributions_capped(num_points, caps):
                 if cancel_event.is_set():
                     self.skill_points = original_points.copy()
                     return
@@ -9320,7 +9426,7 @@ Fragments/h: {fragments_per_hour:.2f}"""
             dirichlet_scores = []
             dir_count = 0
             for dist_tuple in generate_dirichlet_samples(
-                num_points, len(skills), n_samples,
+                num_points, skills, n_samples,
                 require_str=True, original_str=original_str
             ):
                 if cancel_event.is_set():
@@ -9423,7 +9529,7 @@ Fragments/h: {fragments_per_hour:.2f}"""
             dir_refined = []
             dir_refine_count = 0
             for refine_sample in generate_local_refinement_samples(
-                dir_top_anchors, num_points, len(skills), n_samples_per_anchor,
+                dir_top_anchors, num_points, skills, n_samples_per_anchor,
                 local_radius=local_radius, require_str=True, original_str=original_str
             ):
                 if cancel_event.is_set():
@@ -9660,7 +9766,7 @@ Fragments/h: {fragments_per_hour:.2f}"""
         stats_frame = ttk.LabelFrame(main_frame, text="Fragment Statistics", padding="10")
         stats_frame.grid(row=1, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 10))
         
-        if frag_per_hour_samples:
+        if frag_per_hour_samples is not None and len(frag_per_hour_samples) > 0:
             mean_val = np.mean(frag_per_hour_samples)
             median_val = np.median(frag_per_hour_samples)
             std_val = np.std(frag_per_hour_samples)
@@ -9681,7 +9787,7 @@ Max: {max_val:.2f} frags/h"""
                      foreground="gray").pack()
         
         # Metrics frame (XP/h, Fragments/h, Floors/run)
-        if metrics_samples:
+        if metrics_samples is not None and len(metrics_samples) > 0:
             metrics_frame = ttk.LabelFrame(main_frame, text="Performance Metrics", padding="10")
             metrics_frame.grid(row=2, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 10))
             
@@ -9785,7 +9891,7 @@ Fragments/h: {fragments_per_hour:.2f}"""
         hist_frame.columnconfigure(0, weight=1)
         hist_frame.rowconfigure(0, weight=1)
         
-        if MATPLOTLIB_AVAILABLE and frag_per_hour_samples:
+        if MATPLOTLIB_AVAILABLE and frag_per_hour_samples is not None and len(frag_per_hour_samples) > 0:
             # Smaller figure size that fits nicely in the window (not too large)
             fig = Figure(figsize=(5, 2.5), dpi=100)
             ax = fig.add_subplot(111)
