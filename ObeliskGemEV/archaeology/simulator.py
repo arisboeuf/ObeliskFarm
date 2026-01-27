@@ -231,6 +231,10 @@ def generate_local_refinement_samples(
     if sum(caps) < n_points:
         raise ValueError(f"Cannot allocate {n_points} points within caps (max {sum(caps)}).")
 
+    str_idx = 0
+    if skill_names and "strength" in skill_names:
+        str_idx = skill_names.index("strength")
+
     for anchor_data in anchor_points:
         # Extract dist_tuple (first element) from candidate_scores format
         # candidate_scores format: (dist_tuple, avg_max_stage, stats, fragments_per_hour, xp_per_hour)
