@@ -66,6 +66,9 @@ class BudgetOptimizerPanel:
         self.upgrade_level_labels = {}  # For updating display
         self.last_optimization_result = None  # Store last optimization result for applying
         self.apply_button = None  # Reference to apply button
+
+        # Keep track of scheduled callbacks (avoid Tk "invalid command name" on close)
+        self._auto_refresh_after_id = None
         
         # Load currency icons
         self.currency_icons = {}
@@ -1275,10 +1278,27 @@ class BudgetOptimizerPanel:
     
     def _start_auto_refresh(self):
         """Start auto-refresh timer (every 10 seconds)"""
-        if hasattr(self, 'window') and self.window.winfo_exists():
-            self._refresh_stats_and_results()
-            # Schedule next refresh in 10 seconds (10000ms)
-            self.window.after(10000, self._start_auto_refresh)
+        # Clear any previous id (this method is re-scheduled repeatedly)
+        self._auto_refresh_after_id = None
+
+        try:
+            if hasattr(self, 'window') and self.window.winfo_exists():
+                self._refresh_stats_and_results()
+                # Schedule next refresh in 10 seconds (10000ms)
+                self._auto_refresh_after_id = self.window.after(10000, self._start_auto_refresh)
+        except tk.TclError:
+            # Window is being destroyed; don't reschedule.
+            self._auto_refresh_after_id = None
+
+    def shutdown(self):
+        """Cancel timers/callbacks before the window is destroyed."""
+        after_id = getattr(self, "_auto_refresh_after_id", None)
+        if after_id:
+            try:
+                self.window.after_cancel(after_id)
+            except tk.TclError:
+                pass
+        self._auto_refresh_after_id = None
     
     def _update_player_stats(self):
         """Update player stats display based on current upgrade levels"""

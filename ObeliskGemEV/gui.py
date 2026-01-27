@@ -191,7 +191,7 @@ try:
     from . import OBELISK_LEVEL
 except ImportError:
     # Direct execution fallback
-    OBELISK_LEVEL = 30
+    OBELISK_LEVEL = 32
 
 
 class MainMenuWindow:
@@ -813,8 +813,7 @@ class MainMenuWindow:
                     # Also destroy menu if it still exists
                     try:
                         if self.root.winfo_exists():
-                            self.root.quit()
-                            self.root.destroy()
+                            self._on_close()
                     except:
                         pass
             except:
@@ -826,8 +825,7 @@ class MainMenuWindow:
                     pass
                 try:
                     if self.root.winfo_exists():
-                        self.root.quit()
-                        self.root.destroy()
+                        self._on_close()
                 except:
                     pass
         

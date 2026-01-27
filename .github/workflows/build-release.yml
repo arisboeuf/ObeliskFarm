@@ -55,6 +55,24 @@ jobs:
               encoding="utf-8",
           )
           PY
+
+      - name: Read supported Obelisk level
+        id: obelisk
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os
+          import re
+          from pathlib import Path
+
+          text = Path("ObeliskGemEV/__init__.py").read_text(encoding="utf-8")
+          m = re.search(r"^OBELISK_LEVEL\s*=\s*(\d+)\s*$", text, flags=re.M)
+          if not m:
+            raise SystemExit("OBELISK_LEVEL not found in ObeliskGemEV/__init__.py")
+          level = m.group(1)
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
+            f.write(f"OBELISK_LEVEL={level}\n")
+          PY
       
       - name: Build executable
         run: python -m PyInstaller ObeliskGemEV.spec --clean
@@ -83,7 +101,7 @@ jobs:
           body: |
             ## ObeliskFarm v${{ steps.version.outputs.VERSION }}
             
-            > ⚠️ **Data based on Obelisk Level 30**
+            > ⚠️ **Data based on OB${{ steps.obelisk.outputs.OBELISK_LEVEL }} (Obelisk Level ${{ steps.obelisk.outputs.OBELISK_LEVEL }})**
             
             ### Download
             Download `ObeliskFarm_v${{ steps.version.outputs.VERSION }}.exe` below and run it - no installation required!

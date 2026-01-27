@@ -116,12 +116,19 @@ class EventSimulatorWindow:
     
     def on_close(self):
         """Handle window close - save state"""
-        if self.active_panel and hasattr(self.active_panel, 'save_state'):
-            self.active_panel.save_state()
+        if self.active_panel:
+            if hasattr(self.active_panel, 'shutdown'):
+                self.active_panel.shutdown()
+            if hasattr(self.active_panel, 'save_state'):
+                self.active_panel.save_state()
         self.window.destroy()
     
     def build_current_mode(self):
         """Build the UI for the current mode"""
+        # Cancel any timers from the previous panel before destroying widgets
+        if self.active_panel and hasattr(self.active_panel, 'shutdown'):
+            self.active_panel.shutdown()
+
         # Clear content frame
         for widget in self.content_frame.winfo_children():
             widget.destroy()

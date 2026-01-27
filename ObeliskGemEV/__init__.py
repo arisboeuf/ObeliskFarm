@@ -4,8 +4,8 @@ ObeliskFarm - Erwartungswert-Berechnung für Gems (Freebies)
 
 __version__ = "1.0.6"
 
-# Data is based on this Obelisk level - update this when your save changes
-OBELISK_LEVEL = 30
+# Data is based on this Obelisk level - update when game data changes
+OBELISK_LEVEL = 32
 
 from .freebie_ev_calculator import FreebieEVCalculator
 

@@ -1,6 +1,6 @@
 # ObeliskFarm Calculator
 
-> ⚠️ **Data based on Obelisk Level 32** - All calculations and game data are based on Obelisk Level 32. Results may vary for different progression levels.
+> ⚠️ **Data based on OB32 (Obelisk Level 32)** - All calculations and game data are based on OB32. Results may vary for different progression levels.
 
 An interactive GUI tool for calculating the **Expected Value (EV)** for freebies in the Android game **Idle Obelisk Miner**.
 
