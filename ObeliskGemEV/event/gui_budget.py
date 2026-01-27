@@ -31,21 +31,11 @@ from .monte_carlo_optimizer import monte_carlo_optimize, MCOptimizationResult
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from ui_utils import get_resource_path, create_tooltip, calculate_tooltip_position
-
-
-def get_user_data_path() -> Path:
-    """Get path for user data (saves) - persists outside of bundle."""
-    if getattr(sys, 'frozen', False):
-        app_data = os.environ.get('APPDATA', os.path.expanduser('~'))
-        save_dir = Path(app_data) / 'ObeliskFarm' / 'save'
-    else:
-        save_dir = Path(__file__).parent.parent.parent / 'save'
-    save_dir.mkdir(parents=True, exist_ok=True)
-    return save_dir
+from ui_utils import get_save_dir
 
 
 # Save file path (in user data folder for persistence)
-SAVE_DIR = get_user_data_path()
+SAVE_DIR = get_save_dir()
 SAVE_FILE = SAVE_DIR / "event_budget_save.json"
 
 

@@ -24,26 +24,17 @@ from .monte_carlo_crit import run_crit_analysis, MonteCarloCritSimulator, debug_
 # Import ui_utils - try relative first, fall back to absolute
 try:
     from ..ui_utils import calculate_tooltip_position, get_resource_path
+    from ..ui_utils import get_save_dir
 except (ImportError, ValueError):
     # When gui.py runs directly, archaeology is not a package, so use absolute import
     import ui_utils
     calculate_tooltip_position = ui_utils.calculate_tooltip_position
     get_resource_path = ui_utils.get_resource_path
-
-
-def get_user_data_path() -> Path:
-    """Get path for user data (saves) - persists outside of bundle."""
-    if getattr(sys, 'frozen', False):
-        app_data = os.environ.get('APPDATA', os.path.expanduser('~'))
-        save_dir = Path(app_data) / 'ObeliskFarm' / 'save'
-    else:
-        save_dir = Path(__file__).parent.parent / 'save'
-    save_dir.mkdir(parents=True, exist_ok=True)
-    return save_dir
+    get_save_dir = ui_utils.get_save_dir
 
 
 # Save file path (in user data folder for persistence)
-SAVE_DIR = get_user_data_path()
+SAVE_DIR = get_save_dir()
 SAVE_FILE = SAVE_DIR / "archaeology_save.json"
 
 

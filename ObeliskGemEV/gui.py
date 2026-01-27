@@ -11,6 +11,8 @@ import copy
 from pathlib import Path
 from PIL import Image, ImageTk
 from dataclasses import fields
+import threading
+import webbrowser
 
 
 def get_resource_path(relative_path: str) -> Path:
@@ -24,21 +26,11 @@ def get_resource_path(relative_path: str) -> Path:
     return base_path / relative_path
 
 
-def get_user_data_path() -> Path:
-    """Get path for user data (saves) - persists outside of bundle."""
-    if getattr(sys, 'frozen', False):
-        # Running as exe - use AppData folder on Windows
-        app_data = os.environ.get('APPDATA', os.path.expanduser('~'))
-        save_dir = Path(app_data) / 'ObeliskFarm' / 'save'
-    else:
-        # Running as script - use local save folder
-        save_dir = Path(__file__).parent / 'save'
-    save_dir.mkdir(parents=True, exist_ok=True)
-    return save_dir
+from ui_utils import get_save_dir
 
 
 # Save file path (in user data folder for persistence)
-SAVE_DIR = get_user_data_path()
+SAVE_DIR = get_save_dir()
 SAVE_FILE = SAVE_DIR / "gemev_save.json"
 
 # Matplotlib for Bar Chart
@@ -66,6 +58,17 @@ except ImportError as e:
     StargazingWindow = None
     STARGAZING_AVAILABLE = False
 from ui_utils import create_tooltip as _create_tooltip, calculate_tooltip_position
+
+try:
+    from build_info import APP_VERSION as CURRENT_VERSION, REPO as UPDATE_REPO
+except Exception:
+    CURRENT_VERSION = "0.0.0"
+    UPDATE_REPO = "arisboeuf/ObeliskFarm"
+
+try:
+    import update_manager
+except Exception:
+    update_manager = None
 
 
 def _load_saved_game_parameters() -> GameParameters:
@@ -267,13 +270,105 @@ class MainMenuWindow:
         )
         self.donation_button.pack(side=tk.LEFT)
         
+        # Update button (self-update for EXE builds)
+        update_button = ttk.Button(
+            footer_frame,
+            text="Check for Updates",
+            command=lambda: self.check_for_updates(interactive=True),
+        )
+        update_button.pack(pady=(12, 0))
+
         # Start blinking animation
         self._blink_after_id = None
         self._blink_state = True
         self._blink_animation()
         
+        # Silent update check shortly after start (EXE only)
+        self.root.after(1500, lambda: self.check_for_updates(interactive=False))
+
         # Store reference to prevent garbage collection
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
+
+    def check_for_updates(self, interactive: bool) -> None:
+        """Check GitHub releases and optionally self-update (EXE builds)."""
+        if update_manager is None:
+            if interactive:
+                messagebox.showinfo(
+                    "Updates",
+                    "Update checker is not available in this build.",
+                )
+            return
+
+        if not getattr(sys, "frozen", False):
+            # In source mode we only offer the download page.
+            if interactive:
+                if messagebox.askyesno(
+                    "Updates",
+                    "Updates are available via GitHub Releases.\nOpen the download page?",
+                ):
+                    webbrowser.open(f"https://github.com/{UPDATE_REPO}/releases/latest")
+            return
+
+        def _worker():
+            try:
+                info = update_manager.get_latest_release_info(UPDATE_REPO)
+                if info is None:
+                    if interactive:
+                        self.root.after(
+                            0,
+                            lambda: messagebox.showinfo(
+                                "Updates",
+                                "Could not check for updates (network error).",
+                            ),
+                        )
+                    return
+
+                latest_version = info["version"]
+                exe_url = info["exe_url"]
+                html_url = info["html_url"]
+
+                if not update_manager.is_newer_version(latest_version, CURRENT_VERSION):
+                    if interactive:
+                        self.root.after(
+                            0,
+                            lambda: messagebox.showinfo(
+                                "Updates",
+                                f"You are up to date.\n\nCurrent: {CURRENT_VERSION}\nLatest: {latest_version}",
+                            ),
+                        )
+                    return
+
+                def _prompt():
+                    if not messagebox.askyesno(
+                        "Update available",
+                        f"A new version is available.\n\nCurrent: {CURRENT_VERSION}\nLatest: {latest_version}\n\nUpdate now?",
+                    ):
+                        return
+                    try:
+                        update_manager.perform_self_update(
+                            exe_url=exe_url,
+                            latest_version=latest_version,
+                            current_pid=os.getpid(),
+                        )
+                    except Exception as e:
+                        messagebox.showerror(
+                            "Update failed",
+                            f"Could not start the updater.\n\n{e}\n\nYou can download manually:\n{html_url}",
+                        )
+
+                self.root.after(0, _prompt)
+
+            except Exception:
+                if interactive:
+                    self.root.after(
+                        0,
+                        lambda: messagebox.showinfo(
+                            "Updates",
+                            "Could not check for updates.",
+                        ),
+                    )
+
+        threading.Thread(target=_worker, daemon=True).start()
     
     def _load_menu_icons(self):
         """Load icons for menu buttons"""

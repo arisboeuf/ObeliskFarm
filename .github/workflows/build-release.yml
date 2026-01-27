@@ -34,6 +34,27 @@ jobs:
         id: version
         shell: bash
         run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: Inject build version into app
+        shell: bash
+        run: |
+          python - <<'PY'
+          import re
+          from pathlib import Path
+
+          version = "${{ steps.version.outputs.VERSION }}"
+          init_path = Path("ObeliskGemEV/__init__.py")
+          text = init_path.read_text(encoding="utf-8")
+          text = re.sub(r"^__version__\s*=\s*['\"][^'\"]+['\"]", f"__version__ = \"{version}\"", text, flags=re.M)
+          init_path.write_text(text, encoding="utf-8")
+
+          build_info = Path("ObeliskGemEV/build_info.py")
+          build_info.write_text(
+              "APP_VERSION = " + repr(version) + "\\n" +
+              "REPO = " + repr("arisboeuf/ObeliskFarm") + "\\n",
+              encoding="utf-8",
+          )
+          PY
       
       - name: Build executable
         run: python -m PyInstaller ObeliskGemEV.spec --clean

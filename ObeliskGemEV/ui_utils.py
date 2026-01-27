@@ -4,6 +4,8 @@ Shared UI utilities for ObeliskFarm
 
 import tkinter as tk
 import sys
+import os
+import shutil
 from pathlib import Path
 
 
@@ -23,6 +25,42 @@ def get_resource_path(relative_path: str) -> Path:
         # Running as script - use the ObeliskFarm directory
         base_path = Path(__file__).parent
     return base_path / relative_path
+
+
+def get_install_dir() -> Path:
+    """Return the directory that contains the runnable app.
+
+    - Frozen (PyInstaller): folder containing the EXE (writable if installed per-user)
+    - Source: folder containing this package/module
+    """
+    if getattr(sys, 'frozen', False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent
+
+
+def get_save_dir(app_name: str = "ObeliskFarm", migrate_from_appdata: bool = True) -> Path:
+    """Return the save directory.
+
+    Requirement: saves should live in the program folder (next to the EXE).
+    For legacy installs, migrate JSON saves from %APPDATA%\\{app_name}\\save once.
+    """
+    save_dir = get_install_dir() / "save"
+    save_dir.mkdir(parents=True, exist_ok=True)
+
+    if migrate_from_appdata and getattr(sys, 'frozen', False):
+        legacy_root = os.environ.get("APPDATA", os.path.expanduser("~"))
+        legacy_dir = Path(legacy_root) / app_name / "save"
+        try:
+            if legacy_dir.exists() and legacy_dir.resolve() != save_dir.resolve():
+                for p in legacy_dir.glob("*.json"):
+                    dst = save_dir / p.name
+                    if not dst.exists():
+                        shutil.copy2(p, dst)
+        except Exception:
+            # Best-effort migration only; never block app start.
+            pass
+
+    return save_dir
 
 
 def calculate_tooltip_position(event, tooltip_width, tooltip_height, screen_width, screen_height, position="auto"):
