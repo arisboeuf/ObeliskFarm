@@ -1236,6 +1236,9 @@ class ArchaeologySimulatorWindow:
             'ability_cooldown': frag_bonuses.get('ability_cooldown', 0) + avada_keda['cooldown_reduction'],
             # Avada Keda duration bonus (for MC simulations)
             'avada_keda_duration_bonus': avada_keda['duration_bonus'],
+            # Flurry bonus stamina per activation (for MC simulations)
+            # Base stamina comes from FLURRY_STAMINA_BONUS in the simulator.
+            'flurry_stamina_bonus': frag_bonuses.get('flurry_stamina', 0) + avada_keda['duration_bonus'],
             # Quake charges and ability instacharge
             'quake_charges': quake_charges,
             'ability_instacharge': ability_instacharge,
@@ -1623,14 +1626,16 @@ class ArchaeologySimulatorWindow:
         if flurry_active is not None and flurry_active.get():
             # Get flurry upgrades from fragment bonuses
             frag_bonuses = self._get_fragment_upgrade_bonuses()
+            avada_keda = self._get_avada_keda_bonus()
             flurry_stamina_bonus = frag_bonuses.get('flurry_stamina', 0)
             flurry_cooldown_reduction = frag_bonuses.get('flurry_cooldown', 0)  # -1s per level
             ability_cooldown_reduction = frag_bonuses.get('ability_cooldown', 0)  # -1s per level (all abilities)
             
             # Calculate effective values
-            stamina_on_cast = self.FLURRY_STAMINA_BONUS + flurry_stamina_bonus
+            # Avada Keda "duration" bonus applies to Flurry as well (extra stamina per cast)
+            stamina_on_cast = self.FLURRY_STAMINA_BONUS + flurry_stamina_bonus + avada_keda['duration_bonus']
             # Apply flat fragment reductions, then percentage misc card reduction
-            base_cooldown = self.FLURRY_COOLDOWN + flurry_cooldown_reduction + ability_cooldown_reduction
+            base_cooldown = self.FLURRY_COOLDOWN + flurry_cooldown_reduction + ability_cooldown_reduction + avada_keda['cooldown_reduction']
             cooldown_multiplier = self.get_ability_cooldown_multiplier()
             effective_cooldown = int(base_cooldown * cooldown_multiplier)
             
@@ -1841,9 +1846,11 @@ class ArchaeologySimulatorWindow:
         # Add stamina from Flurry
         flurry_active = getattr(self, 'flurry_enabled', None)
         if flurry_active and flurry_active.get():
-            base_flurry_cooldown = self.FLURRY_COOLDOWN + frag_bonuses.get('flurry_cooldown', 0) + frag_bonuses.get('ability_cooldown', 0)
+            avada_keda = self._get_avada_keda_bonus()
+            base_flurry_cooldown = self.FLURRY_COOLDOWN + frag_bonuses.get('flurry_cooldown', 0) + frag_bonuses.get('ability_cooldown', 0) + avada_keda['cooldown_reduction']
             flurry_cooldown = int(base_flurry_cooldown * self.get_ability_cooldown_multiplier())
-            flurry_stamina = self.FLURRY_STAMINA_BONUS + frag_bonuses.get('flurry_stamina', 0)
+            # Avada Keda "duration" bonus applies to Flurry as well (extra stamina per cast)
+            flurry_stamina = self.FLURRY_STAMINA_BONUS + frag_bonuses.get('flurry_stamina', 0) + avada_keda['duration_bonus']
             # Estimate run duration first without flurry to see how many activations
             base_duration = total_hits  # 1 hit = 1 second base
             flurry_activations = base_duration / flurry_cooldown
@@ -1871,7 +1878,8 @@ class ArchaeologySimulatorWindow:
             # Actually Flurry is +100% attack speed = 2x speed for some period
             # Let's estimate: during the run, we get multiple flurry activations
             # Each activation speeds up some hits
-            base_flurry_cooldown = self.FLURRY_COOLDOWN + frag_bonuses.get('flurry_cooldown', 0) + frag_bonuses.get('ability_cooldown', 0)
+            avada_keda = self._get_avada_keda_bonus()
+            base_flurry_cooldown = self.FLURRY_COOLDOWN + frag_bonuses.get('flurry_cooldown', 0) + frag_bonuses.get('ability_cooldown', 0) + avada_keda['cooldown_reduction']
             flurry_cooldown = int(base_flurry_cooldown * self.get_ability_cooldown_multiplier())
             activations = base_duration_seconds / flurry_cooldown
             # Assume flurry lasts ~10 seconds at 2x speed = saves 10 seconds per activation
@@ -3300,6 +3308,7 @@ class ArchaeologySimulatorWindow:
                 "",
                 "Effects:",
                 "• Ability Duration +5 (Enrage: 5→10, Quake: 5→10)",
+                "• Flurry Bonus +5 (Stamina on cast: 5→10)",
                 "• Ability Cooldown -10s (Enrage: 60s→50s, Flurry: 120s→110s, Quake: 180s→170s)",
                 "• Ability Instacharge Chance +3%",
                 "",

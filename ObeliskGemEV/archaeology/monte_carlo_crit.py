@@ -202,15 +202,14 @@ class MonteCarloCritSimulator:
                 is_enrage = True
                 enrage_state['charges_remaining'] -= 1
             else:
-                # Check for ability instacharge (chance to instantly reset cooldown)
-                if enrage_state['cooldown'] > 0 and ability_instacharge > 0 and random.random() < ability_instacharge:
-                    enrage_state['cooldown'] = 0
+                # Reduce cooldown (1 hit = 1 second). When it reaches 0, Enrage triggers.
+                enrage_state['cooldown'] -= 1
+                if enrage_state['cooldown'] <= 0:
                     enrage_state['charges_remaining'] = effective_enrage_charges
-                else:
-                    enrage_state['cooldown'] -= 1
-                    if enrage_state['cooldown'] <= 0:
-                        enrage_state['charges_remaining'] = effective_enrage_charges
-                        enrage_state['cooldown'] = enrage_cooldown
+                    enrage_state['cooldown'] = enrage_cooldown
+                    # Instacharge procs on ability activation: extend/stack duration immediately
+                    if ability_instacharge > 0 and random.random() < ability_instacharge:
+                        enrage_state['charges_remaining'] += effective_enrage_charges
             
             # Simulate hit
             hit_damage = self.simulate_hit_damage(stats, block_armor, is_enrage, use_crit)
@@ -292,18 +291,11 @@ class MonteCarloCritSimulator:
         # Calculate effective enrage charges (base 5 + Avada Keda)
         effective_enrage_charges = self.ENRAGE_CHARGES + avada_keda_duration_bonus
         
-        # Calculate base cooldowns with flat fragment reductions + Avada Keda
-        # Order: base -> flat fragment reductions -> Avada Keda -> percentage misc card reduction
+        # Calculate base cooldowns with flat reductions (fragments + Avada Keda already included in stats)
+        # Order: base -> flat reductions -> percentage misc card reduction
         base_enrage_cooldown = self.ENRAGE_COOLDOWN + frag_bonuses['enrage_cooldown'] + frag_bonuses['ability_cooldown']
         base_flurry_cooldown = self.FLURRY_COOLDOWN + frag_bonuses['flurry_cooldown'] + frag_bonuses['ability_cooldown']
         base_quake_cooldown = self.QUAKE_COOLDOWN + frag_bonuses['quake_cooldown'] + frag_bonuses['ability_cooldown']
-        
-        # Apply Avada Keda cooldown reduction (-10s to all abilities)
-        avada_keda_cooldown_reduction = stats.get('ability_cooldown', 0) - frag_bonuses.get('ability_cooldown', 0)
-        if avada_keda_cooldown_reduction < 0:  # Avada Keda adds negative value (reduction)
-            base_enrage_cooldown += avada_keda_cooldown_reduction
-            base_flurry_cooldown += avada_keda_cooldown_reduction
-            base_quake_cooldown += avada_keda_cooldown_reduction
         
         # Apply percentage reduction from misc card
         effective_enrage_cooldown = int(base_enrage_cooldown * cooldown_multiplier)
@@ -313,7 +305,8 @@ class MonteCarloCritSimulator:
         # Flurry tracking - persist from previous run if available
         flurry_stamina_bonus = 0
         if flurry_enabled:
-            flurry_stamina_bonus = self.FLURRY_STAMINA_BONUS
+            # Base stamina comes from FLURRY_STAMINA_BONUS, bonuses are passed via stats
+            flurry_stamina_bonus = self.FLURRY_STAMINA_BONUS + stats.get('flurry_stamina_bonus', 0)
             # Use persistent cooldown if available, otherwise start with effective cooldown
             if self.persistent_flurry_cooldown is not None:
                 flurry_cooldown = self.persistent_flurry_cooldown
@@ -407,17 +400,15 @@ class MonteCarloCritSimulator:
                 # Check Flurry: cooldown reduces per hit (1 hit = 1 second)
                 # When cooldown reaches 0, Flurry triggers immediately
                 if flurry_enabled and flurry_cooldown is not None:
-                    # Check for ability instacharge before processing hits
-                    if flurry_cooldown > 0 and ability_instacharge > 0 and random.random() < ability_instacharge:
-                        flurry_cooldown = 0
+                    # Reduce cooldown by number of hits (1 hit = 1 second)
+                    flurry_cooldown -= hits
+                    # If cooldown reaches 0 or below, trigger Flurry immediately
+                    if flurry_cooldown <= 0:
                         stamina_remaining = min(max_stamina, stamina_remaining + flurry_stamina_bonus)
                         flurry_cooldown = effective_flurry_cooldown
                         stamina_mods_this_floor += flurry_stamina_bonus
-                    else:
-                        # Reduce cooldown by number of hits (1 hit = 1 second)
-                        flurry_cooldown -= hits
-                        # If cooldown reaches 0 or below, trigger Flurry immediately
-                        if flurry_cooldown <= 0:
+                        # Instacharge procs on ability activation: trigger Flurry again immediately
+                        if ability_instacharge > 0 and random.random() < ability_instacharge:
                             stamina_remaining = min(max_stamina, stamina_remaining + flurry_stamina_bonus)
                             flurry_cooldown = effective_flurry_cooldown
                             stamina_mods_this_floor += flurry_stamina_bonus
@@ -481,16 +472,14 @@ class MonteCarloCritSimulator:
                         if quake_state['charges_remaining'] <= 0:
                             quake_state['cooldown'] = effective_quake_cooldown
                     else:
-                        # Check for ability instacharge (chance to instantly reset cooldown)
-                        if quake_state['cooldown'] > 0 and ability_instacharge > 0 and random.random() < ability_instacharge:
-                            quake_state['cooldown'] = 0
+                        # Update quake cooldown
+                        quake_state['cooldown'] -= hits
+                        if quake_state['cooldown'] <= 0:
                             quake_state['charges_remaining'] = quake_charges
-                        else:
-                            # Update quake cooldown
-                            quake_state['cooldown'] -= hits
-                            if quake_state['cooldown'] <= 0:
-                                quake_state['charges_remaining'] = quake_charges
-                                quake_state['cooldown'] = effective_quake_cooldown
+                            quake_state['cooldown'] = effective_quake_cooldown
+                            # Instacharge procs on ability activation: extend/stack duration immediately
+                            if ability_instacharge > 0 and random.random() < ability_instacharge:
+                                quake_state['charges_remaining'] += quake_charges
                 
                 # Calculate fragments from this block (only if not dirt)
                 if block_type != 'dirt' and block_type in fragments_by_type:
