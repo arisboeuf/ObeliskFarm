@@ -1519,7 +1519,7 @@ class ObeliskFarmGUI:
             "• Cherry → Gem Bomb is the highest value interaction\n"
             "• Receives refills from Battery and D20\n"
             "• More Cherry clicks → more free Gem Bomb clicks\n"
-            "• Workshop: chance for 3x charges on recharge (stacks on top)"
+            "• Workshop: chance that 1 Cherry click grants 3 free clicks"
         )
         self.create_tooltip(cherry_bomb_help_label, cherry_bomb_info)
         
