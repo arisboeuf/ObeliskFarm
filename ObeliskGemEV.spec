@@ -9,11 +9,31 @@ from pathlib import Path
 
 # Get the absolute path to the project root
 PROJECT_ROOT = Path(SPECPATH)
-OBELISK_DIR = PROJECT_ROOT / 'ObeliskFarm'
+OBELISK_DIR = PROJECT_ROOT / 'ObeliskGemEV'
 
 # Version from __init__.py
 exec(open(OBELISK_DIR / '__init__.py').read())
 VERSION = __version__
+
+# Windows EXE icon: PyInstaller expects .ico on Windows. Generate one from the
+# existing PNG (Pillow is already a project dependency).
+ICON_PNG = OBELISK_DIR / 'sprites' / 'common' / 'gem.png'
+ICON_ICO = OBELISK_DIR / 'sprites' / 'common' / 'gem.ico'
+ICON_PATH = None
+try:
+    from PIL import Image
+
+    if ICON_PNG.exists() and not ICON_ICO.exists():
+        img = Image.open(ICON_PNG)
+        img.save(
+            ICON_ICO,
+            format='ICO',
+            sizes=[(256, 256), (128, 128), (64, 64), (48, 48), (32, 32), (16, 16)],
+        )
+    if ICON_ICO.exists():
+        ICON_PATH = str(ICON_ICO)
+except Exception:
+    ICON_PATH = None
 
 a = Analysis(
     [str(OBELISK_DIR / 'gui.py')],
@@ -56,5 +76,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=str(OBELISK_DIR / 'sprites' / 'common' / 'gem.png'),
+    icon=ICON_PATH,
 )

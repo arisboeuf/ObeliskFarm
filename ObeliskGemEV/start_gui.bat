@@ -1,9 +1,9 @@
 @echo off
-REM Startet das ObeliskGemEV GUI
+REM Starts the ObeliskFarm GUI (from source)
 
 cd /d "%~dp0"
 
-REM Versuche verschiedene Python-Befehle
+REM Try common Python launch commands
 python gui.py 2>nul
 if %errorlevel% equ 0 goto :end
 
@@ -15,15 +15,15 @@ if %errorlevel% equ 0 goto :end
 
 echo.
 echo ========================================
-echo Fehler beim Starten des GUI!
+echo Failed to start the GUI!
 echo ========================================
 echo.
-echo Python wurde nicht gefunden.
-echo Bitte stellen Sie sicher, dass Python installiert ist.
+echo Python was not found.
+echo Please make sure Python is installed.
 echo.
-echo Versuchen Sie manuell:
+echo Try manually:
 echo   python gui.py
-echo   oder
+echo   or
 echo   py gui.py
 echo.
 pause

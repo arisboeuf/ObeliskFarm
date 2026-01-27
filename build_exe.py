@@ -19,10 +19,10 @@ from pathlib import Path
 
 # Project paths
 PROJECT_ROOT = Path(__file__).parent
-OBELISK_DIR = PROJECT_ROOT / 'ObeliskFarm'
+OBELISK_DIR = PROJECT_ROOT / 'ObeliskGemEV'
 DIST_DIR = PROJECT_ROOT / 'dist'
 BUILD_DIR = PROJECT_ROOT / 'build'
-SPEC_FILE = PROJECT_ROOT / 'ObeliskFarm.spec'
+SPEC_FILE = PROJECT_ROOT / 'ObeliskGemEV.spec'
 
 
 def get_version():

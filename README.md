@@ -4,6 +4,12 @@
 
 An interactive GUI tool for calculating the **Expected Value (EV)** for freebies in the Android game **Idle Obelisk Miner**.
 
+## Download (Windows)
+
+[![Download](https://img.shields.io/github/v/release/arisboeuf/ObeliskFarm?label=Download%20EXE&style=for-the-badge)](https://github.com/arisboeuf/ObeliskFarm/releases/latest)
+
+> Download the EXE from the latest release and run it. No Python required.
+
 ## Overview
 
 The ObeliskFarm Calculator helps you calculate the optimal return from various freebie mechanisms in the game. The tool automatically calculates the **Gem-equivalent value per hour** based on all active game mechanics such as jackpots, refresh chains, skill shards, founder drops, and more.
@@ -115,22 +121,12 @@ Controls all bomb-related mechanics and their gem generation:
 - **Total-EV**: Total gem-equivalent per hour (bold highlighted)
 - **Gift-EV**: Separate expected value per opened gift
 
-## Download
-
-**For Windows users**: Download the standalone EXE - no Python installation required!
-
-[![Download](https://img.shields.io/github/v/release/YourUsername/Obelisk?label=Download%20EXE&style=for-the-badge)](https://github.com/YourUsername/Obelisk/releases/latest)
-
-> ⚠️ **Note**: Data is based on **Obelisk Level 30**. Check the release notes for compatibility with your game progress.
-
----
-
 ## Installation & Start (From Source)
 
 ### Requirements
 
 ```bash
-cd ObeliskFarm
+cd ObeliskGemEV
 pip install -r requirements.txt
 ```
 
@@ -138,19 +134,19 @@ pip install -r requirements.txt
 
 **Windows:**
 ```bash
-cd ObeliskFarm
+cd ObeliskGemEV
 start_gui.bat
 ```
 
 **Linux/macOS:**
 ```bash
-cd ObeliskFarm
+cd ObeliskGemEV
 python gui.py
 ```
 
 Or directly:
 ```bash
-python ObeliskFarm/gui.py
+python ObeliskGemEV/gui.py
 ```
 
 ## Example Output
@@ -204,7 +200,7 @@ The time saved is converted into additional freebies and displayed as gem-equiva
 ## Project Structure
 
 ```
-ObeliskFarm/
+ObeliskGemEV/
 ├── gui.py                    # Main GUI application
 ├── freebie_ev_calculator.py  # Core EV calculations
 ├── ui_utils.py               # Shared UI utilities
