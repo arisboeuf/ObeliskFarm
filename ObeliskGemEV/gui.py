@@ -13,6 +13,7 @@ from PIL import Image, ImageTk
 from dataclasses import fields
 import threading
 import webbrowser
+import re
 
 
 def get_resource_path(relative_path: str) -> Path:
@@ -59,14 +60,57 @@ except ImportError as e:
     STARGAZING_AVAILABLE = False
 from ui_utils import create_tooltip as _create_tooltip, calculate_tooltip_position
 
-try:
-    from build_info import APP_VERSION as CURRENT_VERSION, REPO as UPDATE_REPO
-except Exception:
-    CURRENT_VERSION = "0.0.0"
-    UPDATE_REPO = "arisboeuf/ObeliskFarm"
+UPDATE_REPO = "arisboeuf/ObeliskFarm"
+
+
+def _get_current_version() -> str:
+    """Return the current app version.
+
+    Priority:
+    1) Frozen EXE name: ObeliskFarm_vX.Y.Z.exe (most robust for users)
+    2) build_info module (injected by CI)
+    3) Package __version__ from __init__.py (source/dev)
+    """
+    try:
+        if getattr(sys, "frozen", False):
+            stem = Path(sys.executable).resolve().stem
+            m = re.search(r"_v(\d+\.\d+\.\d+)$", stem)
+            if m:
+                return m.group(1)
+    except Exception:
+        pass
+
+    try:
+        # Support both layouts (source vs. PyInstaller package layout)
+        try:
+            from build_info import APP_VERSION as v  # type: ignore
+        except Exception:
+            from ObeliskGemEV.build_info import APP_VERSION as v  # type: ignore
+        if isinstance(v, str) and v.strip() and v.strip() != "0.0.0":
+            return v.strip()
+    except Exception:
+        pass
+
+    try:
+        try:
+            from __init__ import __version__ as v  # type: ignore
+        except Exception:
+            from ObeliskGemEV import __version__ as v  # type: ignore
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+    except Exception:
+        pass
+
+    return "0.0.0"
+
+
+CURRENT_VERSION = _get_current_version()
 
 try:
-    import update_manager
+    try:
+        import update_manager  # type: ignore
+    except Exception:
+        from ObeliskGemEV import update_manager  # type: ignore
 except Exception:
     update_manager = None
 
@@ -290,23 +334,13 @@ class MainMenuWindow:
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
     def check_for_updates(self, interactive: bool) -> None:
-        """Check GitHub releases and optionally self-update (EXE builds)."""
+        """Check GitHub releases and offer manual download."""
         if update_manager is None:
             if interactive:
                 messagebox.showinfo(
                     "Updates",
                     "Update checker is not available in this build.",
                 )
-            return
-
-        if not getattr(sys, "frozen", False):
-            # In source mode we only offer the download page.
-            if interactive:
-                if messagebox.askyesno(
-                    "Updates",
-                    "Updates are available via GitHub Releases.\nOpen the download page?",
-                ):
-                    webbrowser.open(f"https://github.com/{UPDATE_REPO}/releases/latest")
             return
 
         def _worker():
@@ -324,7 +358,6 @@ class MainMenuWindow:
                     return
 
                 latest_version = info["version"]
-                exe_url = info["exe_url"]
                 html_url = info["html_url"]
 
                 if not update_manager.is_newer_version(latest_version, CURRENT_VERSION):
@@ -341,20 +374,10 @@ class MainMenuWindow:
                 def _prompt():
                     if not messagebox.askyesno(
                         "Update available",
-                        f"A new version is available.\n\nCurrent: {CURRENT_VERSION}\nLatest: {latest_version}\n\nUpdate now?",
+                        f"A new version is available.\n\nCurrent: {CURRENT_VERSION}\nLatest: {latest_version}\n\nOpen the download page?",
                     ):
                         return
-                    try:
-                        update_manager.perform_self_update(
-                            exe_url=exe_url,
-                            latest_version=latest_version,
-                            current_pid=os.getpid(),
-                        )
-                    except Exception as e:
-                        messagebox.showerror(
-                            "Update failed",
-                            f"Could not start the updater.\n\n{e}\n\nYou can download manually:\n{html_url}",
-                        )
+                    webbrowser.open(html_url)
 
                 self.root.after(0, _prompt)
 

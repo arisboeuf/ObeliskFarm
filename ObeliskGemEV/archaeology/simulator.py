@@ -321,6 +321,13 @@ class ArchaeologySimulatorWindow:
     #   - Pure QoL: faster run completion, no resource benefit
     #   - Stamina drains faster too, so no floors/run advantage
     # Stamina Mod: +3 to +10 Stamina (avg +6.5)
+    #
+    # IMPORTANT: The in-game stats panel displays the MIN values (3x / 2x / +10 / +3),
+    # while EV calculations should use expected (average) values.
+    MOD_EXP_MULTIPLIER_MIN = 3.0
+    MOD_LOOT_MULTIPLIER_MIN = 2.0
+    MOD_SPEED_ATTACKS_MIN = 10.0
+    MOD_STAMINA_BONUS_MIN = 3.0
     MOD_EXP_MULTIPLIER_AVG = 4.0  # Average of 3x-5x
     MOD_LOOT_MULTIPLIER_AVG = 3.5  # Average of 2x-5x
     MOD_SPEED_ATTACKS_AVG = 60.0  # Average of 10-110 attacks (QoL only, no EV impact)
@@ -698,8 +705,8 @@ class ArchaeologySimulatorWindow:
             'block_bonker_enabled': self.block_bonker_enabled.get() if hasattr(self, 'block_bonker_enabled') else False,
             'shared_planner_points': self.shared_planner_points.get() if hasattr(self, 'shared_planner_points') else 20,
             'frag_target_type': self.frag_target_var.get() if hasattr(self, 'frag_target_var') else 'common',
-            'mc_screening_n': self.mc_screening_n_var.get() if hasattr(self, 'mc_screening_n_var') else 200,
-            'mc_refinement_n': self.mc_refinement_n_var.get() if hasattr(self, 'mc_refinement_n_var') else 500,
+            'mc_screening_n': self.mc_screening_n_var.get() if hasattr(self, 'mc_screening_n_var') else 30,
+            'mc_refinement_n': self.mc_refinement_n_var.get() if hasattr(self, 'mc_refinement_n_var') else 100,
             # Save MC logs (without window_creator functions, which can't be serialized)
             'mc_results_log': self._serialize_mc_logs() if hasattr(self, 'mc_results_log') else [],
         }
@@ -810,15 +817,15 @@ class ArchaeologySimulatorWindow:
             
             # MC Screening N (shared by Fragment Farmer + Stage Optimizer)
             if hasattr(self, 'mc_screening_n_var'):
-                n = state.get('mc_screening_n', 200)
-                n = max(1, min(500, int(n))) if isinstance(n, (int, float)) else 200
+                n = state.get('mc_screening_n', 30)
+                n = max(1, min(500, int(n))) if isinstance(n, (int, float)) else 30
                 self.mc_screening_n_var.set(n)
                 if hasattr(self, 'mc_screening_n_label'):
                     self.mc_screening_n_label.config(text=str(n))
             # MC Refinement N (shared by Fragment Farmer + Stage Optimizer)
             if hasattr(self, 'mc_refinement_n_var'):
-                n = state.get('mc_refinement_n', 500)
-                n = max(1, min(2000, int(n))) if isinstance(n, (int, float)) else 500
+                n = state.get('mc_refinement_n', 100)
+                n = max(1, min(2000, int(n))) if isinstance(n, (int, float)) else 100
                 self.mc_refinement_n_var.set(n)
                 if hasattr(self, 'mc_refinement_n_label'):
                     self.mc_refinement_n_label.config(text=str(n))
@@ -2029,6 +2036,8 @@ class ArchaeologySimulatorWindow:
             ("Stamina:", "max_stamina"),
             ("Crit %:", "crit_chance"),
             ("Crit Dmg:", "crit_damage"),
+            ("Super Crit Chance:", "super_crit_chance"),
+            ("Super Crit Damage:", "super_crit_damage"),
             ("One-Hit %:", "one_hit_chance"),
         ]
         
@@ -2305,8 +2314,8 @@ class ArchaeologySimulatorWindow:
         
         ttk.Separator(col_frame, orient='horizontal').pack(fill=tk.X, pady=5, padx=5)
         
-        # Mod Chances
-        tk.Label(col_frame, text="Mod Chances", font=("Arial", 10, "bold"), 
+        # Mods
+        tk.Label(col_frame, text="Mods", font=("Arial", 10, "bold"), 
                 background="#E3F2FD").pack(pady=(0, 3))
         
         mod_grid = tk.Frame(col_frame, background="#E3F2FD")
@@ -2314,17 +2323,22 @@ class ArchaeologySimulatorWindow:
         
         self.mod_labels = {}
         mod_names = [
-            ("Exp Mod:", "exp_mod_chance"),
-            ("Loot Mod:", "loot_mod_chance"),
-            ("Speed Mod:", "speed_mod_chance"),
-            ("Stamina Mod:", "stamina_mod_chance"),
+            ("Exp Mod Chance:", "exp_mod_chance"),
+            ("Exp Mod Gain:", "exp_mod_gain"),
+            ("Loot Mod Chance:", "loot_mod_chance"),
+            ("Loot Mod Gain:", "loot_mod_multiplier"),
+            ("Speed Mod Chance:", "speed_mod_chance"),
+            ("Speed Mod Gain:", "speed_mod_gain"),
+            ("Speed Mod Atk Rate:", "speed_mod_atk_rate"),
+            ("Stamina Mod Chance:", "stamina_mod_chance"),
+            ("Stamina Mod Gain:", "stamina_mod_gain"),
         ]
         
         for i, (label_text, key) in enumerate(mod_names):
             tk.Label(mod_grid, text=label_text, background="#E3F2FD", 
                     font=("Arial", 9), anchor=tk.W).grid(row=i, column=0, sticky=tk.W, pady=1)
-            value_label = tk.Label(mod_grid, text="0.00%", background="#E3F2FD", 
-                                  font=("Arial", 9, "bold"), anchor=tk.E, width=7,
+            value_label = tk.Label(mod_grid, text="—", background="#E3F2FD", 
+                                  font=("Arial", 9, "bold"), anchor=tk.E, width=8,
                                   foreground="#9932CC")
             value_label.grid(row=i, column=1, sticky=tk.E, pady=1)
             self.mod_labels[key] = value_label
@@ -4748,7 +4762,7 @@ class ArchaeologySimulatorWindow:
             return row
         
         screening_n_row = _make_n_row(
-            mc_shared_frame, "Screening N:", 1, 500, 200,
+            mc_shared_frame, "Screening N:", 1, 500, 30,
             "mc_screening_n_var", "mc_screening_n_label", self._adjust_mc_screening_n,
             pady=(0, 2),
         )
@@ -4758,7 +4772,7 @@ class ArchaeologySimulatorWindow:
         self._create_screening_n_tooltip(screening_n_help)
         
         refinement_n_row = _make_n_row(
-            mc_shared_frame, "Refinement N:", 100, 2000, 500,
+            mc_shared_frame, "Refinement N:", 100, 2000, 100,
             "mc_refinement_n_var", "mc_refinement_n_label", self._adjust_mc_refinement_n,
         )
         refinement_n_help = tk.Label(refinement_n_row, text="?", font=("Arial", 9, "bold"),
@@ -6526,6 +6540,18 @@ class ArchaeologySimulatorWindow:
     
     def update_display(self):
         stats = self.get_total_stats()
+        frag_bonuses = self._get_fragment_upgrade_bonuses()
+        block_bonker = self._get_block_bonker_bonus()
+
+        def _fmt_pct(frac_value: float) -> str:
+            """Format 0-1 as percent, trim trailing .00"""
+            s = f"{frac_value * 100:.2f}".rstrip('0').rstrip('.')
+            return f"{s}%"
+
+        def _fmt_x(mult_value: float) -> str:
+            """Format multiplier, trim trailing .00"""
+            s = f"{mult_value:.2f}".rstrip('0').rstrip('.')
+            return f"{s}x"
         
         # Update stats
         self.stat_labels['total_damage'].config(text=f"{stats['total_damage']:.1f}")
@@ -6533,6 +6559,10 @@ class ArchaeologySimulatorWindow:
         self.stat_labels['max_stamina'].config(text=f"{stats['max_stamina']:.0f}")
         self.stat_labels['crit_chance'].config(text=f"{stats['crit_chance']*100:.2f}%")
         self.stat_labels['crit_damage'].config(text=f"{stats['crit_damage']:.2f}x")
+        if 'super_crit_chance' in self.stat_labels:
+            self.stat_labels['super_crit_chance'].config(text=_fmt_pct(stats.get('super_crit_chance', 0)))
+        if 'super_crit_damage' in self.stat_labels:
+            self.stat_labels['super_crit_damage'].config(text=_fmt_pct(stats.get('super_crit_damage', 0)))
         self.stat_labels['one_hit_chance'].config(text=f"{stats['one_hit_chance']*100:.2f}%")
         self.stat_labels['xp_gain_total'].config(text=f"{stats['xp_gain_total']:.2f}x")
         self.stat_labels['fragment_mult'].config(text=f"{stats['fragment_mult']:.2f}x")
@@ -6554,10 +6584,29 @@ class ArchaeologySimulatorWindow:
         
         # Update mod chances (show 2 decimal places since values are small, e.g. 0.20%)
         if hasattr(self, 'mod_labels'):
-            self.mod_labels['exp_mod_chance'].config(text=f"{stats['exp_mod_chance']*100:.2f}%")
-            self.mod_labels['loot_mod_chance'].config(text=f"{stats['loot_mod_chance']*100:.2f}%")
-            self.mod_labels['speed_mod_chance'].config(text=f"{stats['speed_mod_chance']*100:.2f}%")
-            self.mod_labels['stamina_mod_chance'].config(text=f"{stats['stamina_mod_chance']*100:.2f}%")
+            if 'exp_mod_chance' in self.mod_labels:
+                self.mod_labels['exp_mod_chance'].config(text=_fmt_pct(stats.get('exp_mod_chance', 0)))
+            if 'exp_mod_gain' in self.mod_labels:
+                exp_mod_gain_min = self.MOD_EXP_MULTIPLIER_MIN + frag_bonuses.get('exp_mod_gain', 0)
+                self.mod_labels['exp_mod_gain'].config(text=_fmt_x(exp_mod_gain_min))
+            if 'loot_mod_chance' in self.mod_labels:
+                self.mod_labels['loot_mod_chance'].config(text=_fmt_pct(stats.get('loot_mod_chance', 0)))
+            if 'loot_mod_multiplier' in self.mod_labels:
+                loot_mod_gain_min = self.MOD_LOOT_MULTIPLIER_MIN + frag_bonuses.get('loot_mod_multiplier', 0)
+                self.mod_labels['loot_mod_multiplier'].config(text=_fmt_x(loot_mod_gain_min))
+            if 'speed_mod_chance' in self.mod_labels:
+                self.mod_labels['speed_mod_chance'].config(text=_fmt_pct(stats.get('speed_mod_chance', 0)))
+            if 'speed_mod_gain' in self.mod_labels:
+                # In-game stat panel shows MIN hits (10) + Block Bonker bonus hits
+                speed_hits_min = self.MOD_SPEED_ATTACKS_MIN + block_bonker.get('speed_mod_gain', 0)
+                self.mod_labels['speed_mod_gain'].config(text=f"+{speed_hits_min:.0f}")
+            if 'speed_mod_atk_rate' in self.mod_labels:
+                self.mod_labels['speed_mod_atk_rate'].config(text=_fmt_x(2.0))
+            if 'stamina_mod_chance' in self.mod_labels:
+                self.mod_labels['stamina_mod_chance'].config(text=_fmt_pct(stats.get('stamina_mod_chance', 0)))
+            if 'stamina_mod_gain' in self.mod_labels:
+                stamina_mod_gain_min = self.MOD_STAMINA_BONUS_MIN + frag_bonuses.get('stamina_mod_gain', 0)
+                self.mod_labels['stamina_mod_gain'].config(text=f"+{stamina_mod_gain_min:.0f}")
         
         # Update ability cooldown labels (effective cooldowns after fragments + misc card)
         if hasattr(self, 'enrage_cooldown_label'):
