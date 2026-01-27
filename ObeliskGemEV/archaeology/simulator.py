@@ -302,6 +302,15 @@ class ArchaeologySimulatorWindow:
     ENRAGE_COOLDOWN = 60  # seconds
     ENRAGE_DAMAGE_BONUS = 0.20  # +20%
     ENRAGE_CRIT_DAMAGE_BONUS = 1.00  # +100% crit damage (additive)
+
+    # Super/Ultra crit damage multipliers (Archaeology)
+    #
+    # These are separate multipliers applied on top of the regular crit damage
+    # multiplier when a crit procs:
+    # - Super crit: 2.0x (default)
+    # - Ultra crit: 3.0x (default)
+    SUPER_CRIT_DMG_MULT_DEFAULT = 2.0
+    ULTRA_CRIT_DMG_MULT_DEFAULT = 3.0
     
     # Flurry ability constants
     # +100% attack speed (QoL), +5 stamina on cast, 120s cooldown
@@ -993,6 +1002,11 @@ class ArchaeologySimulatorWindow:
         super_crit_chance = frag_bonuses.get('super_crit_chance', 0)
         super_crit_damage = frag_bonuses.get('super_crit_damage', 0)
         ultra_crit_chance = frag_bonuses.get('ultra_crit_chance', 0)
+
+        # Crit-type damage multipliers (shown as x multipliers in the stats panel)
+        # Fragment "Super Crit Damage" acts as a % bonus applied to both multipliers.
+        super_crit_dmg_mult = self.SUPER_CRIT_DMG_MULT_DEFAULT * (1.0 + super_crit_damage)
+        ultra_crit_dmg_mult = self.ULTRA_CRIT_DMG_MULT_DEFAULT * (1.0 + super_crit_damage)
         
         # XP mult: base + gem upgrade + fragment upgrades (additive)
         xp_mult_base = (self.base_xp_mult + 
@@ -1077,6 +1091,8 @@ class ArchaeologySimulatorWindow:
             'super_crit_chance': min(1.0, super_crit_chance),
             'super_crit_damage': super_crit_damage,
             'ultra_crit_chance': min(1.0, ultra_crit_chance),
+            'super_crit_dmg_mult': super_crit_dmg_mult,
+            'ultra_crit_dmg_mult': ultra_crit_dmg_mult,
             'one_hit_chance': min(1.0, one_hit_chance),
             'xp_mult': xp_mult,
             'xp_gain_total': xp_mult * arch_xp_mult,  # combined for display (incl. Arch XP upgrades)
@@ -1362,23 +1378,27 @@ class ArchaeologySimulatorWindow:
             Calculate average damage accounting for:
             - Normal hits: (1 - crit_chance) * base_dmg
             - Normal crits: crit_chance * (1 - super_crit_chance) * base_dmg * crit_dmg_mult
-            - Super crits: crit_chance * super_crit_chance * (1 - ultra_crit_chance) * base_dmg * crit_dmg_mult * (1 + super_crit_damage)
-            - Ultra crits: crit_chance * super_crit_chance * ultra_crit_chance * base_dmg * crit_dmg_mult * (1 + super_crit_damage)^2
+            - Super crits: crit_chance * super_crit_chance * (1 - ultra_crit_chance) * base_dmg * crit_dmg_mult * super_mult
+            - Ultra crits: crit_chance * super_crit_chance * ultra_crit_chance * base_dmg * crit_dmg_mult * ultra_mult
             
             Super crits only occur when a crit procs.
-            Ultra crits occur only on a super crit and multiply the super crit again.
+            Ultra crits occur only on a super crit and use their own multiplier.
             """
             # Clamp chances defensively
             sc = max(0.0, min(1.0, super_crit_chance))
             uc = max(0.0, min(1.0, ultra_crit_chance))
             cd = max(0.0, super_crit_damage)
-            super_mult = 1.0 + cd
-            ultra_mult = super_mult  # Ultra crit multiplies super crit again
+            super_mult = self.SUPER_CRIT_DMG_MULT_DEFAULT * (1.0 + cd)
+            ultra_mult = self.ULTRA_CRIT_DMG_MULT_DEFAULT * (1.0 + cd)
             
             # Expected multiplier on a crit:
-            # (1-sc) * crit_dmg_mult
-            # + sc * crit_dmg_mult * super_mult * [(1-uc) + uc * ultra_mult]
-            crit_mult_expected = crit_dmg_mult * ((1.0 - sc) + sc * super_mult * (1.0 + uc * (ultra_mult - 1.0)))
+            # - Normal crit: crit_dmg_mult
+            # - Super crit:  crit_dmg_mult * super_mult
+            # - Ultra crit:  crit_dmg_mult * ultra_mult
+            crit_mult_expected = (
+                (1.0 - sc) * crit_dmg_mult
+                + sc * ((1.0 - uc) * crit_dmg_mult * super_mult + uc * crit_dmg_mult * ultra_mult)
+            )
             
             # Mix crit and non-crit:
             return base_dmg * ((1.0 - crit_chance) + crit_chance * crit_mult_expected)
@@ -2038,8 +2058,9 @@ class ArchaeologySimulatorWindow:
             ("Crit %:", "crit_chance"),
             ("Crit Dmg:", "crit_damage"),
             ("Super Crit Chance:", "super_crit_chance"),
-            ("Super Crit Damage:", "super_crit_damage"),
             ("Ultra Crit Chance:", "ultra_crit_chance"),
+            ("Super Crit DMG Multi:", "super_crit_dmg_mult"),
+            ("Ultra Crit DMG Multi:", "ultra_crit_dmg_mult"),
             ("One-Hit %:", "one_hit_chance"),
         ]
         
@@ -4393,6 +4414,8 @@ class ArchaeologySimulatorWindow:
                 "    → Determines blocks you can hit per run",
                 "• Crit %: AGI×1% + LUK×2%",
                 "• Crit Dmg: Base 1.5× × (1 + STR×3% + Fragment %)",
+                "• Super Crit DMG Multi: Base 2.0× × (1 + Fragment %)",
+                "• Ultra Crit DMG Multi: Base 3.0× × (1 + Fragment %)",
                 "• One-Hit %: LUK×0.04% (instant kill chance)",
             ]
             for line in combat_lines:
@@ -6562,10 +6585,12 @@ class ArchaeologySimulatorWindow:
         self.stat_labels['crit_damage'].config(text=f"{stats['crit_damage']:.2f}x")
         if 'super_crit_chance' in self.stat_labels:
             self.stat_labels['super_crit_chance'].config(text=_fmt_pct(stats.get('super_crit_chance', 0)))
-        if 'super_crit_damage' in self.stat_labels:
-            self.stat_labels['super_crit_damage'].config(text=_fmt_pct(stats.get('super_crit_damage', 0)))
         if 'ultra_crit_chance' in self.stat_labels:
             self.stat_labels['ultra_crit_chance'].config(text=_fmt_pct(stats.get('ultra_crit_chance', 0)))
+        if 'super_crit_dmg_mult' in self.stat_labels:
+            self.stat_labels['super_crit_dmg_mult'].config(text=_fmt_x(stats.get('super_crit_dmg_mult', self.SUPER_CRIT_DMG_MULT_DEFAULT)))
+        if 'ultra_crit_dmg_mult' in self.stat_labels:
+            self.stat_labels['ultra_crit_dmg_mult'].config(text=_fmt_x(stats.get('ultra_crit_dmg_mult', self.ULTRA_CRIT_DMG_MULT_DEFAULT)))
         self.stat_labels['one_hit_chance'].config(text=f"{stats['one_hit_chance']*100:.2f}%")
         self.stat_labels['xp_gain_total'].config(text=f"{stats['xp_gain_total']:.2f}x")
         self.stat_labels['fragment_mult'].config(text=f"{stats['fragment_mult']:.2f}x")

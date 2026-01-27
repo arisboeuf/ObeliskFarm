@@ -42,6 +42,9 @@ class MonteCarloCritSimulator:
     ENRAGE_COOLDOWN = 60
     ENRAGE_DAMAGE_BONUS = 0.20
     ENRAGE_CRIT_DAMAGE_BONUS = 1.00
+    # Super/Ultra crit damage multipliers (Archaeology)
+    SUPER_CRIT_DMG_MULT_DEFAULT = 2.0
+    ULTRA_CRIT_DMG_MULT_DEFAULT = 3.0
     FLURRY_COOLDOWN = 120
     FLURRY_STAMINA_BONUS = 5
     QUAKE_CHARGES = 5
@@ -126,8 +129,23 @@ class MonteCarloCritSimulator:
                 # Enrage crit: multiplier on current crit (ingame), e.g. +104% → crit * (1 + 1.04)
                 enrage_crit_damage_bonus = stats.get('enrage_crit_damage_bonus', self.ENRAGE_CRIT_DAMAGE_BONUS)
                 crit_damage_mult *= (1 + enrage_crit_damage_bonus)
-            # Crit damage is multiplicative
-            damage = int(base_damage * crit_damage_mult)
+            # Super/Ultra crit rolls only occur when a crit procs
+            super_crit_chance = max(0.0, min(1.0, stats.get('super_crit_chance', 0.0)))
+            ultra_crit_chance = max(0.0, min(1.0, stats.get('ultra_crit_chance', 0.0)))
+            super_crit_damage_bonus = max(0.0, stats.get('super_crit_damage', 0.0))
+
+            super_mult = self.SUPER_CRIT_DMG_MULT_DEFAULT * (1.0 + super_crit_damage_bonus)
+            ultra_mult = self.ULTRA_CRIT_DMG_MULT_DEFAULT * (1.0 + super_crit_damage_bonus)
+
+            if random.random() < super_crit_chance:
+                # Ultra crit can only happen on a super crit
+                if random.random() < ultra_crit_chance:
+                    damage = int(base_damage * crit_damage_mult * ultra_mult)
+                else:
+                    damage = int(base_damage * crit_damage_mult * super_mult)
+            else:
+                # Normal crit
+                damage = int(base_damage * crit_damage_mult)
         else:
             damage = base_damage
         
