@@ -62,7 +62,15 @@ jobs:
       - name: Rename executable to match tag
         shell: bash
         run: |
-          mv dist/*.exe "dist/ObeliskFarm_v${{ steps.version.outputs.VERSION }}.exe"
+          DEST="dist/ObeliskFarm_v${{ steps.version.outputs.VERSION }}.exe"
+          SRC="$(ls -1 dist/*.exe | head -n 1)"
+          if [ -z "$SRC" ]; then
+            echo "No EXE found in dist/"
+            exit 1
+          fi
+          if [ "$SRC" != "$DEST" ]; then
+            mv -f "$SRC" "$DEST"
+          fi
       
       - name: List output
         run: dir dist
