@@ -47,12 +47,21 @@ class GameParameters:
     free_bomb_chance: float = 0.16  # 16% Chance dass bomb click 0 charges verbraucht
     total_bomb_types: int = 12  # Gesamtanzahl Bomb-Typen (für Battery/D20 Berechnung)
     
+    # Bomb recharge cards (0 = none, 1 = card, 2 = gilded, 3 = polychrome)
+    # These affect ONLY charges gained from periodic recharges, not refills.
+    gem_bomb_recharge_card_level: int = 0
+    cherry_bomb_recharge_card_level: int = 0
+    battery_bomb_recharge_card_level: int = 0
+    d20_bomb_recharge_card_level: int = 0
+    founder_bomb_recharge_card_level: int = 0
+    
     # Gem Bomb
     gem_bomb_recharge_seconds: float = 46.0  # Recharge Zeit
     gem_bomb_gem_chance: float = 0.03  # 3% Chance per charge auf 1 Gem
     
     # Cherry Bomb
     cherry_bomb_recharge_seconds: float = 48.0  # Recharge Zeit
+    cherry_bomb_triple_charge_chance: float = 0.0  # Workshop: chance to get 3x charges on recharge (on top)
     
     # Battery Bomb
     battery_bomb_recharge_seconds: float = 31.0  # Recharge Zeit
@@ -93,6 +102,23 @@ class FreebieEVCalculator:
             params: GameParameters-Objekt. Wenn None, werden Standardwerte verwendet.
         """
         self.params = params or GameParameters()
+    
+    @staticmethod
+    def _get_recharge_charge_multiplier(card_level: int) -> float:
+        """Return expected charge multiplier for a bomb recharge card level.
+        
+        Levels:
+          0 = none      -> 1.0x
+          1 = card      -> 50% chance for 2x charges (EV = 1.5x)
+          2 = gilded    -> 100% chance for 2x charges (EV = 2.0x)
+          3 = polychrome-> 100% chance for 3x charges (EV = 3.0x)
+        """
+        return {
+            0: 1.0,
+            1: 1.5,  # 0.5*1 + 0.5*2
+            2: 2.0,
+            3: 3.0,
+        }.get(int(card_level or 0), 1.0)
     
     def get_founder_drop_interval_minutes(self) -> float:
         """
@@ -424,11 +450,20 @@ class FreebieEVCalculator:
         # 16% Chance dass Click free ist → 1 / (1 - 0.16) = 1.1905 effektive Clicks
         free_bomb_multiplier = 1.0 / (1.0 - self.params.free_bomb_chance)
         
-        # Basis Clicks pro Stunde (ohne Free Bomb Chance)
-        gem_bomb_clicks_base = seconds_per_hour / effective_gem_bomb_recharge
-        cherry_bomb_clicks_base = seconds_per_hour / effective_cherry_bomb_recharge
-        battery_bomb_clicks_base = seconds_per_hour / effective_battery_bomb_recharge
-        d20_bomb_clicks_base = seconds_per_hour / effective_d20_bomb_recharge
+        # Basis clicks per hour from periodic recharges ONLY (no refills yet).
+        # Recharge cards affect ONLY these base values, not Battery/D20 refills.
+        gem_mult = self._get_recharge_charge_multiplier(self.params.gem_bomb_recharge_card_level)
+        cherry_mult = self._get_recharge_charge_multiplier(self.params.cherry_bomb_recharge_card_level)
+        battery_mult = self._get_recharge_charge_multiplier(self.params.battery_bomb_recharge_card_level)
+        d20_mult = self._get_recharge_charge_multiplier(self.params.d20_bomb_recharge_card_level)
+        
+        gem_bomb_clicks_base = (seconds_per_hour / effective_gem_bomb_recharge) * gem_mult
+        # Cherry workshop upgrade stacks on top of the recharge card:
+        # p chance to get 3x charges -> expected multiplier = (1-p)*1 + p*3 = 1 + 2p
+        cherry_workshop_mult = 1.0 + 2.0 * self.params.cherry_bomb_triple_charge_chance
+        cherry_bomb_clicks_base = (seconds_per_hour / effective_cherry_bomb_recharge) * cherry_mult * cherry_workshop_mult
+        battery_bomb_clicks_base = (seconds_per_hour / effective_battery_bomb_recharge) * battery_mult
+        d20_bomb_clicks_base = (seconds_per_hour / effective_d20_bomb_recharge) * d20_mult
         
         # Effektive Clicks pro Stunde (mit Free Bomb Chance)
         gem_bomb_clicks = gem_bomb_clicks_base * free_bomb_multiplier
@@ -551,8 +586,12 @@ class FreebieEVCalculator:
         # 16% Chance, dass Charge nicht verbraucht wird = 1 / (1 - 0.16) = 1.1905 Bombs pro Charge
         effective_bombs_per_charge = 1.0 / (1.0 - self.params.free_bomb_chance)
         
-        # Effektive Bombs pro Drop (2 Charges × effektive Bombs pro Charge)
-        effective_bombs_per_drop = self.params.founder_bomb_charges_per_drop * effective_bombs_per_charge
+        # Founder Bomb charges per drop come from periodic drops -> treated like a "recharge".
+        founder_mult = self._get_recharge_charge_multiplier(self.params.founder_bomb_recharge_card_level)
+        charges_per_drop = self.params.founder_bomb_charges_per_drop * founder_mult
+        
+        # Effektive Bombs pro Drop (charges × effektive Bombs pro charge)
+        effective_bombs_per_drop = charges_per_drop * effective_bombs_per_charge
         
         # Erwartete Speed-Aktivierungen pro Stunde
         # = Drops pro Stunde × effektive Bombs pro Drop × Speed-Chance

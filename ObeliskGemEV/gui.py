@@ -10,6 +10,7 @@ import json
 import copy
 from pathlib import Path
 from PIL import Image, ImageTk
+from dataclasses import fields
 
 
 def get_resource_path(relative_path: str) -> Path:
@@ -65,6 +66,78 @@ except ImportError as e:
     StargazingWindow = None
     STARGAZING_AVAILABLE = False
 from ui_utils import create_tooltip as _create_tooltip, calculate_tooltip_position
+
+
+def _load_saved_game_parameters() -> GameParameters:
+    """Load GameParameters from the Gem-EV save file.
+    
+    This is used by the main menu when opening Lootbug directly, so the EV/h
+    matches the last saved Gem EV settings (instead of defaults).
+    """
+    params = GameParameters()
+    
+    if not SAVE_FILE.exists():
+        return params
+    
+    try:
+        with open(SAVE_FILE, 'r') as f:
+            state = json.load(f)
+    except Exception:
+        return params
+    
+    percent_keys = {
+        'skill_shard_chance',
+        'jackpot_chance',
+        'instant_refresh_chance',
+        'free_bomb_chance',
+        'gem_bomb_gem_chance',
+        'd20_bomb_refill_chance',
+        'founder_bomb_speed_chance',
+        'cherry_bomb_triple_charge_chance',
+    }
+    int_keys = {
+        'jackpot_rolls',
+        'vip_lounge_level',
+        'obelisk_level',
+        'total_bomb_types',
+        'd20_bomb_charges_distributed',
+        # recharge card levels
+        'gem_bomb_recharge_card_level',
+        'cherry_bomb_recharge_card_level',
+        'battery_bomb_recharge_card_level',
+        'd20_bomb_recharge_card_level',
+        'founder_bomb_recharge_card_level',
+    }
+    
+    field_names = {f.name for f in fields(GameParameters)}
+    overrides = {}
+    
+    for key, raw in state.items():
+        if key not in field_names:
+            continue
+        try:
+            if key in int_keys:
+                overrides[key] = int(raw)
+            elif key in percent_keys:
+                overrides[key] = float(raw) / 100.0
+            else:
+                overrides[key] = float(raw)
+        except (TypeError, ValueError):
+            # Ignore invalid saved values; keep default
+            continue
+    
+    try:
+        params = GameParameters(**overrides)
+    except TypeError:
+        # If something changed in the dataclass signature, fall back to defaults
+        params = GameParameters()
+    
+    # Stonks checkbox is stored as a separate bool (not in GameParameters)
+    stonks_enabled = state.get('stonks_enabled', True)
+    params.stonks_chance = 0.0 if not stonks_enabled else 0.01
+    params.stonks_bonus_gems = 200.0
+    
+    return params
 
 # Import version/config info
 try:
@@ -195,6 +268,7 @@ class MainMenuWindow:
         self.donation_button.pack(side=tk.LEFT)
         
         # Start blinking animation
+        self._blink_after_id = None
         self._blink_state = True
         self._blink_animation()
         
@@ -327,6 +401,14 @@ class MainMenuWindow:
     
     def _on_close(self):
         """Handle window close"""
+        # Cancel any pending blink callback to avoid calling widgets after destroy()
+        try:
+            after_id = getattr(self, "_blink_after_id", None)
+            if after_id:
+                self.root.after_cancel(after_id)
+                self._blink_after_id = None
+        except tk.TclError:
+            pass
         self.root.destroy()
     
     def _create_rounded_button(self, parent, text, bg, fg, command, width=40, height=40, corner_radius=10):
@@ -356,6 +438,13 @@ class MainMenuWindow:
             cursor="hand2"
         )
         
+        def _canvas_exists() -> bool:
+            """Return True if canvas still exists in Tk."""
+            try:
+                return bool(canvas.winfo_exists())
+            except tk.TclError:
+                return False
+
         def draw_rounded_rectangle(canvas, x1, y1, x2, y2, radius, fill, outline, width):
             """Draw a rounded rectangle on canvas"""
             # Draw the four corner arcs (filled)
@@ -394,17 +483,23 @@ class MainMenuWindow:
         
         # Draw rounded rectangle
         def draw_button(bg_color, fg_color):
-            canvas.delete("all")
-            # Draw rounded rectangle
-            draw_rounded_rectangle(canvas, 2, 2, width-2, height-2, 
-                                 corner_radius, bg_color, "#CC0000", 2)
-            # Draw text
-            canvas.create_text(
-                width//2, height//2,
-                text=text,
-                fill=fg_color,
-                font=("Arial", 14, "bold")
-            )
+            if not _canvas_exists():
+                return
+            try:
+                canvas.delete("all")
+                # Draw rounded rectangle
+                draw_rounded_rectangle(canvas, 2, 2, width-2, height-2, 
+                                     corner_radius, bg_color, "#CC0000", 2)
+                # Draw text
+                canvas.create_text(
+                    width//2, height//2,
+                    text=text,
+                    fill=fg_color,
+                    font=("Arial", 14, "bold")
+                )
+            except tk.TclError:
+                # Widget might have been destroyed between scheduled callbacks.
+                return
         
         # Initial draw
         draw_button(bg, fg)
@@ -441,27 +536,46 @@ class MainMenuWindow:
         """Animate blinking of donation button and message"""
         if not self.root.winfo_exists():
             return
+
+        # Stop animation if widgets are gone (e.g. during teardown / UI rebuild)
+        try:
+            if not hasattr(self, "donation_button") or not hasattr(self, "donation_label"):
+                return
+            if hasattr(self.donation_button, "winfo_exists") and not self.donation_button.winfo_exists():
+                return
+            if hasattr(self.donation_label, "winfo_exists") and not self.donation_label.winfo_exists():
+                return
+        except tk.TclError:
+            return
         
         # Toggle blink state
         self._blink_state = not self._blink_state
         
-        if self._blink_state:
-            # Show button and message
-            if hasattr(self.donation_button, 'update_colors'):
-                self.donation_button.update_colors("#FF0000", "white")
+        try:
+            if self._blink_state:
+                # Show button and message
+                if hasattr(self.donation_button, 'update_colors'):
+                    self.donation_button.update_colors("#FF0000", "white")
+                else:
+                    self.donation_button.config(bg="#FF0000", fg="white")
+                self.donation_label.config(foreground="#666666")
             else:
-                self.donation_button.config(bg="#FF0000", fg="white")
-            self.donation_label.config(foreground="#666666")
-        else:
-            # Hide button and message (make transparent/light)
-            if hasattr(self.donation_button, 'update_colors'):
-                self.donation_button.update_colors("#FFCCCC", "#FFCCCC")
-            else:
-                self.donation_button.config(bg="#FFCCCC", fg="#FFCCCC")
-            self.donation_label.config(foreground="#E0E0E0")
+                # Hide button and message (make transparent/light)
+                if hasattr(self.donation_button, 'update_colors'):
+                    self.donation_button.update_colors("#FFCCCC", "#FFCCCC")
+                else:
+                    self.donation_button.config(bg="#FFCCCC", fg="#FFCCCC")
+                self.donation_label.config(foreground="#E0E0E0")
+        except tk.TclError:
+            # Widget got destroyed mid-callback; stop scheduling.
+            self._blink_after_id = None
+            return
         
         # Schedule next blink (every 800ms)
-        self.root.after(800, self._blink_animation)
+        try:
+            self._blink_after_id = self.root.after(800, self._blink_animation)
+        except tk.TclError:
+            self._blink_after_id = None
     
     def _open_donation_window(self):
         """Open donation window with thank you message and link"""
@@ -671,7 +785,7 @@ class MainMenuWindow:
         """Open Lootbug Analyzer - opens in new window, closes menu"""
         # Create a calculator for LootbugWindow
         try:
-            params = GameParameters()
+            params = _load_saved_game_parameters()
             calculator = FreebieEVCalculator(params)
             self._open_toplevel_module(LootbugWindow, calculator)
         except Exception as e:
@@ -722,6 +836,11 @@ class ObeliskFarmGUI:
         
         # Variablen für Eingabefelder
         self.vars = {}
+
+        # Bomb recharge card toggles (per bomb)
+        # 0 = none, 1 = card (1.5x), 2 = gilded (2x), 3 = polychrome (3x)
+        self.bomb_recharge_card_vars = {}
+        self.bomb_recharge_card_labels = {}
         
         # Matplotlib Figure für Chart
         self.fig = None
@@ -757,6 +876,10 @@ class ObeliskFarmGUI:
         for key, info in self.vars.items():
             state[key] = info['var'].get()
         
+        # Save bomb recharge card levels (not part of self.vars)
+        for bomb_key, var in getattr(self, 'bomb_recharge_card_vars', {}).items():
+            state[f"{bomb_key}_recharge_card_level"] = int(var.get())
+        
         try:
             SAVE_DIR.mkdir(parents=True, exist_ok=True)
             with open(SAVE_FILE, 'w') as f:
@@ -781,6 +904,16 @@ class ObeliskFarmGUI:
             for key, info in self.vars.items():
                 if key in state:
                     info['var'].set(state[key])
+            
+            # Load bomb recharge card levels
+            for bomb_key, var in getattr(self, 'bomb_recharge_card_vars', {}).items():
+                saved = state.get(f"{bomb_key}_recharge_card_level", None)
+                if saved is not None:
+                    try:
+                        var.set(int(saved))
+                    except (TypeError, ValueError):
+                        var.set(0)
+                self._update_bomb_recharge_card_visuals(bomb_key)
         except Exception as e:
             print(f"Warning: Could not load state: {e}")
     
@@ -1109,10 +1242,31 @@ class ObeliskFarmGUI:
         # ============================================
         # FOUNDER BOMB (zusammengefasst mit Speed)
         # ============================================
-        founder_bomb_header_frame = tk.Frame(bomb_frame, background="#FFF3E0")
-        founder_bomb_header_frame.grid(row=row, column=0, columnspan=2, sticky=tk.W, pady=(0, 3))
+        founder_bomb_bg = "#FFE9D6"  # Slightly different tint to visually separate the sub-section
+        founder_bomb_container = tk.Frame(
+            bomb_frame,
+            background=founder_bomb_bg,
+            relief=tk.RIDGE,
+            borderwidth=2
+        )
+        founder_bomb_container.grid(row=row, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 6), padx=1)
+        founder_bomb_container.columnconfigure(0, weight=0)
+        founder_bomb_container.columnconfigure(1, weight=0)
         
-        tk.Label(founder_bomb_header_frame, text="Founder Bomb:", font=("Arial", 9, "bold"), background="#FFF3E0").pack(side=tk.LEFT)
+        inner_row = 0
+        
+        founder_bomb_header_frame = tk.Frame(founder_bomb_container, background=founder_bomb_bg)
+        founder_bomb_header_frame.grid(row=inner_row, column=0, columnspan=2, sticky=tk.W, pady=(5, 3), padx=5)
+        
+        tk.Label(
+            founder_bomb_header_frame,
+            text="Founder Bomb:",
+            font=("Arial", 9, "bold"),
+            background=founder_bomb_bg
+        ).pack(side=tk.LEFT)
+
+        # Recharge card toggles for Founder Bomb
+        self._create_bomb_recharge_card_buttons(founder_bomb_header_frame, "founder_bomb", bg_color=founder_bomb_bg)
         
         # Versuche, das Founders Bomb Icon zu laden
         try:
@@ -1121,23 +1275,25 @@ class ObeliskFarmGUI:
                 bomb_image = Image.open(bomb_icon_path)
                 bomb_image = bomb_image.resize((16, 16), Image.Resampling.LANCZOS)
                 self.founder_bomb_icon_photo = ImageTk.PhotoImage(bomb_image)
-                bomb_icon_label = tk.Label(founder_bomb_header_frame, image=self.founder_bomb_icon_photo, background="#FFF3E0")
+                bomb_icon_label = tk.Label(founder_bomb_header_frame, image=self.founder_bomb_icon_photo, background=founder_bomb_bg)
                 bomb_icon_label.pack(side=tk.LEFT, padx=(5, 0))
         except:
             pass
         
-        row += 1
+        inner_row += 1
         
-        self.create_entry(bomb_frame, "founder_bomb_interval_seconds", "  Founder Bomb Interval (Seconds):", row, "87.0", bg_color="#FFF3E0")
-        row += 1
+        self.create_entry(founder_bomb_container, "founder_bomb_interval_seconds", "  Founder Bomb Interval (Seconds):", inner_row, "87.0", bg_color=founder_bomb_bg)
+        inner_row += 1
         
-        self.create_entry(bomb_frame, "founder_bomb_speed_chance", "  Speed Chance (%):", row, "10.0", is_percent=True, bg_color="#FFF3E0")
-        row += 1
+        self.create_entry(founder_bomb_container, "founder_bomb_speed_chance", "  Speed Chance (%):", inner_row, "10.0", is_percent=True, bg_color=founder_bomb_bg)
+        inner_row += 1
         
-        self.create_entry(bomb_frame, "founder_bomb_speed_multiplier", "  Speed Multiplier:", row, "2.0", bg_color="#FFF3E0")
-        row += 1
+        self.create_entry(founder_bomb_container, "founder_bomb_speed_multiplier", "  Speed Multiplier:", inner_row, "2.0", bg_color=founder_bomb_bg)
+        inner_row += 1
         
-        self.create_entry(bomb_frame, "founder_bomb_speed_duration_seconds", "  Speed Duration (Seconds):", row, "10.0", bg_color="#FFF3E0")
+        self.create_entry(founder_bomb_container, "founder_bomb_speed_duration_seconds", "  Speed Duration (Seconds):", inner_row, "10.0", bg_color=founder_bomb_bg)
+        
+        # Advance outer grid row by one (the container occupies one row)
         row += 1
         
         # Separator
@@ -1185,6 +1341,9 @@ class ObeliskFarmGUI:
         # Fragezeichen-Icon für Gem Bomb Tooltip
         gem_bomb_help_label = tk.Label(gem_bomb_header_frame, text="❓", font=("Arial", 8), cursor="hand2", foreground="gray", background="#FFF3E0")
         gem_bomb_help_label.pack(side=tk.LEFT, padx=(5, 0))
+
+        # Recharge card toggles for Gem Bomb
+        self._create_bomb_recharge_card_buttons(gem_bomb_header_frame, "gem_bomb", bg_color="#FFF3E0")
         
         gem_bomb_info = (
             "Gem Bomb:\n"
@@ -1231,6 +1390,9 @@ class ObeliskFarmGUI:
         # Fragezeichen-Icon für Cherry Bomb Tooltip
         cherry_bomb_help_label = tk.Label(cherry_bomb_header_frame, text="❓", font=("Arial", 8), cursor="hand2", foreground="gray", background="#FFF3E0")
         cherry_bomb_help_label.pack(side=tk.LEFT, padx=(5, 0))
+
+        # Recharge card toggles for Cherry Bomb
+        self._create_bomb_recharge_card_buttons(cherry_bomb_header_frame, "cherry_bomb", bg_color="#FFF3E0")
         
         cherry_bomb_info = (
             "Cherry Bomb:\n"
@@ -1238,13 +1400,17 @@ class ObeliskFarmGUI:
             "• Applies to the ENTIRE dump (all charges at once)\n"
             "• Cherry → Gem Bomb is the highest value interaction\n"
             "• Receives refills from Battery and D20\n"
-            "• More Cherry clicks → more free Gem Bomb clicks"
+            "• More Cherry clicks → more free Gem Bomb clicks\n"
+            "• Workshop: chance for 3x charges on recharge (stacks on top)"
         )
         self.create_tooltip(cherry_bomb_help_label, cherry_bomb_info)
         
         row += 1
         
         self.create_entry(bomb_frame, "cherry_bomb_recharge_seconds", "  Cherry Bomb Recharge (Seconds):", row, "48.0", bg_color="#FFF3E0")
+        row += 1
+
+        self.create_entry(bomb_frame, "cherry_bomb_triple_charge_chance", "  3x Charges Chance (%):", row, "0.0", is_percent=True, bg_color="#FFF3E0")
         row += 1
         
         # Separator
@@ -1258,6 +1424,9 @@ class ObeliskFarmGUI:
         battery_header_frame.grid(row=row, column=0, columnspan=2, sticky=tk.W, pady=(0, 3))
         
         tk.Label(battery_header_frame, text="Battery Bomb:", font=("Arial", 9, "bold"), background="#FFF3E0").pack(side=tk.LEFT)
+
+        # Recharge card toggles for Battery Bomb
+        self._create_bomb_recharge_card_buttons(battery_header_frame, "battery_bomb", bg_color="#FFF3E0")
         
         # Versuche, das Battery Bomb Icon zu laden
         try:
@@ -1301,6 +1470,9 @@ class ObeliskFarmGUI:
         d20_header_frame.grid(row=row, column=0, columnspan=2, sticky=tk.W, pady=(0, 3))
         
         tk.Label(d20_header_frame, text="D20 Bomb:", font=("Arial", 9, "bold"), background="#FFF3E0").pack(side=tk.LEFT)
+
+        # Recharge card toggles for D20 Bomb
+        self._create_bomb_recharge_card_buttons(d20_header_frame, "d20_bomb", bg_color="#FFF3E0")
         
         # Versuche, das D20 Bomb Icon zu laden
         try:
@@ -1691,6 +1863,7 @@ class ObeliskFarmGUI:
         self.vars['gem_bomb_gem_chance']['var'].set(str(defaults.gem_bomb_gem_chance * 100))
         # Cherry Bomb
         self.vars['cherry_bomb_recharge_seconds']['var'].set(str(defaults.cherry_bomb_recharge_seconds))
+        self.vars['cherry_bomb_triple_charge_chance']['var'].set(str(defaults.cherry_bomb_triple_charge_chance * 100))
         # Battery Bomb
         self.vars['battery_bomb_recharge_seconds']['var'].set(str(defaults.battery_bomb_recharge_seconds))
         # D20 Bomb
@@ -1702,6 +1875,11 @@ class ObeliskFarmGUI:
         self.vars['founder_bomb_speed_chance']['var'].set(str(defaults.founder_bomb_speed_chance * 100))
         self.vars['founder_bomb_speed_multiplier']['var'].set(str(defaults.founder_bomb_speed_multiplier))
         self.vars['founder_bomb_speed_duration_seconds']['var'].set(str(defaults.founder_bomb_speed_duration_seconds))
+
+        # Recharge card defaults (toggle visuals too)
+        for bomb_key, var in getattr(self, 'bomb_recharge_card_vars', {}).items():
+            var.set(0)
+            self._update_bomb_recharge_card_visuals(bomb_key)
     
     def get_parameters(self):
         """Reads parameters from input fields"""
@@ -1729,12 +1907,107 @@ class ObeliskFarmGUI:
             else:
                 params['stonks_chance'] = 0.01  # 1% Chance wenn aktiviert
             params['stonks_bonus_gems'] = 200.0  # Immer 200 Gems Bonus
+
+            # Bomb recharge card levels (0/1/2/3)
+            params['gem_bomb_recharge_card_level'] = int(self.bomb_recharge_card_vars.get('gem_bomb', tk.IntVar(value=0)).get())
+            params['cherry_bomb_recharge_card_level'] = int(self.bomb_recharge_card_vars.get('cherry_bomb', tk.IntVar(value=0)).get())
+            params['battery_bomb_recharge_card_level'] = int(self.bomb_recharge_card_vars.get('battery_bomb', tk.IntVar(value=0)).get())
+            params['d20_bomb_recharge_card_level'] = int(self.bomb_recharge_card_vars.get('d20_bomb', tk.IntVar(value=0)).get())
+            params['founder_bomb_recharge_card_level'] = int(self.bomb_recharge_card_vars.get('founder_bomb', tk.IntVar(value=0)).get())
             
             return GameParameters(**params)
         
         except ValueError as e:
             messagebox.showerror("Input Error", str(e))
             return None
+
+    def _create_bomb_recharge_card_buttons(self, parent, bomb_key: str, bg_color: str):
+        """Create Card/Gild/Poly toggles for a bomb's recharge charge multiplier."""
+        # Ensure var exists
+        if bomb_key not in self.bomb_recharge_card_vars:
+            self.bomb_recharge_card_vars[bomb_key] = tk.IntVar(value=0)
+        
+        # Right-aligned container
+        right_frame = tk.Frame(parent, background=bg_color)
+        right_frame.pack(side=tk.RIGHT, padx=(10, 0))
+        
+        # Small label to clarify what the buttons mean
+        tk.Label(right_frame, text="Recharge:", font=("Arial", 7), foreground="#888888", background=bg_color).pack(side=tk.LEFT, padx=(0, 4))
+        
+        card_btn = tk.Label(right_frame, text="Card", font=("Arial", 7),
+                            cursor="hand2", foreground="#888888", background=bg_color,
+                            padx=3, relief=tk.RAISED, borderwidth=1)
+        card_btn.pack(side=tk.LEFT, padx=(0, 2))
+        card_btn.bind("<Button-1>", lambda e: self._toggle_bomb_recharge_card(bomb_key, 1))
+        
+        gilded_btn = tk.Label(right_frame, text="Gild", font=("Arial", 7),
+                              cursor="hand2", foreground="#888888", background=bg_color,
+                              padx=3, relief=tk.RAISED, borderwidth=1)
+        gilded_btn.pack(side=tk.LEFT, padx=(0, 2))
+        gilded_btn.bind("<Button-1>", lambda e: self._toggle_bomb_recharge_card(bomb_key, 2))
+        
+        polychrome_btn = tk.Label(right_frame, text="Poly", font=("Arial", 7),
+                                  cursor="hand2", foreground="#888888", background=bg_color,
+                                  padx=3, relief=tk.RAISED, borderwidth=1)
+        polychrome_btn.pack(side=tk.LEFT)
+        polychrome_btn.bind("<Button-1>", lambda e: self._toggle_bomb_recharge_card(bomb_key, 3))
+        
+        self.bomb_recharge_card_labels[bomb_key] = {
+            'card_btn': card_btn,
+            'gilded_btn': gilded_btn,
+            'polychrome_btn': polychrome_btn,
+            'bg_color': bg_color,
+        }
+        
+        self._update_bomb_recharge_card_visuals(bomb_key)
+
+    def _toggle_bomb_recharge_card(self, bomb_key: str, card_level: int):
+        """Toggle recharge card for a specific bomb (click same again to disable)."""
+        var = self.bomb_recharge_card_vars.get(bomb_key)
+        if var is None:
+            return
+        
+        current = int(var.get())
+        var.set(0 if current == card_level else card_level)
+        self._update_bomb_recharge_card_visuals(bomb_key)
+        self.trigger_auto_calculate()
+
+    def _update_bomb_recharge_card_visuals(self, bomb_key: str):
+        """Update Card/Gild/Poly button visuals for a bomb."""
+        labels = self.bomb_recharge_card_labels.get(bomb_key)
+        var = self.bomb_recharge_card_vars.get(bomb_key)
+        if not labels or var is None:
+            return
+        
+        bg_color = labels.get('bg_color', '#FFFFFF')
+        card_level = int(var.get())
+        card_btn = labels.get('card_btn')
+        gilded_btn = labels.get('gilded_btn')
+        polychrome_btn = labels.get('polychrome_btn')
+        
+        if card_btn:
+            if card_level == 1:
+                card_btn.config(text="✓ Card", foreground="#FFFFFF", background="#4CAF50",
+                                relief=tk.SUNKEN, borderwidth=2, font=("Arial", 7, "bold"))
+            else:
+                card_btn.config(text="Card", foreground="#888888", background=bg_color,
+                                relief=tk.RAISED, borderwidth=1, font=("Arial", 7))
+        
+        if gilded_btn:
+            if card_level == 2:
+                gilded_btn.config(text="✓ Gild", foreground="#000000", background="#FFD700",
+                                  relief=tk.SUNKEN, borderwidth=2, font=("Arial", 7, "bold"))
+            else:
+                gilded_btn.config(text="Gild", foreground="#888888", background=bg_color,
+                                  relief=tk.RAISED, borderwidth=1, font=("Arial", 7))
+        
+        if polychrome_btn:
+            if card_level == 3:
+                polychrome_btn.config(text="✓ Poly", foreground="#FFFFFF", background="#9C27B0",
+                                      relief=tk.SUNKEN, borderwidth=2, font=("Arial", 7, "bold"))
+            else:
+                polychrome_btn.config(text="Poly", foreground="#888888", background=bg_color,
+                                      relief=tk.RAISED, borderwidth=1, font=("Arial", 7))
     
     def update_chart(self, ev, calculator):
         """Updates the bar chart with EV contributions"""
