@@ -37,6 +37,11 @@ jobs:
       
       - name: Build executable
         run: python -m PyInstaller ObeliskGemEV.spec --clean
+
+      - name: Rename executable to match tag
+        shell: bash
+        run: |
+          mv dist/*.exe "dist/ObeliskFarm_v${{ steps.version.outputs.VERSION }}.exe"
       
       - name: List output
         run: dir dist
@@ -44,7 +49,7 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/*.exe
+          files: dist/ObeliskFarm_v${{ steps.version.outputs.VERSION }}.exe
           generate_release_notes: true
           body: |
             ## ObeliskFarm v${{ steps.version.outputs.VERSION }}
