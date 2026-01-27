@@ -2504,4 +2504,11 @@ def main():
 
 
 if __name__ == "__main__":
+    # Needed for Windows multiprocessing "spawn" (and PyInstaller frozen builds).
+    try:
+        import multiprocessing
+
+        multiprocessing.freeze_support()
+    except Exception:
+        pass
     main()

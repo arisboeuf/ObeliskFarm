@@ -735,7 +735,7 @@ class ArchaeologySimulatorWindow:
         'common': '#808080',    # Gray
         'rare': '#4169E1',      # Royal Blue
         'epic': '#9932CC',      # Dark Orchid (Purple)
-        'legendary': '#FFD700', # Gold
+        'legendary': '#6B5200', # Much darker gold (more contrast)
         'mythic': '#FF4500',    # Orange Red
     }
     
@@ -3701,7 +3701,7 @@ class ArchaeologySimulatorWindow:
             'common': '#808080',    # Gray
             'rare': '#4169E1',      # Blue
             'epic': '#9932CC',      # Purple
-            'legendary': '#FFD700', # Gold
+            'legendary': '#6B5200', # Much darker gold (more contrast)
             'mythic': '#FF4500',    # Orange
         }
         
@@ -3895,7 +3895,7 @@ class ArchaeologySimulatorWindow:
             'common': '#808080',
             'rare': '#4169E1',
             'epic': '#9932CC',
-            'legendary': '#FFD700',
+            'legendary': '#6B5200',
             'mythic': '#FF4500',
         }
         
@@ -4791,7 +4791,7 @@ class ArchaeologySimulatorWindow:
         frag_types = ['common', 'rare', 'epic', 'legendary', 'mythic']
         type_colors = {
             'common': '#808080', 'rare': '#4169E1', 'epic': '#9932CC',
-            'legendary': '#FFD700', 'mythic': '#FF4500'
+            'legendary': '#6B5200', 'mythic': '#FF4500'
         }
         
         # Load fragment icons if available
@@ -6408,7 +6408,7 @@ class ArchaeologySimulatorWindow:
         
         if gilded_btn:
             if card_level == 2:
-                gilded_btn.config(text="✓ Gild", foreground="#000000", background="#FFD700", 
+                gilded_btn.config(text="✓ Gild", foreground="#FFFFFF", background="#6B5200", 
                                relief=tk.SUNKEN, borderwidth=2, font=("Arial", 7, "bold"))
             else:
                 gilded_btn.config(text="Gild", foreground="#888888", background="#E8F5E9", 
@@ -6444,7 +6444,7 @@ class ArchaeologySimulatorWindow:
             
             if gilded_btn:
                 if card_level == 2:
-                    gilded_btn.config(text="✓ Gild", foreground="#000000", background="#FFD700", 
+                    gilded_btn.config(text="✓ Gild", foreground="#FFFFFF", background="#6B5200", 
                                    relief=tk.SUNKEN, borderwidth=2, font=("Arial", 7, "bold"))
                 else:
                     gilded_btn.config(text="Gild", foreground="#888888", background="#E8F5E9", 
@@ -7233,9 +7233,32 @@ class ArchaeologySimulatorWindow:
             best_stats = None
             
             cancel_event = loading_window.loading_refs['cancel_event']
-            
-            from .monte_carlo_crit import MonteCarloCritSimulator
-            simulator = MonteCarloCritSimulator()
+
+            # Parallel MC execution (multi-core) - Windows/spawn safe.
+            import os
+            import time
+            from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
+
+            from .mc_parallel import run_fragment_sims_summary, run_stage_sims_detailed
+
+            max_workers = os.cpu_count() or 1
+            max_pending = max(2, max_workers * 2)
+            seed_base = int(time.time() * 1000) & 0x7FFFFFFF
+
+            executor = ProcessPoolExecutor(max_workers=max_workers)
+            executor_shutdown = False
+
+            def _shutdown_executor(cancel_futures: bool) -> None:
+                nonlocal executor_shutdown
+                if executor_shutdown:
+                    return
+                try:
+                    executor.shutdown(wait=False, cancel_futures=cancel_futures)
+                except TypeError:
+                    executor.shutdown(wait=False)
+                except Exception:
+                    pass
+                executor_shutdown = True
             
             # Use Dirichlet-based sampling for efficient space-filling design
             # Instead of testing all C(n+k-1, k-1) combinations, we sample uniformly from the simplex
@@ -7262,69 +7285,93 @@ class ArchaeologySimulatorWindow:
                 pass
             
             original_str = 0  # Start from 0, ignore current skill distribution
-            for dist_tuple in generate_dirichlet_samples(
-                num_points, skills, n_samples,
-                require_str=True, original_str=original_str
-            ):
-                if cancel_event.is_set():
-                    self.skill_points = original_points.copy()
-                    return
-                
-                combination_count += 1
-                
-                # Update progress every 10 combinations for smoother progress
-                if combination_count % 10 == 0 or combination_count == n_samples:
+            screening_pending = {}  # future -> (dist_tuple, optimal_stage, stats_dict)
+            screening_completed = 0
+
+            def _drain_screening_done(done_futs):
+                nonlocal screening_completed
+                for fut in done_futs:
+                    dist_tuple, optimal_stage, stats_dict = screening_pending.pop(fut, (None, None, None))
+                    if dist_tuple is None or stats_dict is None:
+                        continue
+                    screening_completed += 1
                     try:
-                        if self.window.winfo_exists():
-                            self.window.after(0, lambda c=combination_count, t=n_samples, n=local_screening_n_display: 
-                                             self._safe_update_progress_label(loading_window, 
-                                                                              f"Phase 1: Screening (N={n})... ({c}/{t})",
-                                                                              current=c, total=t))
-                    except (tk.TclError, RuntimeError):
-                        cancel_event.set()
-                        return
-                
-                # Apply distribution temporarily (start from 0, ignore current distribution)
-                for skill, points in zip(skills, dist_tuple):
-                    self.skill_points[skill] = points
-                
-                new_stats = self.get_total_stats()
-                
-                # Find optimal stage for this build
-                optimal_stage, _ = self.find_optimal_stage_for_fragment_type(
-                    new_stats, target_frag
-                )
-                
-                # Quick screening: Run few MC simulations
-                frag_per_hour_samples = []
-                
-                for _ in range(local_screening_sims):
+                        out = fut.result()
+                    except Exception:
+                        continue
+
+                    avg_frag_per_hour = float(out.get("avg_frag_per_hour", 0.0))
+                    candidate_scores.append((dist_tuple, avg_frag_per_hour, optimal_stage, stats_dict.copy()))
+
+                    # Update progress every 10 completed tasks for smoother progress
+                    if screening_completed % 10 == 0 or screening_completed == n_samples:
+                        try:
+                            if self.window.winfo_exists():
+                                self.window.after(
+                                    0,
+                                    lambda c=screening_completed, t=n_samples, n=local_screening_n_display: self._safe_update_progress_label(
+                                        loading_window,
+                                        f"Phase 1: Screening (N={n})... ({c}/{t})",
+                                        current=c,
+                                        total=t,
+                                    ),
+                                )
+                        except (tk.TclError, RuntimeError):
+                            cancel_event.set()
+                            _shutdown_executor(cancel_futures=True)
+                            return
+
+            try:
+                for dist_tuple in generate_dirichlet_samples(
+                    num_points, skills, n_samples,
+                    require_str=True, original_str=original_str
+                ):
                     if cancel_event.is_set():
                         self.skill_points = original_points.copy()
+                        _shutdown_executor(cancel_futures=True)
                         return
-                    result = simulator.simulate_run(
-                        new_stats, starting_floor, use_crit=True,
-                        enrage_enabled=enrage_enabled, flurry_enabled=flurry_enabled,
-                        quake_enabled=quake_enabled, block_cards=block_cards, return_metrics=True
+
+                    combination_count += 1
+
+                    # Apply distribution temporarily (start from 0, ignore current distribution)
+                    for skill, points in zip(skills, dist_tuple):
+                        self.skill_points[skill] = points
+
+                    stats_dict = self.get_total_stats()
+
+                    # NOTE: Computing optimal stage is relatively expensive and (currently) does not
+                    # affect the Monte Carlo scoring, since MC sims start at `starting_floor=1`.
+                    # We compute the optimal stage once for the final best build only.
+                    optimal_stage = 1
+
+                    # Revert changes immediately
+                    self.skill_points = original_points.copy()
+
+                    fut = executor.submit(
+                        run_fragment_sims_summary,
+                        stats=stats_dict,
+                        starting_floor=starting_floor,
+                        n_sims=local_screening_sims,
+                        use_crit=True,
+                        enrage_enabled=enrage_enabled,
+                        flurry_enabled=flurry_enabled,
+                        quake_enabled=quake_enabled,
+                        block_cards=block_cards,
+                        target_frag=target_frag,
+                        seed=seed_base + combination_count,
                     )
-                    
-                    floors_cleared = result['floors_cleared']
-                    fragments = result.get('fragments', {})
-                    target_frag_count = fragments.get(target_frag, 0)
-                    
-                    # Use MC run duration from metrics
-                    run_duration_seconds = result.get('run_duration_seconds', 1.0)
-                    runs_per_hour = 3600 / run_duration_seconds if run_duration_seconds > 0 else 0
-                    frags_per_hour = target_frag_count * runs_per_hour
-                    frag_per_hour_samples.append(frags_per_hour)
-                
-                avg_frag_per_hour = sum(frag_per_hour_samples) / len(frag_per_hour_samples) if frag_per_hour_samples else 0
-                
-                # Store candidate for potential refinement
-                candidate_scores.append((dist_tuple, avg_frag_per_hour, optimal_stage, new_stats.copy()))
-                
-                # Revert changes
-                self.skill_points = original_points.copy()
+                    screening_pending[fut] = (dist_tuple, optimal_stage, stats_dict)
+
+                    if len(screening_pending) >= max_pending:
+                        done, _ = wait(screening_pending.keys(), return_when=FIRST_COMPLETED)
+                        _drain_screening_done(done)
+
+                while screening_pending and not cancel_event.is_set():
+                    done, _ = wait(screening_pending.keys(), return_when=FIRST_COMPLETED)
+                    _drain_screening_done(done)
+            finally:
+                if cancel_event.is_set():
+                    _shutdown_executor(cancel_futures=True)
             
             if cancel_event.is_set():
                 return
@@ -7353,69 +7400,89 @@ class ArchaeologySimulatorWindow:
                 pass
             
             refinement_scores = []
-            refine_count = 0
-            
-            for refine_sample in generate_local_refinement_samples(
-                top_anchors, num_points, skills, n_samples_per_anchor,
-                local_radius=local_radius, require_str=True, original_str=original_str
-            ):
-                if cancel_event.is_set():
-                    self.skill_points = original_points.copy()
-                    return
-                
-                refine_count += 1
-                if refine_count % 10 == 0 or refine_count == total_refinement_samples:
+            refinement_pending = {}  # future -> (refine_sample, optimal_stage, stats_dict)
+            refine_completed = 0
+            refine_submitted = 0
+
+            def _drain_refinement_done(done_futs):
+                nonlocal refine_completed
+                for fut in done_futs:
+                    refine_sample, optimal_stage, stats_dict = refinement_pending.pop(fut, (None, None, None))
+                    if refine_sample is None or stats_dict is None:
+                        continue
+                    refine_completed += 1
                     try:
-                        if self.window.winfo_exists():
-                            self.window.after(0, lambda c=refine_count, t=total_refinement_samples, n=local_refinement_n_display: 
-                                             self._safe_update_progress_label(loading_window, 
-                                                                              f"Phase 2: Local refinement (N={n})... ({c}/{t})",
-                                                                              current=c, total=t))
-                    except (tk.TclError, RuntimeError):
-                        cancel_event.set()
-                        return
-                
-                # Apply distribution temporarily (start from 0, ignore current distribution)
-                for skill, points in zip(skills, refine_sample):
-                    self.skill_points[skill] = points
-                
-                new_stats = self.get_total_stats()
-                
-                # Find optimal stage for this build
-                optimal_stage, _ = self.find_optimal_stage_for_fragment_type(
-                    new_stats, target_frag
-                )
-                
-                # Run MC simulations for refinement estimate
-                frag_per_hour_samples = []
-                
-                for _ in range(local_refinement_sims):
+                        out = fut.result()
+                    except Exception:
+                        continue
+
+                    avg_frag_per_hour = float(out.get("avg_frag_per_hour", 0.0))
+                    refinement_scores.append((refine_sample, avg_frag_per_hour, optimal_stage, stats_dict.copy()))
+
+                    if refine_completed % 10 == 0 or refine_completed == total_refinement_samples:
+                        try:
+                            if self.window.winfo_exists():
+                                self.window.after(
+                                    0,
+                                    lambda c=refine_completed, t=total_refinement_samples, n=local_refinement_n_display: self._safe_update_progress_label(
+                                        loading_window,
+                                        f"Phase 2: Local refinement (N={n})... ({c}/{t})",
+                                        current=c,
+                                        total=t,
+                                    ),
+                                )
+                        except (tk.TclError, RuntimeError):
+                            cancel_event.set()
+                            _shutdown_executor(cancel_futures=True)
+                            return
+            
+            try:
+                for refine_sample in generate_local_refinement_samples(
+                    top_anchors, num_points, skills, n_samples_per_anchor,
+                    local_radius=local_radius, require_str=True, original_str=original_str
+                ):
                     if cancel_event.is_set():
                         self.skill_points = original_points.copy()
+                        _shutdown_executor(cancel_futures=True)
                         return
-                    result = simulator.simulate_run(
-                        new_stats, starting_floor, use_crit=True,
-                        enrage_enabled=enrage_enabled, flurry_enabled=flurry_enabled,
-                        quake_enabled=quake_enabled, block_cards=block_cards, return_metrics=True
+
+                    # Apply distribution temporarily
+                    for skill, points in zip(skills, refine_sample):
+                        self.skill_points[skill] = points
+
+                    stats_dict = self.get_total_stats()
+                    # See note above: compute optimal stage only for final best build.
+                    optimal_stage = 1
+
+                    # Revert changes immediately
+                    self.skill_points = original_points.copy()
+
+                    refine_submitted += 1
+                    fut = executor.submit(
+                        run_fragment_sims_summary,
+                        stats=stats_dict,
+                        starting_floor=starting_floor,
+                        n_sims=local_refinement_sims,
+                        use_crit=True,
+                        enrage_enabled=enrage_enabled,
+                        flurry_enabled=flurry_enabled,
+                        quake_enabled=quake_enabled,
+                        block_cards=block_cards,
+                        target_frag=target_frag,
+                        seed=seed_base + 100_000 + refine_submitted,
                     )
-                    
-                    floors_cleared = result['floors_cleared']
-                    fragments = result.get('fragments', {})
-                    target_frag_count = fragments.get(target_frag, 0)
-                    
-                    # Use MC run duration from metrics
-                    run_duration_seconds = result.get('run_duration_seconds', 1.0)
-                    runs_per_hour = 3600 / run_duration_seconds if run_duration_seconds > 0 else 0
-                    frags_per_hour = target_frag_count * runs_per_hour
-                    frag_per_hour_samples.append(frags_per_hour)
-                
-                avg_frag_per_hour = sum(frag_per_hour_samples) / len(frag_per_hour_samples) if frag_per_hour_samples else 0
-                
-                # Store refinement candidate
-                refinement_scores.append((refine_sample, avg_frag_per_hour, optimal_stage, new_stats.copy()))
-                
-                # Revert changes
-                self.skill_points = original_points.copy()
+                    refinement_pending[fut] = (refine_sample, optimal_stage, stats_dict)
+
+                    if len(refinement_pending) >= max_pending:
+                        done, _ = wait(refinement_pending.keys(), return_when=FIRST_COMPLETED)
+                        _drain_refinement_done(done)
+
+                while refinement_pending and not cancel_event.is_set():
+                    done, _ = wait(refinement_pending.keys(), return_when=FIRST_COMPLETED)
+                    _drain_refinement_done(done)
+            finally:
+                if cancel_event.is_set():
+                    _shutdown_executor(cancel_futures=True)
             
             if cancel_event.is_set():
                 try:
@@ -7486,55 +7553,76 @@ class ArchaeologySimulatorWindow:
             except (tk.TclError, RuntimeError):
                 pass
             
-            for i in range(total_sims):
-                if cancel_event.is_set():
-                    # Restore original skill points
-                    self.skill_points = original_points.copy()
+            # Run in chunks across all cores.
+            final_pending = {}  # future -> chunk_size
+            total_remaining = total_sims
+            submitted = 0
+            chunk_size = max(10, min(100, total_sims // max(1, max_workers * 4)))
+
+            while total_remaining > 0 and not cancel_event.is_set():
+                while len(final_pending) < max_pending and total_remaining > 0 and not cancel_event.is_set():
+                    n_chunk = min(chunk_size, total_remaining)
+                    submitted += 1
+                    fut = executor.submit(
+                        run_stage_sims_detailed,
+                        stats=final_stats,
+                        starting_floor=starting_floor,
+                        n_sims=n_chunk,
+                        use_crit=True,
+                        enrage_enabled=enrage_enabled,
+                        flurry_enabled=flurry_enabled,
+                        quake_enabled=quake_enabled,
+                        block_cards=block_cards,
+                        seed=seed_base + 1_000_000 + submitted,
+                    )
+                    final_pending[fut] = n_chunk
+                    total_remaining -= n_chunk
+
+                if not final_pending:
+                    break
+
+                done, _ = wait(final_pending.keys(), return_when=FIRST_COMPLETED)
+                for fut in done:
+                    n_chunk = final_pending.pop(fut, 0)
+                    if cancel_event.is_set():
+                        break
+                    try:
+                        out = fut.result()
+                    except Exception:
+                        sim_count += n_chunk
+                        continue
+
+                    chunk_metrics = out.get("metrics_samples", []) or []
+                    metrics_samples.extend(chunk_metrics)
+
+                    for m in chunk_metrics:
+                        fragments = m.get("fragments", {}) or {}
+                        target_frag_count = float(fragments.get(target_frag, 0.0))
+                        run_duration_seconds = float(m.get("run_duration_seconds", 1.0))
+                        runs_per_hour = (3600.0 / run_duration_seconds) if run_duration_seconds > 0 else 0.0
+                        frag_per_hour_samples.append(target_frag_count * runs_per_hour)
+
+                    sim_count += n_chunk
                     try:
                         if self.window.winfo_exists():
-                            self.window.after(0, lambda: self._close_loading_dialog(loading_window))
+                            self.window.after(0, lambda c=sim_count, t=total_sims: self._update_loading_progress(loading_window, c, t))
                     except (tk.TclError, RuntimeError):
-                        pass
-                    return
-                
-                # Run simulation starting at Stage 1 (always unbiased)
-                # Breakpoints are automatically considered in simulate_run
-                result = simulator.simulate_run(
-                    final_stats, starting_floor, use_crit=True,  # Use crit
-                    enrage_enabled=enrage_enabled, flurry_enabled=flurry_enabled,
-                    quake_enabled=quake_enabled, block_cards=block_cards, return_metrics=True
-                )
-                
-                # Calculate fragments per hour using MC metrics
-                floors_cleared = result['floors_cleared']
-                fragments = result.get('fragments', {})
-                target_frag_count = fragments.get(target_frag, 0)
-                run_duration_seconds = result.get('run_duration_seconds', 1.0)
-                
-                runs_per_hour = 3600 / run_duration_seconds if run_duration_seconds > 0 else 0
-                frags_per_hour = target_frag_count * runs_per_hour
-                frag_per_hour_samples.append(frags_per_hour)
-                
-                # Collect metrics for this run
-                metrics_samples.append({
-                    'xp_per_run': result.get('xp_per_run', 0.0),
-                    'total_fragments': result.get('total_fragments', 0.0),
-                    'fragments': result.get('fragments', {}).copy(),  # Store fragments by type
-                    'floors_cleared': result.get('floors_cleared', 0.0),
-                    'run_duration_seconds': run_duration_seconds,
-                })
-                
-                # Update progress
-                sim_count += 1
-                current_count = sim_count
+                        cancel_event.set()
+                        _shutdown_executor(cancel_futures=True)
+                        return
+
+            if cancel_event.is_set():
+                self.skill_points = original_points.copy()
+                _shutdown_executor(cancel_futures=True)
                 try:
                     if self.window.winfo_exists():
-                        self.window.after(0, lambda c=current_count, t=total_sims: 
-                                         self._update_loading_progress(loading_window, c, t))
+                        self.window.after(0, lambda: self._close_loading_dialog(loading_window))
                 except (tk.TclError, RuntimeError):
-                    # Window destroyed, cancel
-                    cancel_event.set()
-                    return
+                    pass
+                return
+
+            # Done with pool for this run
+            _shutdown_executor(cancel_futures=False)
             
             # Restore original skill points
             self.skill_points = original_points.copy()
@@ -7640,9 +7728,32 @@ class ArchaeologySimulatorWindow:
             best_stats = None
             
             cancel_event = loading_window.loading_refs['cancel_event']
-            
-            from .monte_carlo_crit import MonteCarloCritSimulator
-            simulator = MonteCarloCritSimulator()
+
+            # Parallel MC execution (multi-core) - Windows/spawn safe.
+            import os
+            import time
+            from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
+
+            from .mc_parallel import run_stage_sims_detailed, run_stage_sims_summary
+
+            max_workers = os.cpu_count() or 1
+            max_pending = max(2, max_workers * 2)
+            seed_base = int(time.time() * 1000) & 0x7FFFFFFF
+
+            executor = ProcessPoolExecutor(max_workers=max_workers)
+            executor_shutdown = False
+
+            def _shutdown_executor(cancel_futures: bool) -> None:
+                nonlocal executor_shutdown
+                if executor_shutdown:
+                    return
+                try:
+                    executor.shutdown(wait=False, cancel_futures=cancel_futures)
+                except TypeError:
+                    executor.shutdown(wait=False)
+                except Exception:
+                    pass
+                executor_shutdown = True
             
             # Use Dirichlet-based sampling for efficient space-filling design
             # Instead of testing all C(n+k-1, k-1) combinations, we sample uniformly from the simplex
@@ -7669,63 +7780,90 @@ class ArchaeologySimulatorWindow:
                 pass
             
             original_str = 0  # Start from 0, ignore current skill distribution
-            for dist_tuple in generate_dirichlet_samples(
-                num_points, skills, n_samples,
-                require_str=True, original_str=original_str
-            ):
-                if cancel_event.is_set():
-                    self.skill_points = original_points.copy()
-                    return
-                
-                combination_count += 1
-                
-                # Update progress every 10 combinations for smoother progress
-                if combination_count % 10 == 0 or combination_count == n_samples:
+            screening_pending = {}  # future -> (dist_tuple, optimal_stage, stats_dict)
+            screening_completed = 0
+
+            def _drain_screening_done(done_futs):
+                nonlocal screening_completed
+                for fut in done_futs:
+                    dist_tuple, optimal_stage, stats_dict = screening_pending.pop(fut, (None, None, None))
+                    if dist_tuple is None or stats_dict is None:
+                        continue
+                    screening_completed += 1
                     try:
-                        if self.window.winfo_exists():
-                            self.window.after(0, lambda c=combination_count, t=n_samples, n=local_screening_n_display: 
-                                             self._safe_update_progress_label(loading_window, 
-                                                                              f"Phase 1: Screening (N={n})... ({c}/{t})",
-                                                                              current=c, total=t))
-                    except (tk.TclError, RuntimeError):
-                        cancel_event.set()
-                        return
-                
-                # Apply distribution temporarily (start from 0, ignore current distribution)
-                for skill, points in zip(skills, dist_tuple):
-                    self.skill_points[skill] = points
-                
-                new_stats = self.get_total_stats()
-                
-                # Find optimal stage for this build (for XP)
-                optimal_stage, _ = self.find_optimal_stage_for_xp(new_stats)
-                
-                # Quick screening: Run few MC simulations
-                xp_per_hour_samples = []
-                
-                for _ in range(local_screening_sims):
+                        out = fut.result()
+                    except Exception:
+                        continue
+
+                    avg_xp_per_hour = float(out.get("xp_per_hour", 0.0))
+                    candidate_scores.append((dist_tuple, avg_xp_per_hour, optimal_stage, stats_dict.copy()))
+
+                    if screening_completed % 10 == 0 or screening_completed == n_samples:
+                        try:
+                            if self.window.winfo_exists():
+                                self.window.after(
+                                    0,
+                                    lambda c=screening_completed, t=n_samples, n=local_screening_n_display: self._safe_update_progress_label(
+                                        loading_window,
+                                        f"Phase 1: Screening (N={n})... ({c}/{t})",
+                                        current=c,
+                                        total=t,
+                                    ),
+                                )
+                        except (tk.TclError, RuntimeError):
+                            cancel_event.set()
+                            _shutdown_executor(cancel_futures=True)
+                            return
+
+            try:
+                for dist_tuple in generate_dirichlet_samples(
+                    num_points, skills, n_samples,
+                    require_str=True, original_str=original_str
+                ):
                     if cancel_event.is_set():
                         self.skill_points = original_points.copy()
+                        _shutdown_executor(cancel_futures=True)
                         return
-                    result = simulator.simulate_run(
-                        new_stats, starting_floor, use_crit=True,
-                        enrage_enabled=enrage_enabled, flurry_enabled=flurry_enabled,
-                        quake_enabled=quake_enabled, block_cards=block_cards, return_metrics=True
+
+                    combination_count += 1
+
+                    # Apply distribution temporarily (start from 0, ignore current distribution)
+                    for skill, points in zip(skills, dist_tuple):
+                        self.skill_points[skill] = points
+
+                    stats_dict = self.get_total_stats()
+                    # NOTE: Computing optimal stage is relatively expensive and (currently) does not
+                    # affect the Monte Carlo scoring, since MC sims start at `starting_floor=1`.
+                    # We compute the optimal stage once for the final best build only.
+                    optimal_stage = 1
+
+                    # Revert changes immediately
+                    self.skill_points = original_points.copy()
+
+                    fut = executor.submit(
+                        run_stage_sims_summary,
+                        stats=stats_dict,
+                        starting_floor=starting_floor,
+                        n_sims=local_screening_sims,
+                        use_crit=True,
+                        enrage_enabled=enrage_enabled,
+                        flurry_enabled=flurry_enabled,
+                        quake_enabled=quake_enabled,
+                        block_cards=block_cards,
+                        seed=seed_base + combination_count,
                     )
-                    
-                    xp_per_run = result.get('xp_per_run', 0.0)
-                    run_duration_seconds = result.get('run_duration_seconds', 1.0)
-                    runs_per_hour = 3600 / run_duration_seconds if run_duration_seconds > 0 else 0
-                    xp_per_hour = xp_per_run * runs_per_hour
-                    xp_per_hour_samples.append(xp_per_hour)
-                
-                avg_xp_per_hour = sum(xp_per_hour_samples) / len(xp_per_hour_samples) if xp_per_hour_samples else 0
-                
-                # Store candidate for potential refinement
-                candidate_scores.append((dist_tuple, avg_xp_per_hour, optimal_stage, new_stats.copy()))
-                
-                # Revert changes
-                self.skill_points = original_points.copy()
+                    screening_pending[fut] = (dist_tuple, optimal_stage, stats_dict)
+
+                    if len(screening_pending) >= max_pending:
+                        done, _ = wait(screening_pending.keys(), return_when=FIRST_COMPLETED)
+                        _drain_screening_done(done)
+
+                while screening_pending and not cancel_event.is_set():
+                    done, _ = wait(screening_pending.keys(), return_when=FIRST_COMPLETED)
+                    _drain_screening_done(done)
+            finally:
+                if cancel_event.is_set():
+                    _shutdown_executor(cancel_futures=True)
             
             if cancel_event.is_set():
                 return
@@ -7754,63 +7892,86 @@ class ArchaeologySimulatorWindow:
                 pass
             
             refinement_scores = []
-            refine_count = 0
-            
-            for refine_sample in generate_local_refinement_samples(
-                top_anchors, num_points, skills, n_samples_per_anchor,
-                local_radius=local_radius, require_str=True, original_str=original_str
-            ):
-                if cancel_event.is_set():
-                    self.skill_points = original_points.copy()
-                    return
-                
-                refine_count += 1
-                if refine_count % 10 == 0 or refine_count == total_refinement_samples:
+            refinement_pending = {}  # future -> (refine_sample, optimal_stage, stats_dict)
+            refine_completed = 0
+            refine_submitted = 0
+
+            def _drain_refinement_done(done_futs):
+                nonlocal refine_completed
+                for fut in done_futs:
+                    refine_sample, optimal_stage, stats_dict = refinement_pending.pop(fut, (None, None, None))
+                    if refine_sample is None or stats_dict is None:
+                        continue
+                    refine_completed += 1
                     try:
-                        if self.window.winfo_exists():
-                            self.window.after(0, lambda c=refine_count, t=total_refinement_samples, n=local_refinement_n_display: 
-                                             self._safe_update_progress_label(loading_window, 
-                                                                              f"Phase 2: Local refinement (N={n})... ({c}/{t})",
-                                                                              current=c, total=t))
-                    except (tk.TclError, RuntimeError):
-                        cancel_event.set()
-                        return
-                
-                # Apply distribution temporarily (start from 0, ignore current distribution)
-                for skill, points in zip(skills, refine_sample):
-                    self.skill_points[skill] = points
-                
-                new_stats = self.get_total_stats()
-                
-                # Find optimal stage for this build (for XP)
-                optimal_stage, _ = self.find_optimal_stage_for_xp(new_stats)
-                
-                # Run MC simulations for refinement estimate
-                xp_per_hour_samples = []
-                
-                for _ in range(local_refinement_sims):
+                        out = fut.result()
+                    except Exception:
+                        continue
+
+                    avg_xp_per_hour = float(out.get("xp_per_hour", 0.0))
+                    refinement_scores.append((refine_sample, avg_xp_per_hour, optimal_stage, stats_dict.copy()))
+
+                    if refine_completed % 10 == 0 or refine_completed == total_refinement_samples:
+                        try:
+                            if self.window.winfo_exists():
+                                self.window.after(
+                                    0,
+                                    lambda c=refine_completed, t=total_refinement_samples, n=local_refinement_n_display: self._safe_update_progress_label(
+                                        loading_window,
+                                        f"Phase 2: Local refinement (N={n})... ({c}/{t})",
+                                        current=c,
+                                        total=t,
+                                    ),
+                                )
+                        except (tk.TclError, RuntimeError):
+                            cancel_event.set()
+                            _shutdown_executor(cancel_futures=True)
+                            return
+            
+            try:
+                for refine_sample in generate_local_refinement_samples(
+                    top_anchors, num_points, skills, n_samples_per_anchor,
+                    local_radius=local_radius, require_str=True, original_str=original_str
+                ):
                     if cancel_event.is_set():
                         self.skill_points = original_points.copy()
+                        _shutdown_executor(cancel_futures=True)
                         return
-                    result = simulator.simulate_run(
-                        new_stats, starting_floor, use_crit=True,
-                        enrage_enabled=enrage_enabled, flurry_enabled=flurry_enabled,
-                        quake_enabled=quake_enabled, block_cards=block_cards, return_metrics=True
+
+                    for skill, points in zip(skills, refine_sample):
+                        self.skill_points[skill] = points
+
+                    stats_dict = self.get_total_stats()
+                    # See note above: compute optimal stage only for final best build.
+                    optimal_stage = 1
+
+                    self.skill_points = original_points.copy()
+
+                    refine_submitted += 1
+                    fut = executor.submit(
+                        run_stage_sims_summary,
+                        stats=stats_dict,
+                        starting_floor=starting_floor,
+                        n_sims=local_refinement_sims,
+                        use_crit=True,
+                        enrage_enabled=enrage_enabled,
+                        flurry_enabled=flurry_enabled,
+                        quake_enabled=quake_enabled,
+                        block_cards=block_cards,
+                        seed=seed_base + 100_000 + refine_submitted,
                     )
-                    
-                    xp_per_run = result.get('xp_per_run', 0.0)
-                    run_duration_seconds = result.get('run_duration_seconds', 1.0)
-                    runs_per_hour = 3600 / run_duration_seconds if run_duration_seconds > 0 else 0
-                    xp_per_hour = xp_per_run * runs_per_hour
-                    xp_per_hour_samples.append(xp_per_hour)
-                
-                avg_xp_per_hour = sum(xp_per_hour_samples) / len(xp_per_hour_samples) if xp_per_hour_samples else 0
-                
-                # Store refinement candidate
-                refinement_scores.append((refine_sample, avg_xp_per_hour, optimal_stage, new_stats.copy()))
-                
-                # Revert changes
-                self.skill_points = original_points.copy()
+                    refinement_pending[fut] = (refine_sample, optimal_stage, stats_dict)
+
+                    if len(refinement_pending) >= max_pending:
+                        done, _ = wait(refinement_pending.keys(), return_when=FIRST_COMPLETED)
+                        _drain_refinement_done(done)
+
+                while refinement_pending and not cancel_event.is_set():
+                    done, _ = wait(refinement_pending.keys(), return_when=FIRST_COMPLETED)
+                    _drain_refinement_done(done)
+            finally:
+                if cancel_event.is_set():
+                    _shutdown_executor(cancel_futures=True)
             
             if cancel_event.is_set():
                 try:
@@ -7879,53 +8040,73 @@ class ArchaeologySimulatorWindow:
             except (tk.TclError, RuntimeError):
                 pass
             
-            for i in range(total_sims):
-                if cancel_event.is_set():
-                    # Restore original skill points
-                    self.skill_points = original_points.copy()
+            final_pending = {}  # future -> chunk_size
+            total_remaining = total_sims
+            submitted = 0
+            chunk_size = max(10, min(100, total_sims // max(1, max_workers * 4)))
+
+            while total_remaining > 0 and not cancel_event.is_set():
+                while len(final_pending) < max_pending and total_remaining > 0 and not cancel_event.is_set():
+                    n_chunk = min(chunk_size, total_remaining)
+                    submitted += 1
+                    fut = executor.submit(
+                        run_stage_sims_detailed,
+                        stats=final_stats,
+                        starting_floor=starting_floor,
+                        n_sims=n_chunk,
+                        use_crit=True,
+                        enrage_enabled=enrage_enabled,
+                        flurry_enabled=flurry_enabled,
+                        quake_enabled=quake_enabled,
+                        block_cards=block_cards,
+                        seed=seed_base + 1_000_000 + submitted,
+                    )
+                    final_pending[fut] = n_chunk
+                    total_remaining -= n_chunk
+
+                if not final_pending:
+                    break
+
+                done, _ = wait(final_pending.keys(), return_when=FIRST_COMPLETED)
+                for fut in done:
+                    n_chunk = final_pending.pop(fut, 0)
+                    if cancel_event.is_set():
+                        break
+                    try:
+                        out = fut.result()
+                    except Exception:
+                        sim_count += n_chunk
+                        continue
+
+                    chunk_metrics = out.get("metrics_samples", []) or []
+                    metrics_samples.extend(chunk_metrics)
+
+                    for m in chunk_metrics:
+                        xp_per_run = float(m.get("xp_per_run", 0.0))
+                        run_duration_seconds = float(m.get("run_duration_seconds", 1.0))
+                        runs_per_hour = (3600.0 / run_duration_seconds) if run_duration_seconds > 0 else 0.0
+                        xp_per_hour_samples.append(xp_per_run * runs_per_hour)
+
+                    sim_count += n_chunk
                     try:
                         if self.window.winfo_exists():
-                            self.window.after(0, lambda: self._close_loading_dialog(loading_window))
+                            self.window.after(0, lambda c=sim_count, t=total_sims: self._update_loading_progress(loading_window, c, t))
                     except (tk.TclError, RuntimeError):
-                        pass
-                    return
-                
-                # Run simulation starting at Stage 1 (always unbiased)
-                # Breakpoints are automatically considered in simulate_run
-                result = simulator.simulate_run(
-                    final_stats, starting_floor, use_crit=True,  # Use crit
-                    enrage_enabled=enrage_enabled, flurry_enabled=flurry_enabled,
-                    quake_enabled=quake_enabled, block_cards=block_cards, return_metrics=True
-                )
-                
-                # Calculate XP per hour using MC metrics
-                xp_per_run = result.get('xp_per_run', 0.0)
-                run_duration_seconds = result.get('run_duration_seconds', 1.0)
-                
-                runs_per_hour = 3600 / run_duration_seconds if run_duration_seconds > 0 else 0
-                xp_per_hour = xp_per_run * runs_per_hour
-                xp_per_hour_samples.append(xp_per_hour)
-                
-                # Collect metrics for this run
-                metrics_samples.append({
-                    'xp_per_run': result.get('xp_per_run', 0.0),
-                    'total_fragments': result.get('total_fragments', 0.0),
-                    'fragments': result.get('fragments', {}).copy(),  # Store fragments by type
-                    'floors_cleared': result.get('floors_cleared', 0.0),
-                    'run_duration_seconds': run_duration_seconds,
-                })
-                
-                # Update progress
-                sim_count += 1
-                current_count = sim_count
+                        cancel_event.set()
+                        _shutdown_executor(cancel_futures=True)
+                        return
+
+            if cancel_event.is_set():
+                self.skill_points = original_points.copy()
+                _shutdown_executor(cancel_futures=True)
                 try:
                     if self.window.winfo_exists():
-                        self.window.after(0, lambda c=current_count, t=total_sims: 
-                                         self._update_loading_progress(loading_window, c, t))
+                        self.window.after(0, lambda: self._close_loading_dialog(loading_window))
                 except (tk.TclError, RuntimeError):
-                    # Window destroyed, cancel
-                    cancel_event.set()
-                    return
+                    pass
+                return
+
+            _shutdown_executor(cancel_futures=False)
             
             # Restore original skill points
             self.skill_points = original_points.copy()
@@ -8025,8 +8206,35 @@ class ArchaeologySimulatorWindow:
             
             cancel_event = loading_window.loading_refs['cancel_event']
             
-            from .monte_carlo_crit import MonteCarloCritSimulator
-            simulator = MonteCarloCritSimulator()
+            # Parallel MC execution (multi-core) - Windows/spawn safe.
+            # NOTE: We keep the outer orchestration in this background thread (GUI responsiveness),
+            # but use a process pool for the CPU-heavy per-run Monte Carlo sims.
+            import os
+            import time
+            from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
+
+            from .mc_parallel import run_stage_sims_detailed, run_stage_sims_summary
+
+            max_workers = os.cpu_count() or 1
+            # Backpressure: keep a small queue of pending tasks to avoid huge memory usage.
+            max_pending = max(2, max_workers * 2)
+            seed_base = int(time.time() * 1000) & 0x7FFFFFFF
+
+            executor = ProcessPoolExecutor(max_workers=max_workers)
+            executor_shutdown = False
+
+            def _shutdown_executor(cancel_futures: bool) -> None:
+                nonlocal executor_shutdown
+                if executor_shutdown:
+                    return
+                try:
+                    executor.shutdown(wait=False, cancel_futures=cancel_futures)
+                except TypeError:
+                    # Older Python without cancel_futures support
+                    executor.shutdown(wait=False)
+                except Exception:
+                    pass
+                executor_shutdown = True
             
             # Use Dirichlet-based sampling for efficient space-filling design
             # Instead of testing all C(n+k-1, k-1) combinations, we sample uniformly from the simplex
@@ -8061,93 +8269,115 @@ class ArchaeologySimulatorWindow:
                 pass
             
             original_str = 0  # Start from 0, ignore current skill distribution
-            for dist_tuple in generate_dirichlet_samples(
-                num_points, skills, n_samples, 
-                require_str=True, original_str=original_str
-            ):
-                if cancel_event.is_set():
-                    self.skill_points = original_points.copy()
-                    return
-                
-                combination_count += 1
-                
-                # Apply distribution temporarily (start from 0, ignore current distribution)
-                for skill, points in zip(skills, dist_tuple):
-                    self.skill_points[skill] = points
-                
-                new_stats = self.get_total_stats()
-                
-                # Quick screening: Run MC simulations for this sample
-                max_stage_samples = []
-                metrics_samples_screening = []
-                
-                for _ in range(screening_sims):
+            screening_pending = {}  # future -> (dist_tuple, stats_dict)
+            screening_completed = 0
+
+            def _drain_screening_done(done_futs):
+                nonlocal screening_completed, global_highest_stage
+                for fut in done_futs:
+                    dist_tuple, stats_dict = screening_pending.pop(fut, (None, None))
+                    if dist_tuple is None or stats_dict is None:
+                        continue
+                    screening_completed += 1
+                    try:
+                        out = fut.result()
+                    except Exception:
+                        # Skip failed tasks, continue.
+                        continue
+
+                    avg_max_stage = float(out.get("avg_max_stage", 0.0))
+                    fragments_per_hour_screening = float(out.get("fragments_per_hour", 0.0))
+                    xp_per_hour_screening = float(out.get("xp_per_hour", 0.0))
+
+                    # Aggregate stage counts (for live display)
+                    stage_counts = out.get("stage_counts", {}) or {}
+                    for stage_int, count in stage_counts.items():
+                        try:
+                            si = int(stage_int)
+                            stage_count_dict[si] = stage_count_dict.get(si, 0) + int(count)
+                        except Exception:
+                            pass
+
+                    try:
+                        global_highest_stage = max(global_highest_stage, int(out.get("max_stage_seen", 0)))
+                    except Exception:
+                        pass
+
+                    # Store candidate for potential refinement (include fragments/h and xp/h for tie-breaking)
+                    candidate_scores.append((dist_tuple, avg_max_stage, stats_dict.copy(), fragments_per_hour_screening, xp_per_hour_screening))
+
+                    # Progress UI update (every 10 completed tasks, plus first)
+                    if screening_completed % 10 == 0 or screening_completed == 1:
+                        total_sims_so_far = screening_completed * screening_sims
+                        sorted_stages = sorted(stage_count_dict.items(), key=lambda x: x[0], reverse=True)
+                        top_stages_info = []
+                        for stage, count in sorted_stages[:3]:
+                            pct = (count / total_sims_so_far * 100) if total_sims_so_far > 0 else 0.0
+                            top_stages_info.append(f"Stage {stage}: {count}x ({pct:.1f}%)")
+                        stages_text = "\n".join(top_stages_info) if top_stages_info else "No data yet"
+
+                        try:
+                            if self.window.winfo_exists():
+                                self.window.after(
+                                    0,
+                                    lambda c=screening_completed, t=n_samples, stages_txt=stages_text: self._safe_update_progress_label(
+                                        loading_window,
+                                        f"Phase 1: Screening ({c}/{t})\n{stages_txt}",
+                                        current=c,
+                                        total=t,
+                                    ),
+                                )
+                        except (tk.TclError, RuntimeError):
+                            pass
+
+            try:
+                for dist_tuple in generate_dirichlet_samples(
+                    num_points, skills, n_samples,
+                    require_str=True, original_str=original_str
+                ):
                     if cancel_event.is_set():
                         self.skill_points = original_points.copy()
+                        _shutdown_executor(cancel_futures=True)
                         return
-                    result = simulator.simulate_run(
-                        new_stats, starting_floor, use_crit=True,
-                        enrage_enabled=enrage_enabled, flurry_enabled=flurry_enabled,
-                        quake_enabled=quake_enabled, block_cards=block_cards, return_metrics=True
+
+                    combination_count += 1
+
+                    # Apply distribution temporarily (start from 0, ignore current distribution)
+                    for skill, points in zip(skills, dist_tuple):
+                        self.skill_points[skill] = points
+
+                    stats_dict = self.get_total_stats()
+
+                    # Revert changes immediately (keep GUI state consistent)
+                    self.skill_points = original_points.copy()
+
+                    fut = executor.submit(
+                        run_stage_sims_summary,
+                        stats=stats_dict,
+                        starting_floor=starting_floor,
+                        n_sims=screening_sims,
+                        use_crit=True,
+                        enrage_enabled=enrage_enabled,
+                        flurry_enabled=flurry_enabled,
+                        quake_enabled=quake_enabled,
+                        block_cards=block_cards,
+                        seed=seed_base + combination_count,
                     )
-                    
-                    max_stage = result['max_stage_reached']
-                    max_stage_samples.append(max_stage)
-                    metrics_samples_screening.append({
-                        'total_fragments': result.get('total_fragments', 0.0),
-                        'xp_per_run': result.get('xp_per_run', 0.0),
-                        'run_duration_seconds': result.get('run_duration_seconds', 1.0),
-                    })
-                    
-                    # Track highest stage reached (integer stage for counting)
-                    stage_int = int(max_stage)
-                    if stage_int > global_highest_stage:
-                        global_highest_stage = stage_int
-                    # Count how many times each stage was reached
-                    stage_count_dict[stage_int] = stage_count_dict.get(stage_int, 0) + 1
-                
-                avg_max_stage = sum(max_stage_samples) / len(max_stage_samples) if max_stage_samples else 0
-                # Calculate fragments/h and xp/h for screening
-                avg_run_duration = sum(m['run_duration_seconds'] for m in metrics_samples_screening) / len(metrics_samples_screening) if metrics_samples_screening else 1.0
-                avg_fragments = sum(m['total_fragments'] for m in metrics_samples_screening) / len(metrics_samples_screening) if metrics_samples_screening else 0.0
-                avg_xp = sum(m['xp_per_run'] for m in metrics_samples_screening) / len(metrics_samples_screening) if metrics_samples_screening else 0.0
-                fragments_per_hour_screening = (avg_fragments * 3600 / avg_run_duration) if avg_run_duration > 0 else 0.0
-                xp_per_hour_screening = (avg_xp * 3600 / avg_run_duration) if avg_run_duration > 0 else 0.0
-                
-                # Store candidate for potential refinement (include fragments/h and xp/h for tie-breaking)
-                candidate_scores.append((dist_tuple, avg_max_stage, new_stats.copy(), fragments_per_hour_screening, xp_per_hour_screening))
-                
-                # Revert changes
-                self.skill_points = original_points.copy()
-                
-                # Update progress with live statistics about highest stage reached
-                # Update every 10 combinations or on first combination for smoother updates
-                if combination_count % 10 == 0 or combination_count == 1:
-                    total_sims_so_far = combination_count * screening_sims
-                    
-                    # Show top 3 most frequently reached stages (sorted by stage number, highest first)
-                    sorted_stages = sorted(stage_count_dict.items(), key=lambda x: x[0], reverse=True)
-                    top_stages_info = []
-                    for stage, count in sorted_stages[:3]:
-                        pct = (count / total_sims_so_far * 100) if total_sims_so_far > 0 else 0.0
-                        top_stages_info.append(f"Stage {stage}: {count}x ({pct:.1f}%)")
-                    
-                    # Format stages text with line breaks (one per line)
-                    if top_stages_info:
-                        stages_text = "\n".join(top_stages_info)
-                    else:
-                        stages_text = "No data yet"
-                    
-                    try:
-                        if self.window.winfo_exists():
-                            self.window.after(0, lambda c=combination_count, t=n_samples, 
-                                             stages_txt=stages_text: 
-                                             self._safe_update_progress_label(loading_window, 
-                                                                              f"Phase 1: Screening ({c}/{t})\n"
-                                                                              f"{stages_txt}",
-                                                                              current=c, total=t))
-                    except (tk.TclError, RuntimeError):
-                        pass
+                    screening_pending[fut] = (dist_tuple, stats_dict)
+
+                    # Backpressure: drain at least one result when queue is full
+                    if len(screening_pending) >= max_pending:
+                        done, _ = wait(screening_pending.keys(), return_when=FIRST_COMPLETED)
+                        _drain_screening_done(done)
+
+                # Drain remaining
+                while screening_pending and not cancel_event.is_set():
+                    done, _ = wait(screening_pending.keys(), return_when=FIRST_COMPLETED)
+                    _drain_screening_done(done)
+            finally:
+                # If cancelled mid-generation, best effort shutdown.
+                if cancel_event.is_set():
+                    _shutdown_executor(cancel_futures=True)
             
             if cancel_event.is_set():
                 return
@@ -8191,75 +8421,92 @@ class ArchaeologySimulatorWindow:
                 pass
             
             refinement_scores = []
-            refine_count = 0
-            
-            for refine_sample in generate_local_refinement_samples(
-                top_anchors, num_points, skills, n_samples_per_anchor,
-                local_radius=local_radius, require_str=True, original_str=original_str
-            ):
-                if cancel_event.is_set():
-                    self.skill_points = original_points.copy()
-                    return
-                
-                refine_count += 1
-                
-                # Update progress
-                if refine_count % 10 == 0 or refine_count == total_refinement_samples:
+            refinement_pending = {}  # future -> (refine_sample, stats_dict)
+            refine_completed = 0
+            refine_submitted = 0
+
+            def _drain_refinement_done(done_futs):
+                nonlocal refine_completed
+                for fut in done_futs:
+                    refine_sample, stats_dict = refinement_pending.pop(fut, (None, None))
+                    if refine_sample is None or stats_dict is None:
+                        continue
+                    refine_completed += 1
                     try:
-                        if self.window.winfo_exists():
-                            self.window.after(0, lambda c=refine_count, t=total_refinement_samples: 
-                                             self._safe_update_progress_label(loading_window, 
-                                                                              f"Phase 2: Local refinement... ({c}/{t})",
-                                                                              current=c, total=t))
-                    except (tk.TclError, RuntimeError):
-                        cancel_event.set()
-                        return
-                
-                # Apply distribution temporarily (start from 0, ignore current distribution)
-                for skill, points in zip(skills, refine_sample):
-                    self.skill_points[skill] = points
-                
-                new_stats = self.get_total_stats()
-                
-                # Run MC simulations for refinement estimate
-                max_stage_samples = []
-                metrics_samples_refinement = []
-                
-                for _ in range(refinement_sims):
+                        out = fut.result()
+                    except Exception:
+                        continue
+
+                    avg_max_stage = float(out.get("avg_max_stage", 0.0))
+                    fragments_per_hour = float(out.get("fragments_per_hour", 0.0))
+                    xp_per_hour = float(out.get("xp_per_hour", 0.0))
+
+                    refinement_scores.append((refine_sample, avg_max_stage, stats_dict.copy(), fragments_per_hour, xp_per_hour))
+
+                    if refine_completed % 10 == 0 or refine_completed == total_refinement_samples:
+                        try:
+                            if self.window.winfo_exists():
+                                self.window.after(
+                                    0,
+                                    lambda c=refine_completed, t=total_refinement_samples: self._safe_update_progress_label(
+                                        loading_window,
+                                        f"Phase 2: Local refinement... ({c}/{t})",
+                                        current=c,
+                                        total=t,
+                                    ),
+                                )
+                        except (tk.TclError, RuntimeError):
+                            cancel_event.set()
+                            _shutdown_executor(cancel_futures=True)
+                            return
+
+            try:
+                for refine_sample in generate_local_refinement_samples(
+                    top_anchors, num_points, skills, n_samples_per_anchor,
+                    local_radius=local_radius, require_str=True, original_str=original_str
+                ):
                     if cancel_event.is_set():
                         self.skill_points = original_points.copy()
+                        _shutdown_executor(cancel_futures=True)
                         return
-                    result = simulator.simulate_run(
-                        new_stats, starting_floor, use_crit=True,
-                        enrage_enabled=enrage_enabled, flurry_enabled=flurry_enabled,
-                        quake_enabled=quake_enabled, block_cards=block_cards, return_metrics=True
+
+                    # Apply distribution temporarily (start from 0, ignore current distribution)
+                    for skill, points in zip(skills, refine_sample):
+                        self.skill_points[skill] = points
+
+                    stats_dict = self.get_total_stats()
+
+                    # Revert changes immediately
+                    self.skill_points = original_points.copy()
+
+                    fut = executor.submit(
+                        run_stage_sims_summary,
+                        stats=stats_dict,
+                        starting_floor=starting_floor,
+                        n_sims=refinement_sims,
+                        use_crit=True,
+                        enrage_enabled=enrage_enabled,
+                        flurry_enabled=flurry_enabled,
+                        quake_enabled=quake_enabled,
+                        block_cards=block_cards,
+                        seed=seed_base + 100_000 + (refine_submitted + 1),
                     )
-                    
-                    max_stage = result['max_stage_reached']
-                    max_stage_samples.append(max_stage)
-                    metrics_samples_refinement.append({
-                        'total_fragments': result.get('total_fragments', 0.0),
-                        'xp_per_run': result.get('xp_per_run', 0.0),
-                        'run_duration_seconds': result.get('run_duration_seconds', 1.0),
-                    })
-                
-                avg_max_stage = sum(max_stage_samples) / len(max_stage_samples) if max_stage_samples else 0
-                max_stage_int = int(avg_max_stage)
-                
-                # Calculate fragments/h and xp/h
-                avg_run_duration = sum(m['run_duration_seconds'] for m in metrics_samples_refinement) / len(metrics_samples_refinement) if metrics_samples_refinement else 1.0
-                avg_fragments = sum(m['total_fragments'] for m in metrics_samples_refinement) / len(metrics_samples_refinement) if metrics_samples_refinement else 0.0
-                avg_xp = sum(m['xp_per_run'] for m in metrics_samples_refinement) / len(metrics_samples_refinement) if metrics_samples_refinement else 0.0
-                fragments_per_hour = (avg_fragments * 3600 / avg_run_duration) if avg_run_duration > 0 else 0.0
-                xp_per_hour = (avg_xp * 3600 / avg_run_duration) if avg_run_duration > 0 else 0.0
-                
-                # Store refinement candidate
-                refinement_scores.append((refine_sample, avg_max_stage, new_stats.copy(), fragments_per_hour, xp_per_hour))
-                
-                # Revert changes
-                self.skill_points = original_points.copy()
+                    refinement_pending[fut] = (refine_sample, stats_dict)
+                    refine_submitted += 1
+
+                    if len(refinement_pending) >= max_pending:
+                        done, _ = wait(refinement_pending.keys(), return_when=FIRST_COMPLETED)
+                        _drain_refinement_done(done)
+
+                while refinement_pending and not cancel_event.is_set():
+                    done, _ = wait(refinement_pending.keys(), return_when=FIRST_COMPLETED)
+                    _drain_refinement_done(done)
+            finally:
+                if cancel_event.is_set():
+                    _shutdown_executor(cancel_futures=True)
             
             if cancel_event.is_set():
+                _shutdown_executor(cancel_futures=True)
                 return
             
             # Sort refinement results and find best
@@ -8287,6 +8534,7 @@ class ArchaeologySimulatorWindow:
                     best_from_screening[3], best_from_screening[4]
                 )
             else:
+                _shutdown_executor(cancel_futures=True)
                 return
             
             # Build top_3_candidates from refinement results
@@ -8304,6 +8552,7 @@ class ArchaeologySimulatorWindow:
                         self.window.after(0, lambda: self._close_loading_dialog(loading_window))
                 except (tk.TclError, RuntimeError):
                     pass
+                _shutdown_executor(cancel_futures=True)
                 return
             
             # Phase 3: Run full MC simulation (1000 runs) with best distribution
@@ -8328,47 +8577,81 @@ class ArchaeologySimulatorWindow:
             except (tk.TclError, RuntimeError):
                 pass
             
-            for i in range(total_sims):
-                if cancel_event.is_set():
-                    # Restore original skill points
-                    self.skill_points = original_points.copy()
+            # Phase 3 is large but embarrassingly parallel: run in chunks per worker.
+            final_pending = {}  # future -> chunk_size
+            total_remaining = total_sims
+
+            # Choose a chunk size that balances overhead and progress smoothness.
+            chunk_size = max(10, min(100, total_sims // max(1, max_workers * 4)))
+
+            # Submit all chunks (bounded by max_pending)
+            submitted = 0
+            while total_remaining > 0 and not cancel_event.is_set():
+                while len(final_pending) < max_pending and total_remaining > 0 and not cancel_event.is_set():
+                    n_chunk = min(chunk_size, total_remaining)
+                    submitted += 1
+                    fut = executor.submit(
+                        run_stage_sims_detailed,
+                        stats=final_stats,
+                        starting_floor=starting_floor,
+                        n_sims=n_chunk,
+                        use_crit=True,
+                        enrage_enabled=enrage_enabled,
+                        flurry_enabled=flurry_enabled,
+                        quake_enabled=quake_enabled,
+                        block_cards=block_cards,
+                        seed=seed_base + 1_000_000 + submitted,
+                    )
+                    final_pending[fut] = n_chunk
+                    total_remaining -= n_chunk
+
+                if not final_pending:
+                    break
+
+                done, _ = wait(final_pending.keys(), return_when=FIRST_COMPLETED)
+                for fut in done:
+                    n_chunk = final_pending.pop(fut, 0)
+                    if cancel_event.is_set():
+                        break
                     try:
-                        if self.window.winfo_exists():
-                            self.window.after(0, lambda: self._close_loading_dialog(loading_window))
-                    except (tk.TclError, RuntimeError):
-                        pass
-                    return
-                
-                # Run simulation starting at Stage 1 (always unbiased)
-                result = simulator.simulate_run(
-                    final_stats, starting_floor, use_crit=True,
-                    enrage_enabled=enrage_enabled, flurry_enabled=flurry_enabled,
-                    quake_enabled=quake_enabled, block_cards=block_cards, return_metrics=True
-                )
-                
-                max_stage = result['max_stage_reached']
-                max_stage_samples.append(max_stage)
-                
-                # Collect metrics for this run
-                metrics_samples.append({
-                    'xp_per_run': result.get('xp_per_run', 0.0),
-                    'total_fragments': result.get('total_fragments', 0.0),
-                    'fragments': result.get('fragments', {}).copy(),  # Store fragments by type
-                    'floors_cleared': result.get('floors_cleared', 0.0),
-                    'run_duration_seconds': result.get('run_duration_seconds', 1.0),
-                })
-                
-                # Update progress every 10 simulations
-                sim_count += 1
-                if sim_count % 10 == 0 or sim_count == total_sims:
-                    try:
-                        if self.window.winfo_exists():
-                            self.window.after(0, lambda c=sim_count, t=total_sims: 
-                                             self._safe_update_progress_label(loading_window, 
-                                                                              f"Phase 3: Running final simulations... ({c}/{t})",
-                                                                              current=c, total=t))
-                    except (tk.TclError, RuntimeError):
-                        pass
+                        out = fut.result()
+                    except Exception:
+                        # Skip failed chunk, but keep progress moving.
+                        sim_count += n_chunk
+                        continue
+
+                    max_stage_samples.extend(out.get("max_stage_samples", []) or [])
+                    metrics_samples.extend(out.get("metrics_samples", []) or [])
+                    sim_count += n_chunk
+
+                    if sim_count % 10 == 0 or sim_count >= total_sims:
+                        try:
+                            if self.window.winfo_exists():
+                                self.window.after(
+                                    0,
+                                    lambda c=sim_count, t=total_sims: self._safe_update_progress_label(
+                                        loading_window,
+                                        f"Phase 3: Running final simulations... ({c}/{t})",
+                                        current=c,
+                                        total=t,
+                                    ),
+                                )
+                        except (tk.TclError, RuntimeError):
+                            pass
+
+            if cancel_event.is_set():
+                # Restore original skill points
+                self.skill_points = original_points.copy()
+                _shutdown_executor(cancel_futures=True)
+                try:
+                    if self.window.winfo_exists():
+                        self.window.after(0, lambda: self._close_loading_dialog(loading_window))
+                except (tk.TclError, RuntimeError):
+                    pass
+                return
+
+            # We're done with the pool for this run; allow processes to go away quickly.
+            _shutdown_executor(cancel_futures=False)
             
             # Get skill points for display (start from 0, ignore current distribution)
             skill_points_display = {}
