@@ -1,6 +1,6 @@
 # ObeliskFarm Calculator
 
-> ⚠️ **Data based on Obelisk Level 30** - All calculations and game data are based on Obelisk Level 30. Results may vary for different progression levels.
+> ⚠️ **Data based on Obelisk Level 32** - All calculations and game data are based on Obelisk Level 32. Results may vary for different progression levels.
 
 An interactive GUI tool for calculating the **Expected Value (EV)** for freebies in the Android game **Idle Obelisk Miner**.
 
@@ -227,3 +227,9 @@ ObeliskGemEV/
 ## License
 
 For personal use when playing Idle Obelisk Miner.
+
+## Credits & Asset Rights
+
+- **Event Simulator (Love2D mode)**: Ported from a Lua/LÖVE2D implementation by **julk** (see `ObeliskGemEV/event/`; original release: `https://github.com/Kommandant-Julk/shminer_event_sim/releases/tag/working`).
+- **Idle Obelisk Miner**: Huge credit to the game developers for making a great game.
+- **Images / game assets**: All rights to any images/assets originating from the game belong to the game developers/rightsholders. This is a fan-made tool and is not affiliated with the game.
