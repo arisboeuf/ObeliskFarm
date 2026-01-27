@@ -315,23 +315,15 @@ class ArchaeologySimulatorWindow:
     QUAKE_DAMAGE_MULTIPLIER = 0.20  # 20% damage to all blocks
     
     # Mod effects (applied per block when triggered)
-    # Exp Mod: 3x to 5x XP (avg 4x)
-    # Loot Mod: 2x to 5x Fragments (avg 3.5x)
-    # Speed Mod: 2x attack speed for 10-110 attacks (avg 60 attacks)
-    #   - Pure QoL: faster run completion, no resource benefit
-    #   - Stamina drains faster too, so no floors/run advantage
-    # Stamina Mod: +3 to +10 Stamina (avg +6.5)
-    #
-    # IMPORTANT: The in-game stats panel displays the MIN values (3x / 2x / +10 / +3),
-    # while EV calculations should use expected (average) values.
-    MOD_EXP_MULTIPLIER_MIN = 3.0
-    MOD_LOOT_MULTIPLIER_MIN = 2.0
-    MOD_SPEED_ATTACKS_MIN = 10.0
-    MOD_STAMINA_BONUS_MIN = 3.0
-    MOD_EXP_MULTIPLIER_AVG = 4.0  # Average of 3x-5x
-    MOD_LOOT_MULTIPLIER_AVG = 3.5  # Average of 2x-5x
-    MOD_SPEED_ATTACKS_AVG = 60.0  # Average of 10-110 attacks (QoL only, no EV impact)
-    MOD_STAMINA_BONUS_AVG = 6.5  # Average of 3-10
+    # Based on the in-game stats panel, these appear to be fixed base values:
+    # - Exp Mod Gain: 3x XP
+    # - Loot Mod Gain: 2x Fragments
+    # - Speed Mod Gain: +10 hits at 2x attack rate (QoL only)
+    # - Stamina Mod Gain: +3 Stamina
+    MOD_EXP_MULTIPLIER_AVG = 3.0
+    MOD_LOOT_MULTIPLIER_AVG = 2.0
+    MOD_SPEED_ATTACKS_AVG = 10.0
+    MOD_STAMINA_BONUS_AVG = 3.0
     
     # Gem Upgrade bonuses per level (purchased with Gems, N/A = always unlocked)
     GEM_UPGRADE_BONUSES = {
@@ -1361,26 +1353,35 @@ class ArchaeologySimulatorWindow:
         crit_damage = stats['crit_damage']
         super_crit_chance = stats.get('super_crit_chance', 0)
         super_crit_damage = stats.get('super_crit_damage', 0)
+        ultra_crit_chance = stats.get('ultra_crit_chance', 0)
         one_hit_chance = stats['one_hit_chance']
         
-        # Helper function to calculate average damage with crits and super crits
+        # Helper function to calculate average damage with crits, super crits, and ultra crits
         def calc_avg_dmg_with_crits(base_dmg, crit_dmg_mult):
             """
             Calculate average damage accounting for:
             - Normal hits: (1 - crit_chance) * base_dmg
             - Normal crits: crit_chance * (1 - super_crit_chance) * base_dmg * crit_dmg_mult
-            - Super crits: crit_chance * super_crit_chance * base_dmg * crit_dmg_mult * (1 + super_crit_damage)
+            - Super crits: crit_chance * super_crit_chance * (1 - ultra_crit_chance) * base_dmg * crit_dmg_mult * (1 + super_crit_damage)
+            - Ultra crits: crit_chance * super_crit_chance * ultra_crit_chance * base_dmg * crit_dmg_mult * (1 + super_crit_damage)^2
             
-            Super crits only occur when a crit procs, and multiply the crit damage further.
+            Super crits only occur when a crit procs.
+            Ultra crits occur only on a super crit and multiply the super crit again.
             """
-            # Expected damage multiplier
-            # = 1 - crit_chance + crit_chance * (1 - super_crit_chance) * crit_dmg_mult + crit_chance * super_crit_chance * crit_dmg_mult * (1 + super_crit_damage)
-            # = 1 - crit_chance + crit_chance * crit_dmg_mult * [(1 - super_crit_chance) + super_crit_chance * (1 + super_crit_damage)]
-            # = 1 - crit_chance + crit_chance * crit_dmg_mult * [1 - super_crit_chance + super_crit_chance + super_crit_chance * super_crit_damage]
-            # = 1 - crit_chance + crit_chance * crit_dmg_mult * [1 + super_crit_chance * super_crit_damage]
-            # = 1 + crit_chance * (crit_dmg_mult * (1 + super_crit_chance * super_crit_damage) - 1)
-            crit_mult_with_super = crit_dmg_mult * (1 + super_crit_chance * super_crit_damage)
-            return base_dmg * (1 + crit_chance * (crit_mult_with_super - 1))
+            # Clamp chances defensively
+            sc = max(0.0, min(1.0, super_crit_chance))
+            uc = max(0.0, min(1.0, ultra_crit_chance))
+            cd = max(0.0, super_crit_damage)
+            super_mult = 1.0 + cd
+            ultra_mult = super_mult  # Ultra crit multiplies super crit again
+            
+            # Expected multiplier on a crit:
+            # (1-sc) * crit_dmg_mult
+            # + sc * crit_dmg_mult * super_mult * [(1-uc) + uc * ultra_mult]
+            crit_mult_expected = crit_dmg_mult * ((1.0 - sc) + sc * super_mult * (1.0 + uc * (ultra_mult - 1.0)))
+            
+            # Mix crit and non-crit:
+            return base_dmg * ((1.0 - crit_chance) + crit_chance * crit_mult_expected)
         
         # Check if Enrage is enabled
         enrage_active = getattr(self, 'enrage_enabled', None)
@@ -2038,6 +2039,7 @@ class ArchaeologySimulatorWindow:
             ("Crit Dmg:", "crit_damage"),
             ("Super Crit Chance:", "super_crit_chance"),
             ("Super Crit Damage:", "super_crit_damage"),
+            ("Ultra Crit Chance:", "ultra_crit_chance"),
             ("One-Hit %:", "one_hit_chance"),
         ]
         
@@ -6540,7 +6542,6 @@ class ArchaeologySimulatorWindow:
     
     def update_display(self):
         stats = self.get_total_stats()
-        frag_bonuses = self._get_fragment_upgrade_bonuses()
         block_bonker = self._get_block_bonker_bonus()
 
         def _fmt_pct(frac_value: float) -> str:
@@ -6563,6 +6564,8 @@ class ArchaeologySimulatorWindow:
             self.stat_labels['super_crit_chance'].config(text=_fmt_pct(stats.get('super_crit_chance', 0)))
         if 'super_crit_damage' in self.stat_labels:
             self.stat_labels['super_crit_damage'].config(text=_fmt_pct(stats.get('super_crit_damage', 0)))
+        if 'ultra_crit_chance' in self.stat_labels:
+            self.stat_labels['ultra_crit_chance'].config(text=_fmt_pct(stats.get('ultra_crit_chance', 0)))
         self.stat_labels['one_hit_chance'].config(text=f"{stats['one_hit_chance']*100:.2f}%")
         self.stat_labels['xp_gain_total'].config(text=f"{stats['xp_gain_total']:.2f}x")
         self.stat_labels['fragment_mult'].config(text=f"{stats['fragment_mult']:.2f}x")
@@ -6587,26 +6590,23 @@ class ArchaeologySimulatorWindow:
             if 'exp_mod_chance' in self.mod_labels:
                 self.mod_labels['exp_mod_chance'].config(text=_fmt_pct(stats.get('exp_mod_chance', 0)))
             if 'exp_mod_gain' in self.mod_labels:
-                exp_mod_gain_min = self.MOD_EXP_MULTIPLIER_MIN + frag_bonuses.get('exp_mod_gain', 0)
-                self.mod_labels['exp_mod_gain'].config(text=_fmt_x(exp_mod_gain_min))
+                self.mod_labels['exp_mod_gain'].config(text=_fmt_x(stats.get('exp_mod_gain', self.MOD_EXP_MULTIPLIER_AVG)))
             if 'loot_mod_chance' in self.mod_labels:
                 self.mod_labels['loot_mod_chance'].config(text=_fmt_pct(stats.get('loot_mod_chance', 0)))
             if 'loot_mod_multiplier' in self.mod_labels:
-                loot_mod_gain_min = self.MOD_LOOT_MULTIPLIER_MIN + frag_bonuses.get('loot_mod_multiplier', 0)
-                self.mod_labels['loot_mod_multiplier'].config(text=_fmt_x(loot_mod_gain_min))
+                self.mod_labels['loot_mod_multiplier'].config(text=_fmt_x(stats.get('loot_mod_multiplier', self.MOD_LOOT_MULTIPLIER_AVG)))
             if 'speed_mod_chance' in self.mod_labels:
                 self.mod_labels['speed_mod_chance'].config(text=_fmt_pct(stats.get('speed_mod_chance', 0)))
             if 'speed_mod_gain' in self.mod_labels:
-                # In-game stat panel shows MIN hits (10) + Block Bonker bonus hits
-                speed_hits_min = self.MOD_SPEED_ATTACKS_MIN + block_bonker.get('speed_mod_gain', 0)
-                self.mod_labels['speed_mod_gain'].config(text=f"+{speed_hits_min:.0f}")
+                # In-game stat panel shows base hits (+10) plus any bonus sources (e.g. Block Bonker).
+                speed_hits = self.MOD_SPEED_ATTACKS_AVG + block_bonker.get('speed_mod_gain', 0)
+                self.mod_labels['speed_mod_gain'].config(text=f"+{speed_hits:.0f}")
             if 'speed_mod_atk_rate' in self.mod_labels:
                 self.mod_labels['speed_mod_atk_rate'].config(text=_fmt_x(2.0))
             if 'stamina_mod_chance' in self.mod_labels:
                 self.mod_labels['stamina_mod_chance'].config(text=_fmt_pct(stats.get('stamina_mod_chance', 0)))
             if 'stamina_mod_gain' in self.mod_labels:
-                stamina_mod_gain_min = self.MOD_STAMINA_BONUS_MIN + frag_bonuses.get('stamina_mod_gain', 0)
-                self.mod_labels['stamina_mod_gain'].config(text=f"+{stamina_mod_gain_min:.0f}")
+                self.mod_labels['stamina_mod_gain'].config(text=f"+{stats.get('stamina_mod_gain', self.MOD_STAMINA_BONUS_AVG):.0f}")
         
         # Update ability cooldown labels (effective cooldowns after fragments + misc card)
         if hasattr(self, 'enrage_cooldown_label'):
