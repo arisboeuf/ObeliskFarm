@@ -10,6 +10,12 @@ An interactive GUI tool for calculating the **Expected Value (EV)** for freebies
 
 > Download the EXE from the latest release and run it. No Python required.
 
+### Trust / Security (optional)
+
+The Windows EXE is built automatically by GitHub Actions from the source code for the corresponding release tag (see `.github/workflows/build-release.yml`).
+
+If you prefer not to run an EXE from the internet, you can run the tool from source instead (see the "Installation & Start (From Source)" section below).
+
 ## Overview
 
 The ObeliskFarm Calculator helps you calculate the optimal return from various freebie mechanisms in the game. The tool automatically calculates the **Gem-equivalent value per hour** based on all active game mechanics such as jackpots, refresh chains, skill shards, founder drops, and more.
