@@ -55,10 +55,16 @@ export function isUpgradeUnlocked(tier: 1 | 2 | 3 | 4, idx: number, prestige: nu
 export function getMaxLevelWithCaps(tier: 1 | 2 | 3 | 4, upgradeIdx: number, state: UpgradeState): number {
   const baseMax = MAX_LEVELS[tier][upgradeIdx];
   const capIdx = CAP_UPGRADES[tier] - 1;
+  const capOfCapsTier = 4 as const;
+  const capOfCapsIdx = 6; // Tier 4: "Cap of Caps +1" upgrade
+
+  // Wiki behavior: "Cap of Caps" is NOT increased by Tier 4 caps.
+  if (tier === capOfCapsTier && upgradeIdx === capOfCapsIdx) return baseMax;
+
   if (upgradeIdx === capIdx) {
     // cap upgrade itself
-    if (tier === 4 && upgradeIdx === 6) return baseMax; // cap of caps doesn't get increased
-    return baseMax + state.levels[4][6]; // increased by cap of caps
+    if (tier === capOfCapsTier) return baseMax + (state.levels[capOfCapsTier][capOfCapsIdx] ?? 0); // increased by cap of caps
+    return baseMax + (state.levels[capOfCapsTier][capOfCapsIdx] ?? 0); // increased by cap of caps
   }
   return baseMax + state.levels[tier][capIdx];
 }
