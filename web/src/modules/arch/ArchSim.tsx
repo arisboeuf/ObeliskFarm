@@ -150,6 +150,8 @@ export function ArchSim() {
     const xs = loadJson<McLogEntry[]>(MC_LOG_KEY) ?? [];
     return xs.find((e) => e.mcType !== "det")?.id ?? null;
   });
+  const [openLogId, setOpenLogId] = useState<string | null>(null);
+  const [mcWindowOpen, setMcWindowOpen] = useState(false);
   const [mcSettings, setMcSettings] = useState<McSettings>(() => {
     const raw = (loadJson<any>(MC_SETTINGS_KEY) ?? null) as any;
     const base = defaultMcSettings();
@@ -893,11 +895,13 @@ export function ArchSim() {
     return { mean, std: Math.sqrt(variance), min, max };
   }
 
-  function renderHistogram(samples: number[], opts: { kind: "stage" | "rate" }): ReactNode {
+  function renderHistogramCard(args: { samples: number[]; kind: "stage" | "rate"; title: string; xLabel: string }): ReactNode {
+    const { samples, kind, title, xLabel } = args;
     if (!samples.length) return null;
-    const W = 320;
-    const H = 72;
-    const pad = 4;
+    const W = 560;
+    const H = 184; // extra space for x-axis labels
+    const pad = 10;
+    const axisH = 26;
 
     const xs = samples.map((x) => Number(x)).filter((x) => Number.isFinite(x));
     if (!xs.length) return null;
@@ -906,8 +910,9 @@ export function ArchSim() {
     let counts: number[] = [];
     let min = Math.min(...xs);
     let max = Math.max(...xs);
+    let step = 1;
 
-    if (opts.kind === "stage") {
+    if (kind === "stage") {
       const lo = Math.floor(min);
       const hi = Math.ceil(max);
       const n = Math.max(1, Math.min(40, hi - lo + 1));
@@ -918,10 +923,11 @@ export function ArchSim() {
         const idx = k - lo;
         if (idx >= 0 && idx < counts.length) counts[idx] += 1;
       }
+      step = 1;
     } else {
       const n = 30;
       if (max <= min) max = min + 1;
-      const step = (max - min) / n;
+      step = (max - min) / n;
       counts = new Array(n).fill(0);
       for (const v of xs) {
         const idx = Math.max(0, Math.min(n - 1, Math.floor((v - min) / step)));
@@ -933,21 +939,159 @@ export function ArchSim() {
     const maxC = Math.max(1, ...counts);
     const barW = (W - pad * 2) / counts.length;
     const bars = counts.map((c, i) => {
-      const h = ((H - pad * 2) * c) / maxC;
+      const h = ((H - pad * 2 - axisH) * c) / maxC;
       const x = pad + i * barW;
-      const y = H - pad - h;
-      return <rect key={i} x={x} y={y} width={Math.max(1, barW - 1)} height={h} fill="rgba(92,107,192,0.55)" />;
+      const y = H - pad - axisH - h;
+      const binStart = bins[i] ?? 0;
+      const binEnd = binStart + step;
+      const titleText = kind === "stage" ? `Stage ${Math.floor(binStart)}` : `${binStart.toFixed(1)}–${binEnd.toFixed(1)}`;
+      return (
+        <rect key={i} x={x} y={y} width={Math.max(1, barW - 1)} height={h} fill="rgba(92,107,192,0.55)">
+          <title>{titleText}</title>
+        </rect>
+      );
     });
 
+    // X axis ticks / labels (so bins are understandable)
+    const tickCount = kind === "stage" ? Math.min(9, counts.length) : 6;
+    const stride = kind === "stage" ? Math.max(1, Math.ceil(counts.length / tickCount)) : 1;
+    const ticks: Array<{ x: number; label: string }> = [];
+    if (kind === "stage") {
+      for (let i = 0; i < counts.length; i += stride) {
+        const v = bins[i] ?? 0;
+        const x = pad + (i + 0.5) * barW;
+        ticks.push({ x, label: String(Math.floor(v)) });
+      }
+    } else {
+      // 0%, 25%, 50%, 75%, 100%
+      const idxs = [0, 0.25, 0.5, 0.75, 1].map((t) => Math.round((counts.length - 1) * t));
+      const uniq = Array.from(new Set(idxs));
+      for (const i of uniq) {
+        const v = bins[i] ?? min;
+        const x = pad + (i + 0.5) * barW;
+        ticks.push({ x, label: v.toFixed(1) });
+      }
+    }
+
     return (
-      <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ display: "block", borderRadius: 10, border: "1px solid rgba(15,23,42,0.10)", background: "#fff" }}>
-        {bars}
-      </svg>
+      <div className="histCard">
+        <div className="histTitle">{title}</div>
+        <div className="histPlotRow">
+          <div className="histYAxis">Frequency</div>
+          <svg width="100%" viewBox={`0 0 ${W} ${H}`} className="histSvg" aria-label={title}>
+            {bars}
+            {/* x axis baseline */}
+            <line
+              x1={pad}
+              x2={W - pad}
+              y1={H - pad - axisH}
+              y2={H - pad - axisH}
+              stroke="rgba(15,23,42,0.18)"
+              strokeWidth={1}
+            />
+            {/* tick labels */}
+            {ticks.map((t, idx) => (
+              <g key={idx}>
+                <line x1={t.x} x2={t.x} y1={H - pad - axisH} y2={H - pad - axisH + 4} stroke="rgba(15,23,42,0.18)" strokeWidth={1} />
+                <text
+                  x={t.x}
+                  y={H - pad - 8}
+                  textAnchor="middle"
+                  fontSize="10"
+                  fontWeight="700"
+                  fill="rgba(15,23,42,0.70)"
+                >
+                  {t.label}
+                </text>
+              </g>
+            ))}
+          </svg>
+        </div>
+        <div className="histXAxis">{xLabel}</div>
+      </div>
+    );
+  }
+
+  function renderTieBreakBars(tb: NonNullable<TieBreakReport>): ReactNode {
+    if (!tb?.top3?.length) return null;
+    // Match desktop visual: grouped horizontal bars for Fragments/h and XP/h with legend outside plot.
+    const rows = tb.top3;
+    const showFrags = tb.mode !== "frag";
+    const showXp = tb.mode !== "frag";
+    const maxFrag = Math.max(1, ...rows.map((r) => Number(r.secondary ?? 0)));
+    const maxXp = Math.max(1, ...rows.map((r) => Number(r.tertiary ?? 0)));
+
+    const labelFor = (r: (typeof rows)[number]) => {
+      const d = r.dist;
+      const parts: string[] = [];
+      if (d.strength) parts.push(`STR:${d.strength}`);
+      if (d.agility) parts.push(`AGI:${d.agility}`);
+      if (d.perception) parts.push(`PER:${d.perception}`);
+      if (d.intellect) parts.push(`INT:${d.intellect}`);
+      if (d.luck) parts.push(`LCK:${d.luck}`);
+      return `${r.label}: ${parts.join(" | ") || "All 0"}`;
+    };
+
+    return (
+      <div className="tbWrap">
+        <div className="tbPlot">
+          {rows.map((r) => {
+            const frag = Number(r.secondary ?? 0);
+            const xp = Number(r.tertiary ?? 0);
+            const fragPct = Math.max(0, Math.min(1, frag / maxFrag));
+            const xpPct = Math.max(0, Math.min(1, xp / maxXp));
+            return (
+              <div key={r.label} className="tbRow">
+                <div className="tbLabel mono">{labelFor(r)}</div>
+                <div className="tbBars">
+                  {showFrags ? (
+                    <div className="tbBarLine">
+                      <div className="tbBar tbBarFrag" style={{ width: `${(fragPct * 100).toFixed(1)}%` }} />
+                      <div className="tbValue mono">{frag.toFixed(2)}</div>
+                    </div>
+                  ) : null}
+                  {showXp ? (
+                    <div className="tbBarLine">
+                      <div className="tbBar tbBarXp" style={{ width: `${(xpPct * 100).toFixed(1)}%` }} />
+                      <div className="tbValue mono">{xp.toFixed(1)}</div>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <div className="tbLegend">
+          <div className="tbLegendTitle">Legend</div>
+          <div className="tbLegendItem">
+            <span className="tbSwatch tbSwatchFrag" /> Fragments/h
+          </div>
+          <div className="tbLegendItem">
+            <span className="tbSwatch tbSwatchXp" /> XP/h
+          </div>
+        </div>
+      </div>
     );
   }
 
   const visibleMcLog = useMemo(() => mcLog.filter((e) => e.mcType !== "det"), [mcLog]);
   const activeLog = useMemo(() => (activeLogId ? visibleMcLog.find((x) => x.id === activeLogId) ?? null : null), [activeLogId, visibleMcLog]);
+  const openLog = useMemo(() => (openLogId ? visibleMcLog.find((x) => x.id === openLogId) ?? null : null), [openLogId, visibleMcLog]);
+
+  useEffect(() => {
+    function onKeyDown(ev: KeyboardEvent) {
+      if (ev.key !== "Escape") return;
+      if (openLogId) {
+        setOpenLogId(null);
+        return;
+      }
+      if (mcWindowOpen) {
+        setMcWindowOpen(false);
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [openLogId, mcWindowOpen]);
 
   return (
     <div className="container">
@@ -1008,6 +1152,9 @@ export function ArchSim() {
         </div>
 
         <div className="btnRow" style={{ marginTop: 10 }}>
+          <button className="btn" type="button" onClick={() => setMcWindowOpen(true)}>
+            Open Monte Carlo
+          </button>
           <button
             className="btn btnSecondary"
             type="button"
@@ -1034,7 +1181,7 @@ export function ArchSim() {
         </div>
       </div>
 
-      <div className="archGrid">
+      <div className="archGrid archGridNoMc">
         {/* Column 1: stats (collapsible) */}
         <div style={{ display: "grid", gap: 12 }}>
           <Collapsible
@@ -1130,6 +1277,32 @@ export function ArchSim() {
                 <Sprite path="sprites/archaeology/blockbonker.png" alt="Block Bonker" className="iconSmall" /> Block Bonker:{" "}
                 <span className="mono">{build.blockBonkerEnabled ? "ON" : "OFF"}</span>
               </button>
+            </div>
+
+            <div className="sectionTitle">Mods</div>
+            <div className="small" style={{ marginBottom: 8 }}>
+              Mod chances are <span className="mono">per block hit</span> (matches the desktop semantics).
+            </div>
+            <div className="kv" style={{ background: "var(--tier1)" }}>
+              <kbd>Exp mod chance</kbd>
+              <div className="mono">{formatPct(stats.exp_mod_chance, 2)}</div>
+              <kbd>Exp mod mult (avg)</kbd>
+              <div className="mono">{stats.exp_mod_gain.toFixed(2)}x</div>
+
+              <kbd>Loot mod chance</kbd>
+              <div className="mono">{formatPct(stats.loot_mod_chance, 2)}</div>
+              <kbd>Loot mod mult (avg)</kbd>
+              <div className="mono">{stats.loot_mod_multiplier.toFixed(2)}x</div>
+
+              <kbd>Speed mod chance</kbd>
+              <div className="mono">{formatPct(stats.speed_mod_chance, 2)}</div>
+              <kbd>Speed mod gain</kbd>
+              <div className="mono">{stats.speed_mod_gain.toFixed(1)}</div>
+
+              <kbd>Stamina mod chance</kbd>
+              <div className="mono">{formatPct(stats.stamina_mod_chance, 2)}</div>
+              <kbd>Stamina mod gain (avg)</kbd>
+              <div className="mono">{stats.stamina_mod_gain.toFixed(1)}</div>
             </div>
           </Collapsible>
         </div>
@@ -1349,258 +1522,358 @@ export function ArchSim() {
           </Collapsible>
 
         </div>
+      </div>
 
-        {/* Column 3: MC + log */}
-        <div style={{ display: "grid", gap: 12 }}>
-          <div className="panel mcPanel" style={{ background: "var(--tier3)" }}>
-            <div className="panelHeader">
-              <h2 className="panelTitle">Monte Carlo</h2>
-              <p className="panelHint">
-                Multi-core • unbiased from <span className="mono">Stage 1</span>
-              </p>
-            </div>
-
-            <label className="toggle">
-              <input
-                type="checkbox"
-                checked={true}
-                disabled={true}
-              />
-              Screening phase (fast)
-            </label>
-            <label className="toggle" style={{ marginTop: 6 }}>
-              <input
-                type="checkbox"
-                checked={true}
-                disabled={true}
-              />
-              Refinement phase (accurate)
-            </label>
-
-            <div className="mcCards">
-              <div className="mcCard mcCardStage">
-                <div className="mcCardTitle">Stage Push Optimizer</div>
-                <div className="small">Objective: maximize average max stage.</div>
-                <div className="btnRow" style={{ marginTop: 10 }}>
-                  <button className="btn" type="button" disabled={mcRunning} onClick={() => runMcOptimizer("stage")}>
-                    Run MC
-                  </button>
-                  {mcRunning ? (
-                    <button className="btn btnSecondary" type="button" onClick={cancelMc}>
-                      Cancel
-                    </button>
+      {mcWindowOpen ? (
+        <div className="modalOverlay" onMouseDown={() => setMcWindowOpen(false)}>
+          <div className="modalWindow modalWindowWide" onMouseDown={(e) => e.stopPropagation()}>
+            <div className="modalHeader">
+              <div>
+                <div className="mono" style={{ fontWeight: 900 }}>
+                  Monte Carlo • Multi-core
+                </div>
+                <div className="small">
+                  Saved runs: <span className="mono">{visibleMcLog.length}</span>
+                  {mcProgress ? (
+                    <>
+                      {" "}
+                      • Status: <span className="mono">{mcProgress}</span>
+                    </>
                   ) : null}
                 </div>
               </div>
-
-              <div className="mcCard mcCardXp">
-                <div className="mcCardTitle">XP Optimizer</div>
-                <div className="small">Objective: maximize XP/hour.</div>
-                <div className="btnRow" style={{ marginTop: 10 }}>
-                  <button className="btn" type="button" disabled={mcRunning} onClick={() => runMcOptimizer("XP")}>
-                    Run MC
-                  </button>
-                  {mcRunning ? (
-                    <button className="btn btnSecondary" type="button" onClick={cancelMc}>
-                      Cancel
-                    </button>
-                  ) : null}
-                </div>
-              </div>
-
-              <div className="mcCard mcCardFrag">
-                <div className="mcCardTitle">Fragment Farmer</div>
-                <div className="small">Objective: maximize target fragments/hour.</div>
-                <div className="row" style={{ marginTop: 8 }}>
-                  <div className="label">
-                    <span>Target fragment</span>
-                    <span className="mono">{mcSettings.targetFrag.toUpperCase()}</span>
-                  </div>
-                  <select
-                    className="input"
-                    disabled={mcRunning}
-                    value={mcSettings.targetFrag}
-                    onChange={(e) => setMcSettings((s) => ({ ...s, targetFrag: e.target.value as BlockType }))}
-                  >
-                    {(["common", "rare", "epic", "legendary", "mythic"] as const).map((t) => (
-                      <option key={t} value={t}>
-                        {t.toUpperCase()}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="btnRow" style={{ marginTop: 10 }}>
-                  <button className="btn" type="button" disabled={mcRunning} onClick={() => runMcOptimizer("frag")}>
-                    Run MC
-                  </button>
-                  {mcRunning ? (
-                    <button className="btn btnSecondary" type="button" onClick={cancelMc}>
-                      Cancel
-                    </button>
-                  ) : null}
-                </div>
-              </div>
-            </div>
-
-            {mcProgress ? <div className="small" style={{ marginTop: 10 }}>Status: {mcProgress}</div> : null}
-          </div>
-
-          <div className="mcLogPanel">
-            <div className="mcLogHeader">
-              <div className="mcLogTitle">MC Results Log</div>
               <div style={{ display: "flex", gap: 8 }}>
-                <button
-                  className="btn btnSecondary"
-                  type="button"
-                  style={{ padding: "6px 10px", background: "#ffffff" }}
-                  onClick={() => {
-                    if (!confirmDanger("Reset MC results log? This will delete all saved MC runs in this browser.")) return;
-                    setMcLog([]);
-                    setActiveLogId(null);
-                  }}
-                >
-                  Reset
+                <button className="btn btnSecondary" type="button" onClick={() => setMcWindowOpen(false)}>
+                  Close
                 </button>
               </div>
             </div>
-            <div className="mcLogList">
-              {visibleMcLog.length === 0 ? (
-                <div className="small" style={{ textAlign: "center", padding: 14 }}>
-                  No saved MC runs yet. Run one of the optimizers to create entries you can reopen later.
-                </div>
-              ) : (
-                <>
-                  {visibleMcLog.map((e) => {
-                    const active = e.id === activeLogId;
-                    return (
-                      <div key={e.id} className={`mcLogEntry ${active ? "mcLogEntryActive" : ""}`}>
-                        <div className="label" style={{ marginBottom: 6 }}>
-                          <span>
-                            <span className="mono">{new Date(e.createdAt).toLocaleString()}</span> — {e.label}
-                          </span>
-                          <span className="mono">{e.mcType.toUpperCase()}</span>
-                        </div>
-                        <div className="small">
-                          Floors/run <span className="mono">{e.metrics.floorsPerRun.toFixed(2)}</span> | XP/h{" "}
-                          <span className="mono">{Math.round(e.metrics.xpPerHour)}</span> | Frag/h{" "}
-                          <span className="mono">{e.metrics.fragmentsPerHour.toFixed(1)}</span>
-                        </div>
-                        <div className="btnRow" style={{ marginTop: 8 }}>
-                          <button className="btn btnSecondary" type="button" onClick={() => setActiveLogId(e.id)}>
-                            Open
-                          </button>
-                          <button
-                            className="btn"
-                            type="button"
-                            onClick={() => {
-                              setBuild(e.build);
-                              setActiveLogId(e.id);
-                            }}
-                          >
-                            Load build
-                          </button>
-                          <button
-                            className="btn btnSecondary"
-                            type="button"
-                            onClick={() => {
-                              if (!confirmDanger("Delete this saved MC run?")) return;
-                              setMcLog((xs) => xs.filter((x) => x.id !== e.id));
-                              if (active) setActiveLogId(null);
-                            }}
-                          >
-                            Delete
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </>
-              )}
-
-              {activeLog ? (
-                <div style={{ marginTop: 12 }}>
-                  <div className="sectionTitle">Opened entry</div>
-                  <div className="kv">
-                    <kbd>Goal stage</kbd>
-                    <div className="mono">{activeLog.build.goalStage}</div>
-                    <kbd>Unlocked</kbd>
-                    <div className="mono">{activeLog.build.unlockedStage}</div>
-                    <kbd>Floors/run</kbd>
-                    <div className="mono">{activeLog.metrics.floorsPerRun.toFixed(3)}</div>
-                    <kbd>XP/run</kbd>
-                    <div className="mono">{activeLog.metrics.xpPerRun.toFixed(3)}</div>
-                    <kbd>Duration</kbd>
-                    <div className="mono">{activeLog.metrics.durationSeconds.toFixed(1)}s</div>
-                    <kbd>Frag/run</kbd>
-                    <div className="mono">{activeLog.metrics.fragmentsPerRunTotal.toFixed(3)}</div>
-                    {activeLog.mc ? (
-                      <>
-                        <kbd>MC objective</kbd>
-                        <div className="mono">
-                          {activeLog.mc.objective === "stage"
-                            ? "Max stage"
-                            : activeLog.mc.objective === "XP"
-                              ? "XP/hour"
-                              : `${activeLog.mc.targetFrag?.toUpperCase() ?? "FRAG"}/hour`}
-                        </div>
-                        <kbd>Mean ± std</kbd>
-                        <div className="mono">
-                          {(() => {
-                            const s = sampleStats(activeLog.mc?.objectiveSamples ?? []);
-                            return `${s.mean.toFixed(2)} ± ${s.std.toFixed(2)} (min ${s.min.toFixed(2)}, max ${s.max.toFixed(2)})`;
-                          })()}
-                        </div>
-                        <kbd>Distribution</kbd>
-                        <div>
-                          {renderHistogram(activeLog.mc?.objectiveSamples ?? [], {
-                            kind: activeLog.mc.objective === "stage" ? "stage" : "rate",
-                          }) ?? <div className="small">—</div>}
-                        </div>
-                        {activeLog.mc.tieBreak ? (
-                          <>
-                            <kbd>Tie-break</kbd>
-                            <div className="small">
-                              Tied at primary: <span className="mono">{activeLog.mc.tieBreak.tiedAtPrimary}</span> • Winner:{" "}
-                              <span className="mono">{activeLog.mc.tieBreak.winnerReason}</span>
-                            </div>
-                            {activeLog.mc.tieBreak.top3?.length ? (
-                              <div className="small" style={{ marginTop: 6 }}>
-                                Top candidates:
-                                <ul className="list" style={{ marginTop: 6 }}>
-                                  {activeLog.mc.tieBreak.top3.map((c) => (
-                                    <li key={c.label}>
-                                      <span className="mono">{c.label}</span> • primary <span className="mono">{c.primary.toFixed(3)}</span>
-                                      {c.secondary != null ? (
-                                        <>
-                                          {" "}
-                                          • secondary <span className="mono">{c.secondary.toFixed(3)}</span>
-                                        </>
-                                      ) : null}
-                                      {c.tertiary != null ? (
-                                        <>
-                                          {" "}
-                                          • tertiary <span className="mono">{c.tertiary.toFixed(3)}</span>
-                                        </>
-                                      ) : null}
-                                      <div className="mono" style={{ marginTop: 4 }}>
-                                        STR {c.dist.strength} • AGI {c.dist.agility} • PER {c.dist.perception} • INT {c.dist.intellect} • LCK {c.dist.luck}
-                                      </div>
-                                    </li>
-                                  ))}
-                                </ul>
-                              </div>
-                            ) : null}
-                          </>
-                        ) : null}
-                      </>
-                    ) : null}
+            <div className="modalBody modalBodyWide">
+              <div className="mcModalGrid">
+                <div className="panel mcPanel" style={{ background: "var(--tier3)" }}>
+                  <div className="panelHeader">
+                    <h2 className="panelTitle">Monte Carlo</h2>
+                    <p className="panelHint">
+                      Multi-core • unbiased from <span className="mono">Stage 1</span>
+                    </p>
                   </div>
+
+                  <label className="toggle">
+                    <input type="checkbox" checked={true} disabled={true} />
+                    Screening phase (fast)
+                  </label>
+                  <label className="toggle" style={{ marginTop: 6 }}>
+                    <input type="checkbox" checked={true} disabled={true} />
+                    Refinement phase (accurate)
+                  </label>
+
+                  <div className="mcCards">
+                    <div className="mcCard mcCardStage">
+                      <div className="mcCardTitle">Stage Push Optimizer</div>
+                      <div className="small">Objective: maximize average max stage.</div>
+                      <div className="btnRow" style={{ marginTop: 10 }}>
+                        <button className="btn" type="button" disabled={mcRunning} onClick={() => runMcOptimizer("stage")}>
+                          Run MC
+                        </button>
+                        {mcRunning ? (
+                          <button className="btn btnSecondary" type="button" onClick={cancelMc}>
+                            Cancel
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
+
+                    <div className="mcCard mcCardXp">
+                      <div className="mcCardTitle">XP Optimizer</div>
+                      <div className="small">Objective: maximize XP/hour.</div>
+                      <div className="btnRow" style={{ marginTop: 10 }}>
+                        <button className="btn" type="button" disabled={mcRunning} onClick={() => runMcOptimizer("XP")}>
+                          Run MC
+                        </button>
+                        {mcRunning ? (
+                          <button className="btn btnSecondary" type="button" onClick={cancelMc}>
+                            Cancel
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
+
+                    <div className="mcCard mcCardFrag">
+                      <div className="mcCardTitle">Fragment Farmer</div>
+                      <div className="small">Objective: maximize target fragments/hour.</div>
+                      <div className="row" style={{ marginTop: 8 }}>
+                        <div className="label">
+                          <span>Target fragment</span>
+                          <span className="mono">{mcSettings.targetFrag.toUpperCase()}</span>
+                        </div>
+                        <select
+                          className="input"
+                          disabled={mcRunning}
+                          value={mcSettings.targetFrag}
+                          onChange={(e) => setMcSettings((s) => ({ ...s, targetFrag: e.target.value as BlockType }))}
+                        >
+                          {(["common", "rare", "epic", "legendary", "mythic"] as const).map((t) => (
+                            <option key={t} value={t}>
+                              {t.toUpperCase()}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="btnRow" style={{ marginTop: 10 }}>
+                        <button className="btn" type="button" disabled={mcRunning} onClick={() => runMcOptimizer("frag")}>
+                          Run MC
+                        </button>
+                        {mcRunning ? (
+                          <button className="btn btnSecondary" type="button" onClick={cancelMc}>
+                            Cancel
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mcLogPanel">
+                  <div className="mcLogHeader">
+                    <div className="mcLogTitle">MC Results Log</div>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <button
+                        className="btn btnSecondary"
+                        type="button"
+                        style={{ padding: "6px 10px", background: "#ffffff" }}
+                        onClick={() => {
+                          if (!confirmDanger("Reset MC results log? This will delete all saved MC runs in this browser.")) return;
+                          setMcLog([]);
+                          setActiveLogId(null);
+                        }}
+                        disabled={mcRunning}
+                      >
+                        Reset
+                      </button>
+                    </div>
+                  </div>
+                  <div className="mcLogList">
+                    {visibleMcLog.length === 0 ? (
+                      <div className="small" style={{ textAlign: "center", padding: 14 }}>
+                        No saved MC runs yet. Run one of the optimizers to create entries you can reopen later.
+                      </div>
+                    ) : (
+                      <div className="mcLogTableWrap">
+                        <table className="mcLogTable">
+                          <thead>
+                            <tr>
+                              <th className="mono">Time</th>
+                              <th>Run</th>
+                              <th className="mono">Objective</th>
+                              <th className="mono num">Floors/run</th>
+                              <th className="mono num">XP/h</th>
+                              <th className="mono num">Frag/h</th>
+                              <th className="mono" style={{ textAlign: "right" }}>
+                                Actions
+                              </th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {visibleMcLog.map((e, idx) => {
+                              const active = e.id === activeLogId;
+                              const obj =
+                                e.mc?.objective ?? (e.mcType === "stage" ? "stage" : e.mcType === "XP" ? "XP" : "frag");
+                              const target = e.mc?.targetFrag ?? null;
+                              const sObj = sampleStats(e.mc?.objectiveSamples ?? []);
+                              const objLabel =
+                                obj === "stage" ? "Max stage" : obj === "XP" ? "XP/h" : `${(target ?? "frag").toUpperCase()}/h`;
+                              const objVal = obj === "stage" ? sObj.mean.toFixed(2) : obj === "XP" ? sObj.mean.toFixed(1) : sObj.mean.toFixed(2);
+
+                              const rowClass = `${active ? "active " : ""}${idx % 2 === 1 ? "zebra" : ""}`.trim();
+                              return (
+                                <>
+                                  <tr key={`${e.id}:row`} className={rowClass}>
+                                    <td className="mono time">{new Date(e.createdAt).toLocaleString()}</td>
+                                    <td className="run">
+                                      <span className={`mcTypePill mcTypePill_${e.mcType}`}>{e.mcType.toUpperCase()}</span>{" "}
+                                      <span className="label">{e.label}</span>
+                                    </td>
+                                    <td className="mono">
+                                      <span className="small">{objLabel}</span> <span className="mono">{objVal}</span>
+                                    </td>
+                                    <td className="mono num">{e.metrics.floorsPerRun.toFixed(2)}</td>
+                                    <td className="mono num">{Math.round(e.metrics.xpPerHour)}</td>
+                                    <td className="mono num">{e.metrics.fragmentsPerHour.toFixed(1)}</td>
+                                    <td className="actions" />
+                                  </tr>
+                                  <tr key={`${e.id}:actions`} className={`${rowClass} mcActionsRow`.trim()}>
+                                    <td className="actionsCell" colSpan={7}>
+                                      <div className="mcLogButtons">
+                                        <button
+                                          className="btn btnSecondary"
+                                          type="button"
+                                          onClick={() => {
+                                            setActiveLogId(e.id);
+                                            setOpenLogId(e.id);
+                                          }}
+                                        >
+                                          Open
+                                        </button>
+                                        <button
+                                          className="btn"
+                                          type="button"
+                                          onClick={() => {
+                                            setBuild(e.build);
+                                            setActiveLogId(e.id);
+                                          }}
+                                        >
+                                          Load
+                                        </button>
+                                        <button
+                                          className="btn btnSecondary"
+                                          type="button"
+                                          onClick={() => {
+                                            if (!confirmDanger("Delete this saved MC run?")) return;
+                                            setMcLog((xs) => xs.filter((x) => x.id !== e.id));
+                                            if (active) setActiveLogId(null);
+                                            if (openLogId === e.id) setOpenLogId(null);
+                                          }}
+                                        >
+                                          Delete
+                                        </button>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                </>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {openLog ? (
+        <div className="modalOverlay" onMouseDown={() => setOpenLogId(null)}>
+          <div className="modalWindow" onMouseDown={(e) => e.stopPropagation()}>
+            <div className="modalHeader">
+              <div>
+                <div className="mono" style={{ fontWeight: 900 }}>
+                  {openLog.label} • {openLog.mcType.toUpperCase()}
+                </div>
+                <div className="small">{new Date(openLog.createdAt).toLocaleString()}</div>
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button className="btn" type="button" onClick={() => setBuild(openLog.build)}>
+                  Load build
+                </button>
+                <button className="btn btnSecondary" type="button" onClick={() => setOpenLogId(null)}>
+                  Close
+                </button>
+              </div>
+            </div>
+            <div className="modalBody">
+              <div className="kv">
+                <kbd>Goal stage</kbd>
+                <div className="mono">{openLog.build.goalStage}</div>
+                <kbd>Unlocked</kbd>
+                <div className="mono">{openLog.build.unlockedStage}</div>
+                <kbd>Arch level</kbd>
+                <div className="mono">{openLog.build.archLevel}</div>
+                <kbd>Floors/run</kbd>
+                <div className="mono">{openLog.metrics.floorsPerRun.toFixed(3)}</div>
+                <kbd>XP/run</kbd>
+                <div className="mono">{openLog.metrics.xpPerRun.toFixed(3)}</div>
+                <kbd>XP/h</kbd>
+                <div className="mono">{Math.round(openLog.metrics.xpPerHour)}</div>
+                <kbd>Frag/h</kbd>
+                <div className="mono">{openLog.metrics.fragmentsPerHour.toFixed(1)}</div>
+              </div>
+
+              {openLog.mc ? (
+                <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
+                  <div className="sectionTitle">MC details</div>
+                  <div className="small">
+                    Objective:{" "}
+                    <span className="mono">
+                      {openLog.mc.objective === "stage"
+                        ? "Max stage"
+                        : openLog.mc.objective === "XP"
+                          ? "XP/hour"
+                          : `${openLog.mc.targetFrag?.toUpperCase() ?? "FRAG"}/hour`}
+                    </span>
+                  </div>
+                  <div className="small">
+                    {(() => {
+                      const s = sampleStats(openLog.mc?.objectiveSamples ?? []);
+                      return (
+                        <>
+                          Mean ± std: <span className="mono">{s.mean.toFixed(2)}</span> ± <span className="mono">{s.std.toFixed(2)}</span> (min{" "}
+                          <span className="mono">{s.min.toFixed(2)}</span>, max <span className="mono">{s.max.toFixed(2)}</span>)
+                        </>
+                      );
+                    })()}
+                  </div>
+                  <div>
+                    {renderHistogramCard({
+                      samples: openLog.mc?.objectiveSamples ?? [],
+                      kind: openLog.mc.objective === "stage" ? "stage" : "rate",
+                      title:
+                        openLog.mc.objective === "stage"
+                          ? "Distribution of Maximum Stage Reached (1000 MC simulations)"
+                          : openLog.mc.objective === "XP"
+                            ? "Distribution of XP per Hour (1000 MC simulations)"
+                            : "Distribution of Fragments per Hour (1000 MC simulations)",
+                      xLabel:
+                        openLog.mc.objective === "stage"
+                          ? "Max Stage Reached"
+                          : openLog.mc.objective === "XP"
+                            ? "XP per Hour"
+                            : "Fragments per Hour",
+                    })}
+                  </div>
+
+                  {openLog.mc.tieBreak ? (
+                    <div style={{ marginTop: 6 }}>
+                      <div className="sectionTitle">Tie-break</div>
+                      <div className="small">
+                        Tied at primary: <span className="mono">{openLog.mc.tieBreak.tiedAtPrimary}</span> • Winner:{" "}
+                        <span className="mono">{openLog.mc.tieBreak.winnerReason}</span>
+                      </div>
+                      <div style={{ marginTop: 10 }}>{renderTieBreakBars(openLog.mc.tieBreak)}</div>
+                      {openLog.mc.tieBreak.top3?.length ? (
+                        <ul className="list" style={{ marginTop: 8 }}>
+                          {openLog.mc.tieBreak.top3.map((c) => (
+                            <li key={c.label}>
+                              <span className="mono">{c.label}</span> • primary <span className="mono">{c.primary.toFixed(3)}</span>
+                              {c.secondary != null ? (
+                                <>
+                                  {" "}
+                                  • secondary <span className="mono">{c.secondary.toFixed(3)}</span>
+                                </>
+                              ) : null}
+                              {c.tertiary != null ? (
+                                <>
+                                  {" "}
+                                  • tertiary <span className="mono">{c.tertiary.toFixed(3)}</span>
+                                </>
+                              ) : null}
+                              <div className="mono" style={{ marginTop: 4 }}>
+                                STR {c.dist.strength} • AGI {c.dist.agility} • PER {c.dist.perception} • INT {c.dist.intellect} • LCK {c.dist.luck}
+                              </div>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : null}
+                    </div>
+                  ) : null}
                 </div>
               ) : null}
             </div>
           </div>
         </div>
-      </div>
+      ) : null}
     </div>
   );
 }

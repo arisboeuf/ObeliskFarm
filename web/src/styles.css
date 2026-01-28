@@ -150,6 +150,10 @@ body {
   align-items: start;
 }
 
+.archGridNoMc {
+  /* When MC/log lives in a modal, give the main UI more space. */
+}
+
 .archSetupGrid {
   display: grid;
   grid-template-columns: 1fr;
@@ -286,13 +290,19 @@ body {
 
 @media (min-width: 980px) {
   .archGrid {
-    grid-template-columns: 340px 420px 1fr;
+    grid-template-columns: 340px 460px 1fr;
+  }
+  .archGrid.archGridNoMc {
+    grid-template-columns: 360px 1fr;
   }
 }
 
 @media (min-width: 1280px) {
   .archGrid {
-    grid-template-columns: 380px 460px 1fr;
+    grid-template-columns: 380px 520px 1fr;
+  }
+  .archGrid.archGridNoMc {
+    grid-template-columns: 420px 1fr;
   }
 }
 
@@ -319,21 +329,350 @@ body {
 
 .mcLogList {
   background: #ffffff;
-  max-height: 360px;
+  max-height: 520px;
   overflow: auto;
   padding: 10px;
 }
 
-.mcLogEntry {
+.mcLogTableWrap {
   border: 1px solid rgba(15, 23, 42, 0.10);
-  border-radius: 10px;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.mcLogTable {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: 12px;
+}
+
+.mcLogTable thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: rgba(255, 255, 255, 0.98);
+  border-bottom: 1px solid rgba(15, 23, 42, 0.10);
+  padding: 8px 10px;
+  text-align: left;
+  font-weight: 900;
+}
+
+.mcLogTable tbody td {
+  border-top: 1px solid rgba(15, 23, 42, 0.06);
+  padding: 9px 10px;
+  vertical-align: middle;
+}
+
+.mcLogTable tbody tr.active td {
+  background: rgba(92, 107, 192, 0.06);
+}
+
+.mcLogTable tbody tr.zebra td {
+  background: rgba(15, 23, 42, 0.02);
+}
+
+.mcLogTable tbody tr.active.zebra td {
+  background: rgba(92, 107, 192, 0.06);
+}
+
+.mcLogTable th.num,
+.mcLogTable td.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.mcLogTable td.time {
+  font-size: 11px;
+  color: rgba(15, 23, 42, 0.55);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.mcLogTable td.run .label {
+  font-weight: 800;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: inline-block;
+  max-width: 100%;
+  vertical-align: bottom;
+}
+
+.mcLogTable td.actions {
+  text-align: right;
+}
+
+.mcLogTable tbody tr.mcActionsRow td {
+  border-top: 0;
+  padding-top: 6px;
+  padding-bottom: 10px;
+}
+
+.mcLogTable td.actionsCell {
+  text-align: right;
+}
+
+.mcTypePill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-weight: 900;
+  font-size: 11px;
+  border: 1px solid rgba(15, 23, 42, 0.14);
+  background: rgba(15, 23, 42, 0.04);
+}
+
+.mcTypePill_stage {
+  background: rgba(46, 125, 50, 0.10);
+  border-color: rgba(46, 125, 50, 0.28);
+  color: rgba(46, 125, 50, 0.95);
+}
+
+.mcTypePill_XP {
+  background: rgba(103, 58, 183, 0.10);
+  border-color: rgba(103, 58, 183, 0.28);
+  color: rgba(103, 58, 183, 0.95);
+}
+
+.mcTypePill_frag {
+  background: rgba(245, 124, 0, 0.10);
+  border-color: rgba(245, 124, 0, 0.28);
+  color: rgba(245, 124, 0, 0.95);
+}
+
+.mcLogButtons {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  flex-wrap: nowrap;
+  align-items: center;
+}
+
+@media (max-width: 740px) {
+  .mcLogTableWrap {
+    overflow: auto;
+  }
+  .mcLogButtons {
+    justify-content: flex-start;
+  }
+}
+
+.histCard {
+  border: 1px solid rgba(15, 23, 42, 0.10);
+  border-radius: 12px;
+  background: #ffffff;
   padding: 10px;
+}
+
+.histTitle {
+  font-weight: 900;
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+
+.histPlotRow {
+  display: grid;
+  grid-template-columns: 22px 1fr;
+  gap: 10px;
+  align-items: stretch;
+}
+
+.histYAxis {
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  font-size: 12px;
+  font-weight: 900;
+  color: rgba(15, 23, 42, 0.8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.histSvg {
+  display: block;
+  border-radius: 10px;
+  border: 1px solid rgba(15, 23, 42, 0.10);
+  background: #fff;
+}
+
+.histXAxis {
+  margin-top: 8px;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 900;
+  color: rgba(15, 23, 42, 0.8);
+}
+
+.tbWrap {
+  display: grid;
+  grid-template-columns: 1fr 170px;
+  gap: 12px;
+  align-items: start;
+}
+
+.tbPlot {
+  border: 1px solid rgba(15, 23, 42, 0.10);
+  border-radius: 12px;
+  padding: 10px;
+  background: #ffffff;
+}
+
+.tbRow {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
   margin-bottom: 10px;
 }
 
-.mcLogEntryActive {
-  border-color: rgba(92, 107, 192, 0.75);
-  box-shadow: 0 0 0 3px rgba(92, 107, 192, 0.15);
+.tbLabel {
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tbBars {
+  display: grid;
+  gap: 6px;
+}
+
+.tbBarLine {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.tbBar {
+  height: 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+}
+
+.tbBarFrag {
+  background: rgba(92, 107, 192, 0.40);
+}
+
+.tbBarXp {
+  background: repeating-linear-gradient(
+    135deg,
+    rgba(92, 107, 192, 0.35),
+    rgba(92, 107, 192, 0.35) 6px,
+    rgba(92, 107, 192, 0.18) 6px,
+    rgba(92, 107, 192, 0.18) 12px
+  );
+}
+
+.tbValue {
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.tbLegend {
+  border: 1px solid rgba(15, 23, 42, 0.10);
+  border-radius: 12px;
+  padding: 10px;
+  background: #ffffff;
+}
+
+.tbLegendTitle {
+  font-weight: 900;
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+
+.tbLegendItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 800;
+  color: rgba(15, 23, 42, 0.8);
+  margin-bottom: 6px;
+}
+
+.tbSwatch {
+  width: 18px;
+  height: 12px;
+  border-radius: 6px;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  display: inline-block;
+}
+
+.tbSwatchFrag {
+  background: rgba(92, 107, 192, 0.40);
+}
+
+.tbSwatchXp {
+  background: repeating-linear-gradient(
+    135deg,
+    rgba(92, 107, 192, 0.35),
+    rgba(92, 107, 192, 0.35) 6px,
+    rgba(92, 107, 192, 0.18) 6px,
+    rgba(92, 107, 192, 0.18) 12px
+  );
+}
+
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(2, 6, 23, 0.52);
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  z-index: 50;
+}
+
+.modalWindow {
+  width: min(1100px, 96vw);
+  max-height: min(86vh, 900px);
+  overflow: hidden;
+  border-radius: 14px;
+  background: #ffffff;
+  border: 1px solid rgba(15, 23, 42, 0.18);
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.25);
+}
+
+.modalWindowWide {
+  width: min(1450px, 98vw);
+  max-height: 92vh;
+}
+
+.modalHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-bottom: 1px solid rgba(15, 23, 42, 0.10);
+  background: rgba(92, 107, 192, 0.08);
+}
+
+.modalBody {
+  padding: 12px 14px 14px;
+  overflow: auto;
+  max-height: calc(min(86vh, 900px) - 60px);
+}
+
+.modalBodyWide {
+  max-height: calc(92vh - 60px);
+}
+
+.mcModalGrid {
+  display: grid;
+  gap: 12px;
+  align-items: start;
+  grid-template-columns: 420px 1fr;
+}
+
+@media (max-width: 980px) {
+  .mcModalGrid {
+    grid-template-columns: 1fr;
+  }
 }
 
 a {
@@ -346,7 +685,7 @@ a:hover {
 }
 
 .container {
-  max-width: 1100px;
+  max-width: 1400px;
   margin: 0 auto;
   padding: 28px 18px 40px;
 }
