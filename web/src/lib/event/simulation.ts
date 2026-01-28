@@ -22,7 +22,7 @@ export function applyUpgrades(
     p.health += 2 * u[1];
     p.atkSpeed += 0.02 * u[2];
     p.walkSpeed += 0.03 * u[3];
-    p.gameSpeed += 0.02 * u[4];
+    p.gameSpeed += 0.03 * u[4]; // +3% Event Game Speed
     p.crit += u[5];
     p.critDmg += 0.1 * u[5];
     p.atk += u[6];
@@ -51,7 +51,7 @@ export function applyUpgrades(
     p.atk += 2 * u[0];
     p.atkSpeed += 0.02 * u[1];
     p.crit += u[2];
-    p.gameSpeed += 0.03 * u[3];
+    p.gameSpeed += 0.05 * u[3]; // +5% Event Game Speed
     p.atk += 3 * u[4];
     p.health += 3 * u[4];
     // u[5] cap
