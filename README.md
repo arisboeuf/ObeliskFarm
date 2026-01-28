@@ -4,17 +4,12 @@
 
 An interactive GUI tool for calculating the **Expected Value (EV)** for freebies in the Android game **Idle Obelisk Miner**.
 
-## Download (Windows)
+## Web App (recommended)
 
-[![Download](https://img.shields.io/github/v/release/arisboeuf/ObeliskFarm?label=Download%20EXE&style=for-the-badge)](https://github.com/arisboeuf/ObeliskFarm/releases/latest)
+Use the browser version (no install, cross-platform):
 
-> Download the EXE from the latest release and run it. No Python required.
-
-### Trust / Security (optional)
-
-The Windows EXE is built automatically by GitHub Actions from the source code for the corresponding release tag (see `.github/workflows/build-release.yml`).
-
-If you prefer not to run an EXE from the internet, you can run the tool from source instead (see the "Installation & Start (From Source)" section below).
+- **Open**: https://arisboeuf.github.io/ObeliskFarm/
+- **Notes**: runs fully client-side in your browser; saves are stored via `localStorage` (per device/browser profile)
 
 ## Overview
 
