@@ -64,6 +64,13 @@ References: #123, task-456
 - `[CLN]` - Code cleanup
 - `[PERF]` - Performance
 - `[REM]` - Removing code
+- `[REV]` - Reverting commits
+- `[MOV]` - Moving files/code
+- `[REL]` - Release commits
+- `[MERGE]` - Merge commits
+- `[CLA]` - Signing the Individual Contributor License
+- `[I18N]` - Translation changes
+- `[LINT]` - Linting passes
 
 **Common Mistakes to AVOID:**
 - ❌ Missing [TAG] brackets

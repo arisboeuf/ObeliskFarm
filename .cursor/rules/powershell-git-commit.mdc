@@ -8,13 +8,29 @@ alwaysApply: true
 When creating git commits in this repo on Windows/PowerShell:
 
 - Use `required_permissions: ['all']` for git commands to avoid `.git/index.lock` permission issues.
+- **Nachhaltiger Lock-Fix:** In diesem Workspace ist `.vscode/settings.json` mit `git.autorefresh: false` und `git.autofetch: false` hinterlegt. So reduziert Cursor/VS Code Hintergrund-Git (Status-Refresh, Auto-Fetch) → weniger Index-Kontention → Agent/UI können wieder committen. Source Control bei Bedarf manuell aktualisieren (Git: Refresh).
 - Do **not** use bash heredocs or bash-style redirections (they fail in PowerShell).
 - Prefer a PowerShell here-string + `git commit -m <title> -m <body>` format.
+
+## Scoped commits (common workflow)
+
+If the user asks to "commit all changes on web" (plus main README), stage **only** `web/**` and `README.md`.
+
+- Do **not** stage/commit `.cursor/**` unless explicitly requested.
+- Do **not** stage/commit untracked `scripts/` unless explicitly requested.
 
 Example:
 
 ```powershell
 $title = '[TAG] component: short description'
+$body = @'
+WHY: Explain why this change was made.
+'@
+
+# Stage only what the user requested
+git add -- "README.md" "web"
+
+# Commit (PowerShell-safe multiline body)
 $body = @'
 WHY: Explain why this change was made.
 
