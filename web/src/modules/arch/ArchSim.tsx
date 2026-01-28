@@ -169,6 +169,7 @@ export function ArchSim() {
   const [mcWindowOpen, setMcWindowOpen] = useState(false);
   const [resetAllArmed, setResetAllArmed] = useState(false);
   const [resetMcLogArmed, setResetMcLogArmed] = useState(false);
+  const [deleteLogArmedId, setDeleteLogArmedId] = useState<string | null>(null);
   const [mcRunning, setMcRunning] = useState(false);
   const [mcProgress, setMcProgress] = useState<string | null>(null);
   const [mcActiveMode, setMcActiveMode] = useState<null | "frag" | "XP" | "stage">(null);
@@ -238,7 +239,14 @@ export function ArchSim() {
     if (!mcRunning) return;
     setResetAllArmed(false);
     setResetMcLogArmed(false);
+    setDeleteLogArmedId(null);
   }, [mcRunning]);
+
+  useEffect(() => {
+    if (!deleteLogArmedId) return;
+    const t = window.setTimeout(() => setDeleteLogArmedId(null), 4500);
+    return () => window.clearTimeout(t);
+  }, [deleteLogArmedId]);
 
   function heatAlphaFromLevel(level: number): number {
     const lvl = Math.max(0, Math.trunc(level));
@@ -2173,16 +2181,24 @@ export function ArchSim() {
                                           Load
                                         </button>
                                         <button
-                                          className="btn btnSecondary"
+                                          className={deleteLogArmedId === e.id ? "btn btnDanger" : "btn btnSecondary"}
                                           type="button"
                                           onClick={() => {
+                                            if (deleteLogArmedId !== e.id) {
+                                              setDeleteLogArmedId(e.id);
+                                              setResetAllArmed(false);
+                                              setResetMcLogArmed(false);
+                                              return;
+                                            }
+                                            setDeleteLogArmedId(null);
                                             if (!confirmDanger("Delete this saved MC run?")) return;
                                             setMcLog((xs) => xs.filter((x) => x.id !== e.id));
                                             if (active) setActiveLogId(null);
                                             if (openLogId === e.id) setOpenLogId(null);
                                           }}
+                                          title={deleteLogArmedId === e.id ? "Click again to confirm (then confirm dialog)." : "Click once to arm, click again to confirm."}
                                         >
-                                          Delete
+                                          {deleteLogArmedId === e.id ? "Confirm delete" : "Delete"}
                                         </button>
                                       </div>
                                     </td>

@@ -226,6 +226,15 @@ export function Stargazing() {
 
   const [ui, setUi] = useState<UiStats>(initial.stats);
   const [ctrlF, setCtrlF] = useState<boolean>(initial.ctrl_f_stars_enabled);
+  const [resetArmed, setResetArmed] = useState(false);
+
+  function confirmDanger(message: string): boolean {
+    try {
+      return window.confirm(message);
+    } catch {
+      return false;
+    }
+  }
 
   // autosave (matches other web modules; close to desktop intent)
   useEffect(() => {
@@ -235,6 +244,12 @@ export function Stargazing() {
     }, 250);
     return () => window.clearTimeout(t);
   }, [ui, ctrlF]);
+
+  useEffect(() => {
+    if (!resetArmed) return;
+    const t = window.setTimeout(() => setResetArmed(false), 4500);
+    return () => window.clearTimeout(t);
+  }, [resetArmed]);
 
   const stats = useMemo<PlayerStats>(() => {
     const floor_clears_per_hour = clamp(ui.floor_clears_per_minute, 0, 1_000_000) * 60.0;
@@ -632,8 +647,21 @@ export function Stargazing() {
             </div>
 
             <div className="btnRow">
-              <button className="btn btnSecondary" type="button" onClick={() => setUi(defaultUiStats())}>
-                Reset to defaults
+              <button
+                className={resetArmed ? "btn btnDanger" : "btn btnSecondary"}
+                type="button"
+                onClick={() => {
+                  if (!resetArmed) {
+                    setResetArmed(true);
+                    return;
+                  }
+                  setResetArmed(false);
+                  if (!confirmDanger("Reset all inputs to defaults?")) return;
+                  setUi(defaultUiStats());
+                }}
+                title={resetArmed ? "Click again to confirm (then confirm dialog)." : "Click once to arm, click again to confirm."}
+              >
+                {resetArmed ? "Confirm reset" : "Reset to defaults"}
               </button>
               <Tooltip content={{ title: "Reset", lines: ["Restores the default values for all inputs."] }} />
             </div>
