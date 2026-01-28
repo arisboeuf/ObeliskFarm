@@ -3,7 +3,8 @@ export type BlockType = "dirt" | "common" | "rare" | "epic" | "legendary" | "myt
 export type BlockTier = 1 | 2 | 3;
 export type CardLevel = 0 | 1 | 2 | 3;
 
-export type ArchGemUpgradeKey = "stamina" | "xp" | "fragment" | "arch_xp";
+// Gem upgrades in the desktop Arch simulator (cost type: Gems)
+export type ArchGemUpgradeKey = "stamina" | "xp" | "fragment";
 
 export type ArchBuild = {
   // Goal stage (Python UI: "Goal Stage"). Calculations use (goalStage - 1).

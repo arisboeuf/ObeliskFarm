@@ -133,7 +133,6 @@ export function getTotalStats(build: ArchBuild): ArchStats {
   const gem_stamina = build.gemUpgrades.stamina ?? 0;
   const gem_xp = build.gemUpgrades.xp ?? 0;
   const gem_fragment = build.gemUpgrades.fragment ?? 0;
-  const gem_arch_xp = build.gemUpgrades.arch_xp ?? 0;
 
   const frag = getFragmentUpgradeBonuses(build.fragmentUpgradeLevels);
   const blockBonker = getBlockBonkerBonus(build);
@@ -189,7 +188,7 @@ export function getTotalStats(build: ArchBuild): ArchStats {
   const speed_mod_chance = agiPts * (SKILL_BONUSES.agility.speed_mod_chance ?? 0) + all_mod_bonus + mod_chance_skill_bonus;
   const stamina_mod_chance = all_mod_bonus + mod_chance_skill_bonus + gem_stamina * (GEM_UPGRADE_BONUSES.stamina.stamina_mod_chance ?? 0) + (frag.stamina_mod_chance ?? 0);
 
-  const arch_xp_bonus_total = gem_arch_xp * (GEM_UPGRADE_BONUSES.arch_xp.arch_xp_bonus ?? 0) + (frag.arch_xp_bonus ?? 0);
+  const arch_xp_bonus_total = frag.arch_xp_bonus ?? 0;
   const arch_xp_mult = 1.0 + arch_xp_bonus_total;
 
   const loot_mod_multiplier = MOD_LOOT_MULTIPLIER_AVG + (frag.loot_mod_multiplier ?? 0);

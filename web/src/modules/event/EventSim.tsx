@@ -361,9 +361,6 @@ export function EventSim() {
                 >
                   −
                 </button>
-                <div className="input" style={{ display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 900 }}>
-                  <span className="mono">{ui.prestige}</span>
-                </div>
                 <button
                   className="btn"
                   type="button"
@@ -372,6 +369,9 @@ export function EventSim() {
                 >
                   +
                 </button>
+                <div className="input" style={{ display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 900 }}>
+                  <span className="mono">{ui.prestige}</span>
+                </div>
               </div>
             </div>
 
@@ -389,7 +389,7 @@ export function EventSim() {
 
             <div className="small">Tier max levels update automatically based on cap upgrades.</div>
 
-            <div className="tierBlock">
+            <div className="tierBlock tierBlockGem">
               <div className="tierHead">
                 <p className="tierTitle">
                   Gem upgrades

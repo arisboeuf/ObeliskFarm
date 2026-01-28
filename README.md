@@ -4,12 +4,12 @@
 
 An interactive GUI tool for calculating the **Expected Value (EV)** for freebies in the Android game **Idle Obelisk Miner**.
 
-## Web App (recommended)
+## Web App (use this)
 
 Use the browser version (no install, cross-platform):
 
-- **Open**: https://arisboeuf.github.io/ObeliskFarm/
-- **Notes**: runs fully client-side in your browser; saves are stored via `localStorage` (per device/browser profile)
+- **OPEN (GitHub Pages)**: **https://arisboeuf.github.io/ObeliskFarm/**
+- **Notes**: runs fully client-side in your browser (no `.exe` / installer download needed); saves are stored via `localStorage` (per device/browser profile)
 
 ## Overview
 
@@ -122,7 +122,7 @@ Controls all bomb-related mechanics and their gem generation:
 - **Total-EV**: Total gem-equivalent per hour (bold highlighted)
 - **Gift-EV**: Separate expected value per opened gift
 
-## Installation & Start (From Source)
+## Run from Source (optional / for developers)
 
 ### Requirements
 

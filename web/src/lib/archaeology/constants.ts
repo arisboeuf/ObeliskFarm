@@ -61,7 +61,6 @@ export const GEM_UPGRADE_BONUSES: Record<
   stamina: { max_stamina: 2, stamina_mod_chance: 0.0005, max_level: 50, stage_unlock: 0 },
   xp: { xp_bonus: 0.05, exp_mod_chance: 0.0005, max_level: 25, stage_unlock: 0 },
   fragment: { fragment_gain: 0.02, loot_mod_chance: 0.0005, max_level: 25, stage_unlock: 0 },
-  arch_xp: { arch_xp_bonus: 0.02, max_level: 25, stage_unlock: 3 },
 };
 
 export const FRAGMENT_UPGRADES: Record<
@@ -116,7 +115,6 @@ export const GEM_COSTS: Record<ArchGemUpgradeKey, number[]> = {
   fragment: [
     500, 525, 551, 578, 607, 638, 670, 703, 738, 775, 814, 855, 897, 942, 989, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000,
   ],
-  arch_xp: [1.0, 1.2, 1.44, 1.73, 2.07, 2.49, 2.99, 3.58, 4.3, 5.16, 6.19, 7.43, 8.92, 10.7, 12.84, 15.41, 18.49, 22.19, 26.62, 31.95, 38.34, 46.01, 55.21, 66.25, 79.5],
 };
 
 export const BLOCK_COLORS: Record<BlockType, string> = {

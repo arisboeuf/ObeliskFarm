@@ -541,19 +541,25 @@ export function fragmentSimsSummary(args: {
   cardCfg: CardConfig | null;
   seed: number;
   target_frag: string;
-}): { avg_frag_per_hour: number } {
+}): { avg_frag_per_hour: number; xp_per_hour: number } {
   const rng = mulberry32(args.seed >>> 0);
   const sim = new MonteCarloArchaeologySimulator(rng);
-  let sum = 0;
+  let sumFrag = 0;
+  let sumXp = 0;
+  let sumDur = 0;
   const t = String(args.target_frag);
   for (let i = 0; i < Math.max(0, Math.trunc(args.n_sims)); i += 1) {
     const r = sim.simulateRun(args.stats, args.starting_floor, { ...args.options, return_block_metrics: false }, args.cardCfg) as McRunMetrics;
     const frag = Number(r.fragments?.[t] ?? 0);
     const dur = Number(r.run_duration_seconds ?? 1);
     const runs_per_hour = dur > 0 ? 3600.0 / dur : 0;
-    sum += frag * runs_per_hour;
+    sumFrag += frag * runs_per_hour;
+    sumXp += Number(r.xp_per_run ?? 0);
+    sumDur += dur;
   }
   const n = Math.max(1, Math.trunc(args.n_sims));
-  return { avg_frag_per_hour: sum / n };
+  const avg_frag_per_hour = sumFrag / n;
+  const xp_per_hour = sumDur > 0 ? (sumXp * 3600.0) / sumDur : 0;
+  return { avg_frag_per_hour, xp_per_hour };
 }
 
