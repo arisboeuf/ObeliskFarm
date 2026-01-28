@@ -25,16 +25,42 @@ jobs:
         with:
           node-version: "20"
 
+      - name: Debug environment
+        shell: bash
+        run: |
+          set -euxo pipefail
+          pwd
+          ls -la
+          ls -la web
+          node -v
+          npm -v
+
       - name: Install dependencies
         working-directory: web
-        run: npm install --no-audit --no-fund
+        shell: bash
+        run: |
+          set -euxo pipefail
+          npm install --no-audit --no-fund
 
       - name: Build
         working-directory: web
         env:
           # Repo is a project site: https://<user>.github.io/<repo>/
           BASE_PATH: "/ObeliskFarm/"
-        run: npm run build
+        shell: bash
+        run: |
+          set -euxo pipefail
+          npm run build
+
+      - name: Upload npm logs (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-logs
+          path: |
+            /home/runner/.npm/_logs/*.log
+            web/npm-debug.log
+            web/package-lock.json
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
