@@ -1,0 +1,19 @@
+---
+description: Tooltip writing style (English, no desktop references, minimal emphasis)
+alwaysApply: true
+---
+
+# Tooltips: project-wide style
+
+- Write all tooltip text in English.
+- Do not mention “desktop”, “desktop semantics”, “web port”, or comparisons to other UIs in tooltips. Describe the behavior directly.
+- Use emphasis sparingly:
+  - Avoid heavy bolding as a default style.
+  - Only emphasize when it materially improves clarity.
+- Prefer structured tooltips for complex topics:
+  - Use `sections` with short headings (2–5 words).
+  - Keep lines short and scannable (ideally 1 sentence per line).
+- Keep content factual and implementation-aligned:
+  - If behavior is subtle (e.g., cooldown state persists across MC sims), mention it plainly.
+  - Avoid vague claims like “matches X” or “same as Y”.
+

@@ -1042,6 +1042,22 @@ a:hover {
   color: var(--muted);
 }
 
+.prestigeLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 18px;
+  font-weight: 900;
+  letter-spacing: 0.2px;
+  color: var(--text);
+}
+
+.prestigeValue {
+  font-size: 18px;
+  font-weight: 900;
+  color: var(--text);
+}
+
 .input {
   width: 100%;
   border: 1px solid var(--border);
@@ -1150,6 +1166,24 @@ a:hover {
     0 0 34px rgba(245, 124, 0, 0.30);
 }
 
+.btnDanger {
+  border-color: rgba(239, 68, 68, 0.58);
+  background: linear-gradient(180deg, rgba(239, 68, 68, 0.22), rgba(239, 68, 68, 0.12));
+  box-shadow:
+    0 0 0 3px rgba(239, 68, 68, 0.12),
+    0 0 26px rgba(239, 68, 68, 0.22);
+  font-weight: 900;
+  letter-spacing: 0.1px;
+  animation: dangerPulse 1.25s ease-in-out infinite;
+}
+
+.btnDanger:hover {
+  background: linear-gradient(180deg, rgba(239, 68, 68, 0.28), rgba(239, 68, 68, 0.14));
+  box-shadow:
+    0 0 0 4px rgba(239, 68, 68, 0.18),
+    0 0 34px rgba(239, 68, 68, 0.30);
+}
+
 @keyframes importantPulse {
   0% {
     box-shadow:
@@ -1168,6 +1202,24 @@ a:hover {
   }
 }
 
+@keyframes dangerPulse {
+  0% {
+    box-shadow:
+      0 0 0 3px rgba(239, 68, 68, 0.12),
+      0 0 22px rgba(239, 68, 68, 0.18);
+  }
+  50% {
+    box-shadow:
+      0 0 0 5px rgba(239, 68, 68, 0.20),
+      0 0 38px rgba(239, 68, 68, 0.34);
+  }
+  100% {
+    box-shadow:
+      0 0 0 3px rgba(239, 68, 68, 0.12),
+      0 0 22px rgba(239, 68, 68, 0.18);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .nudgeArrow {
     animation: none;
@@ -1175,6 +1227,9 @@ a:hover {
     left: -28px;
   }
   .btnImportant {
+    animation: none;
+  }
+  .btnDanger {
     animation: none;
   }
 }

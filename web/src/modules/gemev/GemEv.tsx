@@ -289,7 +289,7 @@ export function GemEv() {
       title: "FOUNDER SUPPLY DROP",
       sections: [
         { heading: "VIP Lounge", lines: ["Interval: 60 − 2×(Level−1) minutes", "Double: 12% at L2, +6% per level", "Triple: 16% at L7"] },
-        { heading: "Rewards (desktop assumptions)", lines: ["Founder Gems: fixed 10 Gems/drop", "Founder Speed: 2× for 5 minutes (time saved → more freebies)", "1/1234 chance: 10 gifts per supply drop"] },
+        { heading: "Rewards (assumptions)", lines: ["Founder Gems: fixed 10 Gems/drop", "Founder Speed: 2× for 5 minutes (time saved → more freebies)", "1/1234 chance: 10 gifts per supply drop"] },
         { heading: "Obelisk", lines: ["Obelisk Level affects bonus gems and Gift-EV multipliers."] },
       ],
     }),

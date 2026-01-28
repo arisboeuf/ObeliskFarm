@@ -196,14 +196,27 @@ export function ArchSim() {
   const TIEBREAK_TOOLTIP = useMemo(
     () => ({
       title: "Tie-break (how ties are resolved)",
-      lines: [
-        "The MC ranks all tested skill-point distributions by a primary metric (depends on the MC mode).",
-        "Primary tie: candidates are considered tied if they are within 3% of the best primary value (minimum absolute epsilon = 0.01).",
-        "If tied, it breaks the tie lexicographically: compare the secondary metric (same 3% rule), then the tertiary metric.",
-        "Max stage MC: primary = avg max stage, secondary = fragments/hour, tertiary = XP/hour.",
-        "XP/hour MC: primary = XP/hour, secondary = fragments/hour, tertiary = avg max stage.",
-        "Fragments/hour MC: primary = fragments/hour, secondary = XP/hour (no tertiary).",
-        "In the log, “Tied at primary” shows how many are within the threshold, and “Winner” explains why #1 won.",
+      sections: [
+        {
+          heading: "When scores are considered tied",
+          lines: ["Within 3% of the best value (minimum absolute epsilon = 0.01)."],
+        },
+        {
+          heading: "Tie-break order",
+          lines: ["Primary → Secondary → Tertiary (each with the same tie threshold)."],
+        },
+        {
+          heading: "Metrics by MC mode",
+          lines: [
+            "Max stage: primary = avg max stage, secondary = fragments/hour, tertiary = XP/hour.",
+            "XP/hour: primary = XP/hour, secondary = fragments/hour, tertiary = avg max stage.",
+            "Fragments/hour: primary = fragments/hour, secondary = XP/hour.",
+          ],
+        },
+        {
+          heading: "What you see here",
+          lines: ["“Tied at primary” = number of candidates within the tie threshold.", "“Winner” = why #1 won (tie-break step)."],
+        },
       ],
     }),
     [],
@@ -278,10 +291,32 @@ export function ArchSim() {
   const PLAYER_STATS_TOOLTIP = useMemo(
     () => ({
       title: "Player stats (optional)",
-      lines: [
-        "This section is informational and can be ignored if you only care about the optimizers.",
-        "The simulation uses your build settings (stats, skills, upgrades, cards, stages).",
-        "The numbers shown here are derived from the current build; you don't edit them directly.",
+      sections: [
+        {
+          heading: "What this is",
+          lines: ["A read-only view of the build you configured above."],
+        },
+        {
+          heading: "Why it’s optional",
+          lines: ["If you only care about the optimizers, you can ignore this section."],
+        },
+      ],
+    }),
+    [],
+  );
+
+  const SKILLS_TOOLTIP = useMemo(
+    () => ({
+      title: "Skills",
+      sections: [
+        {
+          heading: "Effect",
+          lines: ["These toggles affect the Monte Carlo simulation results."],
+        },
+        {
+          heading: "Cooldown behavior in MC",
+          lines: ["Ability cooldown state can persist between simulated runs inside a batch (cooldowns carry over between successive sims)."],
+        },
       ],
     }),
     [],
@@ -1285,7 +1320,7 @@ export function ArchSim() {
             <div className="label">
               <span>
                 Goal stage
-                <Tooltip content={{ title: "Goal stage", lines: ["Matches desktop semantics: calculations use (goal stage - 1)."] }} />
+                <Tooltip content={{ title: "Goal stage", lines: ["Calculations use (goal stage - 1)."] }} />
               </span>
               <span className="mono">{build.goalStage}</span>
             </div>
@@ -1296,7 +1331,7 @@ export function ArchSim() {
             <div className="label">
               <span>
                 Unlocked stage
-                <Tooltip content={{ title: "Unlocked stage", lines: ["Used to lock upgrades/cards like the desktop UI."] }} />
+                <Tooltip content={{ title: "Unlocked stage", lines: ["Used to lock upgrades/cards in this simulator."] }} />
               </span>
               <span className="mono">{build.unlockedStage}</span>
             </div>
@@ -1328,7 +1363,7 @@ export function ArchSim() {
             </button>
           </span>
           <button
-            className="btn btnSecondary"
+            className={resetAllArmed ? "btn btnDanger" : "btn btnSecondary"}
             type="button"
             onClick={() => {
               if (!resetAllArmed) {
@@ -1346,7 +1381,7 @@ export function ArchSim() {
             {resetAllArmed ? "Confirm reset all" : "Reset all"}
           </button>
           <button
-            className="btn btnSecondary"
+            className={resetMcLogArmed ? "btn btnDanger" : "btn btnSecondary"}
             type="button"
             onClick={() => {
               if (!resetMcLogArmed) {
@@ -1370,7 +1405,16 @@ export function ArchSim() {
       <div className="archGrid archGridNoMc">
         {/* Column 1: build (collapsible) */}
         <div style={{ display: "grid", gap: 12 }}>
-          <Collapsible id="arch-skills" title="Skills" defaultExpanded={true}>
+          <Collapsible
+            id="arch-skills"
+            title={
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                <span>Skills</span>
+                <Tooltip content={SKILLS_TOOLTIP} />
+              </span>
+            }
+            defaultExpanded={true}
+          >
             <div className="small" style={{ marginBottom: 8 }}>
               Toggle skills that affect the simulation.
             </div>
@@ -2047,7 +2091,7 @@ export function ArchSim() {
                     <div className="mcLogTitle">MC Results Log</div>
                     <div style={{ display: "flex", gap: 8 }}>
                       <button
-                        className="btn btnSecondary"
+                        className={resetMcLogArmed ? "btn btnDanger" : "btn btnSecondary"}
                         type="button"
                         style={{ padding: "6px 10px", background: "#ffffff" }}
                         onClick={() => {

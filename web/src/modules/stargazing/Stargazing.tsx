@@ -635,7 +635,7 @@ export function Stargazing() {
               <button className="btn btnSecondary" type="button" onClick={() => setUi(defaultUiStats())}>
                 Reset to defaults
               </button>
-              <Tooltip content={{ title: "Reset", lines: ["Restores the desktop default values for all inputs."] }} />
+              <Tooltip content={{ title: "Reset", lines: ["Restores the default values for all inputs."] }} />
             </div>
           </div>
         </div>

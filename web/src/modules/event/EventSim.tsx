@@ -11,9 +11,10 @@ import {
   type UpgradeState,
 } from "../../lib/event/optimizer";
 import { monteCarloOptimizeGuided, type MCOptimizationResult } from "../../lib/event/monteCarloOptimizer";
-import { getGemMaxLevel } from "../../lib/event/simulation";
+import { applyUpgrades, getGemMaxLevel } from "../../lib/event/simulation";
 import { assetUrl } from "../../lib/assets";
 import { currencyIconFilename, gemUpgradeIconFilename, upgradeIconFilename } from "../../lib/event/icons";
+import { Collapsible } from "../../components/Collapsible";
 import { Tooltip } from "../../components/Tooltip";
 
 type SavedStateV1 = { prestige: number; upgrade_levels: Record<string, number[]>; gem_levels: number[] };
@@ -45,6 +46,11 @@ function parseNumber(raw: string): number {
 function clampInt(n: number, min: number, max: number): number {
   if (!Number.isFinite(n)) return min;
   return Math.max(min, Math.min(max, Math.trunc(n)));
+}
+
+function formatPct01(x: number, digits = 1): string {
+  if (!Number.isFinite(x)) return "—";
+  return `${(x * 100).toFixed(digits)}%`;
 }
 
 function heatAlphaFromLevel(level: number): number {
@@ -130,8 +136,17 @@ export function EventSim() {
   const [progress, setProgress] = useState<{ cur: number; total: number; curWave: number; bestWave: number } | null>(null);
   const [mcMeta, setMcMeta] = useState<{ startedAt: number; totalSims: number } | null>(null);
   const [appliedSinceLastOptimize, setAppliedSinceLastOptimize] = useState(false);
+  const [resetUpgradesArmed, setResetUpgradesArmed] = useState(false);
   const workerRef = useRef<Worker | null>(null);
   const lastInitialRef = useRef<UpgradeState | null>(null);
+
+  function confirmDanger(message: string): boolean {
+    try {
+      return window.confirm(message);
+    } catch {
+      return false;
+    }
+  }
 
   // autosave (matches desktop save schema: prestige + upgrade_levels + gem_levels; NOT budgets)
   useEffect(() => {
@@ -151,9 +166,21 @@ export function EventSim() {
     return () => window.clearTimeout(t);
   }, [ui.prestige, ui.upgrades]);
 
+  useEffect(() => {
+    if (!resetUpgradesArmed) return;
+    const t = window.setTimeout(() => setResetUpgradesArmed(false), 4500);
+    return () => window.clearTimeout(t);
+  }, [resetUpgradesArmed]);
+
   const totalPoints = useMemo(() => {
     return ([1, 2, 3, 4] as const).reduce((acc, tier) => acc + ui.upgrades.levels[tier].reduce((a, b) => a + b, 0), 0);
   }, [ui.upgrades]);
+
+  const currentPlayerStats = useMemo(() => {
+    const prestige = clampInt(ui.prestige, 0, 999);
+    const gemLevels = (ui.upgrades.gemLevels ?? [0, 0, 0, 0]) as unknown as [number, number, number, number];
+    return applyUpgrades(ui.upgrades.levels as unknown as Record<number, number[]>, prestige, gemLevels).player;
+  }, [ui.prestige, ui.upgrades]);
 
   function onOptimizeGuidedMc() {
     setError(null);
@@ -297,7 +324,7 @@ export function EventSim() {
     setMcMeta(null);
   }
 
-  function onResetUpgrades() {
+  function doResetUpgrades() {
     const next = copyState(ui.upgrades);
     next.levels[1].fill(0);
     next.levels[2].fill(0);
@@ -307,6 +334,16 @@ export function EventSim() {
     setResult(null);
     setMcStats(null);
     setError(null);
+  }
+
+  function onResetUpgradesClick() {
+    if (!resetUpgradesArmed) {
+      setResetUpgradesArmed(true);
+      return;
+    }
+    setResetUpgradesArmed(false);
+    if (!confirmDanger("Confirm reset upgrades? This resets Tier 1–4 currency upgrades only. Prestige and gem upgrades are kept.")) return;
+    doResetUpgrades();
   }
 
   function onAddPoints() {
@@ -338,19 +375,19 @@ export function EventSim() {
           <div className="form">
             <div className="row">
               <div className="label">
-                <span>
+                <span className="prestigeLabel">
                   Prestige
                   <Tooltip
                     content={{
                       title: "Prestige",
                       sections: [
                         { heading: "What it affects", lines: ["Unlocks upgrades and affects gem upgrade max levels."] },
-                        { heading: "Saved", lines: ["This value is saved automatically (like the desktop tool)."] },
+                        { heading: "Saved", lines: ["This value is saved automatically in this browser."] },
                       ],
                     }}
                   />
                 </span>
-                <span className="mono">{ui.prestige}</span>
+                <span className="mono prestigeValue">{ui.prestige}</span>
               </div>
               <div className="btnRow" style={{ marginTop: 0 }}>
                 <button
@@ -376,8 +413,13 @@ export function EventSim() {
             </div>
 
             <div className="btnRow">
-              <button className="btn btnSecondary" onClick={onResetUpgrades}>
-                Reset upgrades
+              <button
+                className={resetUpgradesArmed ? "btn btnDanger" : "btn btnSecondary"}
+                type="button"
+                onClick={onResetUpgradesClick}
+                title={resetUpgradesArmed ? "Click again to confirm (then confirm dialog)." : "Click once to arm, click again to confirm."}
+              >
+                {resetUpgradesArmed ? "Confirm Reset" : "Reset upgrades"}
               </button>
               <Tooltip
                 content={{
@@ -398,7 +440,7 @@ export function EventSim() {
                       title: "Gem upgrades",
                       sections: [
                         { heading: "What they are", lines: ["Permanent upgrades (not bought with event currency)."] },
-                        { heading: "Limits", lines: ["Max level depends on prestige (matches the desktop rules)."] },
+                        { heading: "Limits", lines: ["Max level depends on prestige."] },
                       ],
                     }}
                   />
@@ -656,6 +698,43 @@ export function EventSim() {
                 );
               })}
             </div>
+
+            <Collapsible
+              id="event-player-stats"
+              title={
+                <span style={{ display: "inline-flex", alignItems: "baseline", gap: 8 }}>
+                  <span>Player stats</span>
+                  <span className="small">(info only)</span>
+                </span>
+              }
+              defaultExpanded={false}
+            >
+              <div className="small">Derived from your current upgrades/prestige (read-only).</div>
+              <div className="kv kvCompact" style={{ marginTop: 8 }}>
+                <kbd>ATK</kbd>
+                <div className="mono">{formatInt(currentPlayerStats.atk)}</div>
+                <kbd>HP</kbd>
+                <div className="mono">{formatInt(currentPlayerStats.health)}</div>
+                <kbd>ATK speed</kbd>
+                <div className="mono">{currentPlayerStats.atkSpeed.toFixed(2)}</div>
+                <kbd>Walk speed</kbd>
+                <div className="mono">{currentPlayerStats.walkSpeed.toFixed(2)}</div>
+                <kbd>Game speed</kbd>
+                <div className="mono">{currentPlayerStats.gameSpeed.toFixed(2)}</div>
+                <kbd>Crit</kbd>
+                <div className="mono">{currentPlayerStats.crit.toFixed(1)}%</div>
+                <kbd>Crit dmg</kbd>
+                <div className="mono">{currentPlayerStats.critDmg.toFixed(2)}×</div>
+                <kbd>Block</kbd>
+                <div className="mono">{formatPct01(currentPlayerStats.blockChance, 1)}</div>
+                <kbd>Prestige scale</kbd>
+                <div className="mono">{currentPlayerStats.prestigeBonusScale.toFixed(2)}</div>
+                <kbd>x2 money</kbd>
+                <div className="mono">{currentPlayerStats.x2Money.toFixed(2)}</div>
+                <kbd>x5 money</kbd>
+                <div className="mono">{currentPlayerStats.x5Money.toFixed(0)}%</div>
+              </div>
+            </Collapsible>
 
             <div className="btnRow" style={{ marginTop: 0 }}>
               <button className="btn" onClick={onOptimizeGuidedMc} disabled={running}>
