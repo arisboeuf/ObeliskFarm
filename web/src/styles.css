@@ -96,10 +96,12 @@ body {
   cursor: pointer;
   font-weight: 800;
   color: var(--text);
+  text-decoration: none;
 }
 
 .navTile:hover {
   background: rgba(187, 222, 251, 0.95);
+  text-decoration: none;
 }
 
 .navTileActive {
@@ -107,6 +109,58 @@ body {
   box-shadow:
     0 10px 26px rgba(25, 118, 210, 0.10),
     0 0 0 3px rgba(25, 118, 210, 0.08);
+}
+
+.navTileDonation {
+  border-color: rgba(198, 40, 40, 0.45);
+  background: rgba(252, 231, 243, 0.90);
+  box-shadow:
+    0 0 0 3px rgba(198, 40, 40, 0.08),
+    0 0 22px rgba(198, 40, 40, 0.14);
+  text-decoration: none;
+  animation: donationPulse 1.9s ease-in-out infinite;
+}
+
+.navTileDonation:hover {
+  background: rgba(252, 231, 243, 0.98);
+}
+
+.navEmoji {
+  width: 22px;
+  display: inline-flex;
+  justify-content: center;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.navTileSupportLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+@keyframes donationPulse {
+  0% {
+    box-shadow:
+      0 0 0 3px rgba(198, 40, 40, 0.06),
+      0 0 18px rgba(198, 40, 40, 0.10);
+  }
+  50% {
+    box-shadow:
+      0 0 0 4px rgba(198, 40, 40, 0.14),
+      0 0 30px rgba(198, 40, 40, 0.22);
+  }
+  100% {
+    box-shadow:
+      0 0 0 3px rgba(198, 40, 40, 0.06),
+      0 0 18px rgba(198, 40, 40, 0.10);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .navTileDonation {
+    animation: none;
+  }
 }
 
 .collapseWrap {

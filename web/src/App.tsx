@@ -1,10 +1,12 @@
 import { useMemo, useState } from "react";
 import { assetUrl } from "./lib/assets";
+import { Tooltip } from "./components/Tooltip";
 import { EventSim } from "./modules/event/EventSim";
 import { ArchSim } from "./modules/arch/ArchSim";
 import { GemEv } from "./modules/gemev/GemEv";
 
 type ModuleId = "event" | "arch" | "gemev";
+const SUPPORT_URL = "https://buymeacoffee.com/arisboeuf";
 
 function Sprite(props: { path: string; alt: string; className?: string }) {
   return <img className={props.className ?? "icon"} src={assetUrl(props.path)} alt={props.alt} />;
@@ -46,6 +48,25 @@ export function App() {
               <span>{m.label}</span>
             </button>
           ))}
+
+          <a className="navTile navTileDonation" href={SUPPORT_URL} target="_blank" rel="noreferrer noopener">
+            <span className="navEmoji" aria-hidden="true">
+              💵
+            </span>
+            <span className="navTileSupportLabel">
+              Support me{" "}
+              <Tooltip
+                content={{
+                  title: "Support this project",
+                  lines: [
+                    "I'm a beginner and I build ObeliskFarm as a hobby project.",
+                    "If you find it useful, a small donation helps me keep improving it.",
+                    "Thank you for the support!",
+                  ],
+                }}
+              />
+            </span>
+          </a>
         </div>
       </div>
 
