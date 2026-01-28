@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import "./gemev.css";
 import { Tooltip } from "../../components/Tooltip";
 import { assetUrl } from "../../lib/assets";
@@ -11,7 +11,7 @@ import {
   defaultGameParameters,
   type GameParameters,
 } from "../../lib/gemev/freebieEv";
-import { ContribBarChart } from "./ContribBarChart";
+import { ContribBarChart, ContribLegend } from "./ContribBarChart";
 
 type SavedStateV1 = {
   params: Partial<GameParameters>;
@@ -63,9 +63,26 @@ function Stepper(props: {
   max?: number;
   inputMode?: "decimal" | "numeric";
   decimals?: number;
+  disabled?: boolean;
 }) {
-  const { label, value, onChange, step = 1, min = -Infinity, max = Infinity, inputMode = "decimal", decimals = 2 } = props;
-  const shown = Number.isFinite(value) ? String(value) : "";
+  const { label, value, onChange, step = 1, min = -Infinity, max = Infinity, inputMode = "decimal", decimals = 2, disabled = false } = props;
+  const isEditingRef = useRef(false);
+  const [raw, setRaw] = useState<string>(() => (Number.isFinite(value) ? String(value) : ""));
+
+  useEffect(() => {
+    // Keep input in sync with external value, but don't fight the user's typing.
+    if (isEditingRef.current) return;
+    setRaw(Number.isFinite(value) ? String(value) : "");
+  }, [value]);
+
+  function commit() {
+    const n = parseNumber(raw);
+    const next = clamp(n, min, max);
+    onChange(next);
+    isEditingRef.current = false;
+    setRaw(Number.isFinite(next) ? String(next) : "");
+  }
+
   return (
     <div className="gemEvRow">
       <div className="label">
@@ -73,19 +90,30 @@ function Stepper(props: {
         <span className="mono">{Number.isFinite(value) ? value.toFixed(decimals) : "—"}</span>
       </div>
       <div className="gemEvStepper">
-        <button className="btn btnSecondary gemEvStepBtn" type="button" onClick={() => onChange(clamp(value - step, min, max))}>
+        <button className="btn btnSecondary gemEvStepBtn" type="button" disabled={disabled} onClick={() => onChange(clamp(value - step, min, max))}>
           −
         </button>
         <input
           className="input gemEvInput"
           inputMode={inputMode}
-          value={shown}
+          value={raw}
+          disabled={disabled}
+          onFocus={() => {
+            isEditingRef.current = true;
+          }}
           onChange={(e) => {
-            const n = parseNumber(e.target.value);
-            onChange(clamp(n, min, max));
+            isEditingRef.current = true;
+            setRaw(e.target.value);
+          }}
+          onBlur={() => commit()}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              commit();
+            }
           }}
         />
-        <button className="btn gemEvStepBtn" type="button" onClick={() => onChange(clamp(value + step, min, max))}>
+        <button className="btn gemEvStepBtn" type="button" disabled={disabled} onClick={() => onChange(clamp(value + step, min, max))}>
           +
         </button>
       </div>
@@ -93,13 +121,14 @@ function Stepper(props: {
   );
 }
 
-function CardToggles(props: { value: number; onChange: (lvl: number) => void }) {
-  const { value, onChange } = props;
+function CardToggles(props: { value: number; onChange: (lvl: number) => void; disabled?: boolean }) {
+  const { value, onChange, disabled = false } = props;
   const cur = clampInt(value, 0, 3);
   const mk = (lvl: 1 | 2 | 3, label: string) => (
     <button
       type="button"
       className={`btn btnSecondary gemEvCardBtn ${cur === lvl ? "cardBtnActive" : ""}`}
+      disabled={disabled}
       onClick={() => onChange(cur === lvl ? 0 : lvl)}
     >
       {label} {cur === lvl ? "✓" : ""}
@@ -181,6 +210,7 @@ export function GemEv() {
     p.total_bomb_types = clampInt(p.total_bomb_types, 2, 64);
     p.d20_bomb_charges_distributed = clampInt(p.d20_bomb_charges_distributed, 0, 9999);
     p.obelisk_level = clampInt(p.obelisk_level, 0, 999);
+    p.founder_enabled = Boolean(p.founder_enabled);
 
     // Recharge card levels
     p.gem_bomb_recharge_card_level = clampInt(p.gem_bomb_recharge_card_level, 0, 3);
@@ -429,6 +459,14 @@ export function GemEv() {
                 <span className="mono">FOUNDER SUPPLY DROP</span>
                 <Tooltip content={founderInfo} />
               </div>
+              <label className="toggle" style={{ margin: 0 }}>
+                <input
+                  type="checkbox"
+                  checked={Boolean(params.founder_enabled)}
+                  onChange={(e) => setParams((s) => ({ ...s, founder_enabled: e.target.checked }))}
+                />
+                FOUNDER enabled
+              </label>
             </div>
             <div className="gemEvSectionBody">
               <Stepper
@@ -440,6 +478,7 @@ export function GemEv() {
                 max={7}
                 inputMode="numeric"
                 decimals={0}
+                disabled={!params.founder_enabled}
               />
               <Stepper
                 label="Obelisk Level"
@@ -450,6 +489,7 @@ export function GemEv() {
                 max={999}
                 inputMode="numeric"
                 decimals={0}
+                disabled={!params.founder_enabled}
               />
             </div>
           </div>
@@ -483,7 +523,11 @@ export function GemEv() {
                     </span>
                     <Sprite path="sprites/event/founderbomb.png" alt="Founder Bomb" className="iconSmall" />
                   </div>
-                  <CardToggles value={params.founder_bomb_recharge_card_level} onChange={(lvl) => setParams((s) => ({ ...s, founder_bomb_recharge_card_level: lvl }))} />
+                  <CardToggles
+                    value={params.founder_bomb_recharge_card_level}
+                    disabled={!params.founder_enabled}
+                    onChange={(lvl) => setParams((s) => ({ ...s, founder_bomb_recharge_card_level: lvl }))}
+                  />
                 </div>
 
                 <Stepper
@@ -494,6 +538,7 @@ export function GemEv() {
                   min={0.1}
                   max={9999}
                   decimals={1}
+                  disabled={!params.founder_enabled}
                 />
                 <Stepper
                   label="Speed Chance (%)"
@@ -503,6 +548,7 @@ export function GemEv() {
                   min={0}
                   max={100}
                   decimals={1}
+                  disabled={!params.founder_enabled}
                 />
                 <Stepper
                   label="Speed Multiplier"
@@ -512,6 +558,7 @@ export function GemEv() {
                   min={0.1}
                   max={20}
                   decimals={1}
+                  disabled={!params.founder_enabled}
                 />
                 <Stepper
                   label="Speed Duration (Seconds)"
@@ -521,6 +568,7 @@ export function GemEv() {
                   min={0}
                   max={9999}
                   decimals={1}
+                  disabled={!params.founder_enabled}
                 />
               </div>
 
@@ -696,6 +744,7 @@ export function GemEv() {
               Founder supply split: Speed <span className="mono">{fmt1(ev.founder_speed_boost)}</span> • Gems{" "}
               <span className="mono">{fmt1(ev.founder_gems)}</span>
             </div>
+            {!params.founder_enabled ? <div className="small" style={{ marginTop: 6 }}>FOUNDER is disabled: all founder-related contributions are set to 0.</div> : null}
 
             <div className="btnRow" style={{ marginTop: 12 }}>
               <button className="btn" type="button" onClick={() => setChartOpen(true)}>
@@ -729,7 +778,12 @@ export function GemEv() {
               </div>
             </div>
             <div className="modalBody">
-              <ContribBarChart ev={ev} breakdown={breakdown} />
+              <div className="gemEvChartModalGrid">
+                <div>
+                  <ContribBarChart ev={ev} breakdown={breakdown} />
+                </div>
+                <ContribLegend />
+              </div>
             </div>
           </div>
         </div>

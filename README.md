@@ -2,20 +2,43 @@
 
 > ⚠️ **Data based on OB32 (Obelisk Level 32)** - All calculations and game data are based on OB32. Results may vary for different progression levels.
 
-An interactive GUI tool for calculating the **Expected Value (EV)** for freebies in the Android game **Idle Obelisk Miner**.
+An interactive calculator toolkit for the Android game **Idle Obelisk Miner**.
+
+Main focus: **Gem EV (freebies)**, plus simulators/optimizers for **Event**, **Archaeology**, and **Stargazing**.
 
 ## Web App (use this)
 
 Use the browser version (no install, cross-platform):
 
-- **OPEN (GitHub Pages)**: **https://arisboeuf.github.io/ObeliskFarm/**
-- **Notes**: runs fully client-side in your browser (no `.exe` / installer download needed); saves are stored via `localStorage` (per device/browser profile)
+- **OPEN (GitHub Pages)**: [ObeliskFarm (Web)](https://arisboeuf.github.io/ObeliskFarm/)
+- **Notes**: runs fully client-side (no `.exe` / installer needed); saves are stored via `localStorage` (per device/browser profile)
 
 ## Overview
 
 The ObeliskFarm Calculator helps you calculate the optimal return from various freebie mechanisms in the game. The tool automatically calculates the **Gem-equivalent value per hour** based on all active game mechanics such as jackpots, refresh chains, skill shards, founder drops, and more.
 
-### What is calculated?
+### Web modules (current)
+
+The web app contains multiple modules (top navigation):
+
+- **Gem EV Calculator**
+  - Calculates **Gem-equivalent per hour** from freebies (base rolls, jackpots, refresh chains, skill shards, stonks, founder drops, bombs, gift-EV).
+  - Includes an **overview chart** (stacked contributions).
+  - Saves your inputs automatically in the browser.
+- **Event Simulator**
+  - Budget-based optimization for the bimonthly event.
+  - Guided Monte Carlo optimizer + detailed results (wave/time stats, upgrade plan).
+  - Saves prestige + upgrade levels (budgets are intentionally not saved, matching desktop behavior).
+- **Archaeology Simulator**
+  - Skill point planning + gem upgrades + fragment upgrades.
+  - Monte Carlo search for builds (with logs/history) and multiple objectives.
+  - Uses the same “desktop-style” color coding and tooltip-heavy UX.
+- **Stargazing Calculator**
+  - 1:1 port of the desktop Stargazing math: **Stars/hour** and **Super Stars/hour**, each for **Online** and **Offline**.
+  - Supports **CTRL+F Stars** toggle and **auto-catch**.
+  - Defensive clamping for probabilities (0..1) to avoid edge-case bugs.
+
+### What is calculated? (Gem EV)
 
 - **Total EV per hour** in Gem-equivalent
 - **Individual contributions** from all freebie sources
@@ -23,34 +46,17 @@ The ObeliskFarm Calculator helps you calculate the optimal return from various f
 - **Multipliers** (rolls, refresh, total)
 - **Visual representation** of all contributions as a bar chart
 
-## Additional Tools
+## Desktop / Python GUI (optional)
 
-### Lootbug Analyzer
-Analyze whether specific gem purchases are worth it based on your current EV/h. Currently supports:
-- **2x Game Speed** (15 Gems for 10 minutes) - calculates if the additional gem income exceeds the cost
+The repository also contains a Python/Tkinter desktop GUI (`ObeliskGemEV/`). It includes legacy/extra tools not yet exposed in the web UI.
 
-### Archaeology Simulator
-Optimize your archaeology skill point allocation and upgrades:
-- **Skill Point Optimizer**: Find the best skill to level for maximum floors per run
-- **Damage Breakpoints**: See exactly how much damage you need to one-shot blocks
-- **Upgrade Efficiency**: Compare Flat Damage vs Armor Pen upgrades (Common fragment costs included)
-- **Gem Upgrades**: Track Stamina, XP Boost, and Fragment upgrades
-- **Block Statistics**: View spawn rates and stats for all block types at each stage
+### Lootbug Analyzer (desktop)
+Analyze whether specific gem purchases are worth it based on your current EV/h. Example:
+- **2× Game Speed** (15 Gems for 10 minutes) - checks if the additional gem income exceeds the cost.
 
-### Event Simulator
-Simulate and optimize the bimonthly event mechanics:
-- **Budget Optimizer**: Input available materials and get optimal upgrade recommendations
-- **Love2D Simulator**: Manual upgrade level adjustment with live simulation results
-- **Prestige Planning**: Calculate wave requirements for prestige unlocks
-- **Cost Analysis**: Compare upgrade costs across all tiers
-
-### Stargazing Optimizer
-Track and optimize your stargazing income:
-- **Star Income Tracking**: Calculate stars and super stars per hour
-- **Stats Input**: Enter your current stats directly from the game
-- **Upgrade Benefits**: See the percentage gain from each upgrade level
-- **Auto-Catch Analysis**: Track your offline farming efficiency
-- **Floor Clear Rate**: Calculate floors/hour from offline gains data
+### Notes on sprites/assets
+The web app copies sprite assets from `ObeliskGemEV/sprites/` into `web/public/sprites/` during build (`web/scripts/copy-assets.mjs`).  
+If a sprite is missing, the web UI shows a small placeholder.
 
 ## Main Features
 

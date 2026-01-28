@@ -4,8 +4,9 @@ import { Tooltip } from "./components/Tooltip";
 import { EventSim } from "./modules/event/EventSim";
 import { ArchSim } from "./modules/arch/ArchSim";
 import { GemEv } from "./modules/gemev/GemEv";
+import { Stargazing } from "./modules/stargazing/Stargazing";
 
-type ModuleId = "event" | "arch" | "gemev";
+type ModuleId = "event" | "arch" | "gemev" | "stargazing";
 const SUPPORT_URL = "https://buymeacoffee.com/arisboeuf";
 
 function Sprite(props: { path: string; alt: string; className?: string }) {
@@ -18,9 +19,10 @@ export function App() {
   const modules = useMemo(
     () =>
       [
-        { id: "gemev" as const, label: "Gem EV Calculator", icon: "sprites/common/gem.png" },
         { id: "event" as const, label: "Event Simulator", icon: "sprites/event/event_button.png" },
         { id: "arch" as const, label: "Archaeology Simulator", icon: "sprites/archaeology/archaeology.png" },
+        { id: "gemev" as const, label: "Gem EV Calculator", icon: "sprites/common/gem.png" },
+        { id: "stargazing" as const, label: "Stargazing Calculator", icon: "sprites/stargazing/stargazing.svg" },
       ] as const,
     [],
   );
@@ -45,7 +47,14 @@ export function App() {
               onClick={() => setActive(m.id)}
             >
               <Sprite path={m.icon} alt={m.label} className="icon" />
-              <span>{m.label}</span>
+              <span className="navTileLabel">
+                <span>{m.label}</span>
+                {(m.id === "event" || m.id === "arch") && (
+                  <span className="navWorkingHorse" aria-hidden="true" title="Main module">
+                    !
+                  </span>
+                )}
+              </span>
             </button>
           ))}
 
@@ -70,7 +79,7 @@ export function App() {
         </div>
       </div>
 
-      {active === "gemev" ? <GemEv /> : active === "event" ? <EventSim /> : <ArchSim />}
+      {active === "gemev" ? <GemEv /> : active === "event" ? <EventSim /> : active === "arch" ? <ArchSim /> : <Stargazing />}
     </div>
   );
 }

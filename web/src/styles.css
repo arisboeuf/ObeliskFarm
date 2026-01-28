@@ -133,6 +133,34 @@ body {
   line-height: 1;
 }
 
+.navTileLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.navWorkingHorse {
+  font-weight: 1000;
+  color: rgba(245, 124, 0, 0.98);
+  text-shadow: 0 0 14px rgba(245, 124, 0, 0.30);
+  animation: navWorkingHorseBlink 0.95s steps(2, end) infinite;
+}
+
+@keyframes navWorkingHorseBlink {
+  0% {
+    opacity: 0.25;
+    transform: scale(0.98);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.08);
+  }
+  100% {
+    opacity: 0.25;
+    transform: scale(0.98);
+  }
+}
+
 .navTileSupportLabel {
   display: inline-flex;
   align-items: center;
@@ -160,6 +188,11 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .navTileDonation {
     animation: none;
+  }
+  .navWorkingHorse {
+    animation: none;
+    opacity: 1;
+    transform: none;
   }
 }
 
@@ -1419,3 +1452,33 @@ a:hover {
   background: rgba(46, 125, 50, 0.18);
 }
 
+/* ============================
+   Gem EV chart modal layout
+   ============================ */
+
+.gemEvChartModalGrid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+  align-items: start;
+}
+
+@media (min-width: 980px) {
+  .gemEvChartModalGrid {
+    grid-template-columns: 1fr 240px;
+  }
+}
+
+.gemEvLegend {
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  border-radius: 12px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.92);
+}
+
+.gemEvLegendRow {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 10px;
+  align-items: center;
+}

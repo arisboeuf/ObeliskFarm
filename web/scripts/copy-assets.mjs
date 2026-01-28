@@ -32,6 +32,7 @@ const dstSprites = path.join(webRoot, "public", "sprites");
 copyDir(path.join(srcSprites, "event"), path.join(dstSprites, "event"));
 copyDir(path.join(srcSprites, "common"), path.join(dstSprites, "common"));
 copyDir(path.join(srcSprites, "archaeology"), path.join(dstSprites, "archaeology"));
+copyDir(path.join(srcSprites, "stargazing"), path.join(dstSprites, "stargazing"));
 
 console.log("Copied sprites to web/public/sprites/");
 

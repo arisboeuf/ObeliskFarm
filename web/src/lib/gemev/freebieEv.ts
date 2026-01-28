@@ -5,6 +5,9 @@
 //
 // NOTE: User-facing text should live in the React module; keep this file logic-only.
 export type GameParameters = {
+  // Master toggle for all founder-related contributions (supply drop + founder bomb + founder-speed effects)
+  founder_enabled: boolean;
+
   // Base freebie parameters
   freebie_gems_base: number;
   freebie_timer_minutes: number;
@@ -72,6 +75,7 @@ export type GameParameters = {
 
 export function defaultGameParameters(): GameParameters {
   return {
+    founder_enabled: true,
     freebie_gems_base: 9.0,
     freebie_timer_minutes: 7.0,
     freebie_claim_percentage: 100.0,
@@ -205,6 +209,7 @@ export function calculateSkillShardsEvPerHour(params: GameParameters): number {
 }
 
 export function calculateFounderSpeedBoostPerHour(params: GameParameters): number {
+  if (!params.founder_enabled) return 0;
   const founderDropInterval = getFounderDropIntervalMinutes(params);
   const founderDropsPerHour = 60.0 / founderDropInterval;
 
@@ -360,6 +365,7 @@ export function calculateGiftEvBreakdown(params: GameParameters): Record<string,
 }
 
 export function calculateFounderGemsPerHour(params: GameParameters): number {
+  if (!params.founder_enabled) return 0;
   const founderDropInterval = getFounderDropIntervalMinutes(params);
   const founderDropsPerHour = 60.0 / founderDropInterval;
 
@@ -384,17 +390,21 @@ export function calculateFounderGemsPerHour(params: GameParameters): number {
 export function calculateGemBombGemsPerHour(params: GameParameters): number {
   const secondsPerHour = 3600.0;
 
-  // Founder speed uptime fraction (minutes with 2x speed per hour)
-  const founderDropInterval = getFounderDropIntervalMinutes(params);
-  const founderDropsPerHour = 60.0 / founderDropInterval;
+  // Founder speed uptime fraction (minutes with 2x speed per hour).
+  // When founder is disabled, this must not affect bomb recharges.
+  let speedPct = 0;
+  if (params.founder_enabled) {
+    const founderDropInterval = getFounderDropIntervalMinutes(params);
+    const founderDropsPerHour = 60.0 / founderDropInterval;
 
-  const doubleChance = clamp01(getDoubleDropChance(params));
-  const tripleChance = clamp01(getTripleDropChance(params));
-  const singleChance = 1.0 - doubleChance - tripleChance;
-  const expectedDropsPerEvent = 1.0 * singleChance + 2.0 * doubleChance + 3.0 * tripleChance;
+    const doubleChance = clamp01(getDoubleDropChance(params));
+    const tripleChance = clamp01(getTripleDropChance(params));
+    const singleChance = 1.0 - doubleChance - tripleChance;
 
-  const speedMinutesPerHour = founderDropsPerHour * expectedDropsPerEvent * clampPositive(params.founder_speed_duration_minutes, 5.0);
-  const speedPct = clamp01(speedMinutesPerHour / 60.0);
+    const expectedDropsPerEvent = 1.0 * singleChance + 2.0 * doubleChance + 3.0 * tripleChance;
+    const speedMinutesPerHour = founderDropsPerHour * expectedDropsPerEvent * clampPositive(params.founder_speed_duration_minutes, 5.0);
+    speedPct = clamp01(speedMinutesPerHour / 60.0);
+  }
 
   // Weighted effective recharge times (base time for (1-speedPct), half time for speedPct)
   function effectiveRecharge(baseSeconds: number): number {
@@ -481,6 +491,7 @@ export function calculateGemBombGemsPerHour(params: GameParameters): number {
 }
 
 export function calculateFounderBombBoostPerHour(params: GameParameters): number {
+  if (!params.founder_enabled) return 0;
   const secondsPerHour = 3600.0;
   const dropsPerHour = secondsPerHour / clampPositive(params.founder_bomb_interval_seconds, 87.0);
 

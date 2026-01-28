@@ -27,6 +27,73 @@ function clamp(n: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, n));
 }
 
+function LegendSwatch(props: { kind: SegmentKey }) {
+  const { kind } = props;
+  const W = 18;
+  const H = 12;
+  const id = `sw_${kind}_${Math.random().toString(16).slice(2)}`;
+  const fill =
+    kind === "base"
+      ? COLORS.base
+      : kind === "jackpot"
+        ? `url(#${id})`
+        : kind === "refresh_base"
+          ? `url(#${id})`
+          : `url(#${id})`;
+
+  return (
+    <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} style={{ display: "block" }}>
+      <defs>
+        {kind === "jackpot" ? (
+          <pattern id={id} width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+            <rect width="8" height="8" fill={COLORS.jackpot} opacity={0.85} />
+            <line x1="0" y1="0" x2="0" y2="8" stroke="rgba(255,255,255,0.55)" strokeWidth="3" />
+          </pattern>
+        ) : null}
+        {kind === "refresh_base" ? (
+          <pattern id={id} width="10" height="10" patternUnits="userSpaceOnUse">
+            <rect width="10" height="10" fill={COLORS.refresh_base} opacity={0.85} />
+            <circle cx="3" cy="3" r="1.4" fill="rgba(255,255,255,0.65)" />
+            <circle cx="8" cy="7" r="1.4" fill="rgba(255,255,255,0.65)" />
+          </pattern>
+        ) : null}
+        {kind === "refresh_jackpot" ? (
+          <pattern id={id} width="10" height="10" patternUnits="userSpaceOnUse">
+            <rect width="10" height="10" fill={COLORS.refresh_jackpot} opacity={0.85} />
+            <path d="M0 0 L10 10 M10 0 L0 10" stroke="rgba(255,255,255,0.55)" strokeWidth="1.6" />
+          </pattern>
+        ) : null}
+      </defs>
+      <rect x="0.5" y="0.5" width={W - 1} height={H - 1} rx="2" fill={kind === "base" ? COLORS.base : fill} stroke="rgba(15,23,42,0.35)" />
+    </svg>
+  );
+}
+
+export function ContribLegend() {
+  const legendItems: Array<{ label: string; key: SegmentKey }> = [
+    { label: "Base", key: "base" },
+    { label: "Jackpot", key: "jackpot" },
+    { label: "Refresh (Base)", key: "refresh_base" },
+    { label: "Refresh (Jackpot)", key: "refresh_jackpot" },
+  ];
+
+  return (
+    <div className="gemEvLegend">
+      <div className="mono" style={{ fontWeight: 900, marginBottom: 8 }}>
+        Legend
+      </div>
+      <div style={{ display: "grid", gap: 8 }}>
+        {legendItems.map((it) => (
+          <div key={it.key} className="gemEvLegendRow">
+            <LegendSwatch kind={it.key} />
+            <div style={{ fontWeight: 800, color: "rgba(15,23,42,0.82)" }}>{it.label}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function ContribBarChart(props: { ev: TotalEv; breakdown: EvBreakdown }) {
   const { ev, breakdown } = props;
 
@@ -103,13 +170,6 @@ export function ContribBarChart(props: { ev: TotalEv; breakdown: EvBreakdown }) 
     return v * scaleY;
   }
 
-  const legendItems: Array<{ label: string; key: SegmentKey }> = [
-    { label: "Base", key: "base" },
-    { label: "Jackpot", key: "jackpot" },
-    { label: "Refresh (Base)", key: "refresh_base" },
-    { label: "Refresh (Jackpot)", key: "refresh_jackpot" },
-  ];
-
   function fillFor(seg: SegmentKey): string {
     if (seg === "base") return COLORS.base;
     if (seg === "jackpot") return "url(#patJackpot)";
@@ -166,30 +226,6 @@ export function ContribBarChart(props: { ev: TotalEv; breakdown: EvBreakdown }) 
       {/* Axes */}
       <line x1={padL} y1={padT} x2={padL} y2={padT + plotH} stroke="rgba(15,23,42,0.22)" />
       <line x1={padL} y1={padT + plotH} x2={W - padR} y2={padT + plotH} stroke="rgba(15,23,42,0.22)" />
-
-      {/* Legend (top-right, like desktop "upper right") */}
-      {(() => {
-        const boxW = 190;
-        const boxH = 74;
-        const x0 = W - padR - boxW - 8;
-        const y0 = padT + 8;
-        return (
-          <g>
-            <rect x={x0} y={y0} width={boxW} height={boxH} rx={10} fill="rgba(255,255,255,0.92)" stroke="rgba(15,23,42,0.18)" />
-            {legendItems.map((it, idx) => {
-              const y = y0 + 18 + idx * 16;
-              return (
-                <g key={it.key}>
-                  <rect x={x0 + 12} y={y - 10} width={16} height={11} fill={fillFor(it.key)} stroke="rgba(15,23,42,0.35)" />
-                  <text x={x0 + 34} y={y - 1} fontSize={12} fill="rgba(15,23,42,0.80)" fontWeight={800}>
-                    {it.label}
-                  </text>
-                </g>
-              );
-            })}
-          </g>
-        );
-      })()}
 
       {/* Bars */}
       {categories.map((label, i) => {

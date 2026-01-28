@@ -1,0 +1,117 @@
+.sgGrid {
+  display: grid;
+  gap: 10px;
+}
+
+.sgSection {
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  border-radius: 12px;
+  padding: 10px;
+  background: rgba(255, 255, 255, 0.75);
+}
+
+.sgSectionHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.sgSectionTitle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 900;
+  font-size: 12px;
+  letter-spacing: 0.2px;
+}
+
+.sgRows {
+  display: grid;
+  gap: 10px;
+}
+
+/* The global `.row2` is a 2-col grid at all widths.
+   For Stargazing, that can get too tight and make inputs overflow/overlap.
+   We override it locally to stack on small screens. */
+.sgRows .row2 {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+
+@media (min-width: 900px) {
+  .sgRows .row2 {
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+}
+
+.sgRow {
+  border: 1px solid rgba(15, 23, 42, 0.10);
+  border-radius: 10px;
+  padding: 8px;
+  background: rgba(255, 255, 255, 0.92);
+  /* Critical for CSS grid/flex shrink: allow children to shrink instead of overflowing into neighbors */
+  min-width: 0;
+}
+
+.sgLabel {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+
+.sgLabelLeft {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.sgLabelName {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sgStepper {
+  display: grid;
+  /* Use fixed-ish buttons + minmax input so the input can shrink without overflow */
+  grid-template-columns: 40px minmax(0, 1fr) 40px;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+}
+
+.sgStepper .input {
+  min-width: 0;
+}
+
+.sgBtn {
+  padding: 8px 10px;
+  line-height: 1;
+  min-width: 40px;
+}
+
+.sgHeaderIcon {
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
+}
+
+.sgResultValueBlue {
+  font-weight: 900;
+  color: rgba(21, 101, 192, 0.95);
+}
+
+.sgResultValueOrange {
+  font-weight: 900;
+  color: rgba(230, 81, 0, 0.95);
+}
+
