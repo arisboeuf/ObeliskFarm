@@ -50,7 +50,12 @@ jobs:
         shell: bash
         run: |
           set -euxo pipefail
-          npm run build
+          npm run prepare-assets
+          ls -la public || true
+          ls -la public/sprites || true
+          ls -la public/sprites/event || true
+          npx tsc -b --pretty false
+          npx vite build --debug
 
       - name: Upload npm logs (on failure)
         if: failure()
