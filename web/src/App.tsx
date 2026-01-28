@@ -14,6 +14,7 @@ import { monteCarloOptimizeGuided, type MCOptimizationResult } from "./lib/event
 import { getGemMaxLevel } from "./lib/event/simulation";
 import { assetUrl } from "./lib/assets";
 import { currencyIconFilename, gemUpgradeIconFilename, upgradeIconFilename } from "./lib/event/icons";
+import { Tooltip } from "./components/Tooltip";
 
 type SavedStateV1 = { prestige: number; upgrade_levels: Record<string, number[]>; gem_levels: number[] };
 
@@ -365,30 +366,71 @@ export function App() {
           <div className="form">
             <div className="row">
               <div className="label">
-                <span>Prestige</span>
+                <span>
+                  Prestige
+                  <Tooltip
+                    content={{
+                      title: "Prestige",
+                      sections: [
+                        { heading: "What it affects", lines: ["Unlocks upgrades and affects gem upgrade max levels."] },
+                        { heading: "Saved", lines: ["This value is saved automatically (like the desktop tool)."] },
+                      ],
+                    }}
+                  />
+                </span>
                 <span className="mono">{ui.prestige}</span>
               </div>
-              <input
-                className="input"
-                type="number"
-                min={0}
-                step={1}
-                value={ui.prestige}
-                onChange={(e) => setUi((s) => ({ ...s, prestige: clampInt(Number(e.target.value), 0, 999) }))}
-              />
+              <div className="btnRow" style={{ marginTop: 0 }}>
+                <button
+                  className="btn btnSecondary"
+                  type="button"
+                  onClick={() => setUi((s) => ({ ...s, prestige: clampInt(s.prestige - 1, 0, 999) }))}
+                  disabled={ui.prestige <= 0}
+                >
+                  −
+                </button>
+                <div className="input" style={{ display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 900 }}>
+                  <span className="mono">{ui.prestige}</span>
+                </div>
+                <button
+                  className="btn"
+                  type="button"
+                  onClick={() => setUi((s) => ({ ...s, prestige: clampInt(s.prestige + 1, 0, 999) }))}
+                  disabled={ui.prestige >= 999}
+                >
+                  +
+                </button>
+              </div>
             </div>
 
             <div className="btnRow">
               <button className="btn btnSecondary" onClick={onResetUpgrades}>
                 Reset upgrades
               </button>
+              <Tooltip
+                content={{
+                  title: "Reset upgrades",
+                  lines: ["Resets Tier 1–4 currency upgrades only. Prestige and gem upgrades are kept."],
+                }}
+              />
             </div>
 
             <div className="small">Tier max levels update automatically based on cap upgrades.</div>
 
             <div className="tierBlock">
               <div className="tierHead">
-                <p className="tierTitle">Gem upgrades</p>
+                <p className="tierTitle">
+                  Gem upgrades
+                  <Tooltip
+                    content={{
+                      title: "Gem upgrades",
+                      sections: [
+                        { heading: "What they are", lines: ["Permanent upgrades (not bought with event currency)."] },
+                        { heading: "Limits", lines: ["Max level depends on prestige (matches the desktop rules)."] },
+                      ],
+                    }}
+                  />
+                </p>
                 <p className="small">Permanent (not event currency)</p>
               </div>
               <div className="small">
@@ -535,7 +577,18 @@ export function App() {
             <div className="row2">
               <div className="row">
                 <div className="label">
-                  <span>MC candidates (N)</span>
+                  <span>
+                    MC candidates (N)
+                    <Tooltip
+                      content={{
+                        title: "MC candidates (N)",
+                        sections: [
+                          { heading: "Meaning", lines: ["How many different upgrade allocations are tried."] },
+                          { heading: "Accuracy", lines: ["Higher N improves search quality (better chance to find a strong build)."] },
+                        ],
+                      }}
+                    />
+                  </span>
                   <span className="mono">{ui.mcCandidates}</span>
                 </div>
                 <input
@@ -550,7 +603,18 @@ export function App() {
               </div>
               <div className="row">
                 <div className="label">
-                  <span>Runs per combo</span>
+                  <span>
+                    Runs per combo
+                    <Tooltip
+                      content={{
+                        title: "Runs per combo",
+                        sections: [
+                          { heading: "Meaning", lines: ["How many simulation runs are averaged per candidate allocation."] },
+                          { heading: "Accuracy", lines: ["Higher runs reduces randomness/noise (more stable results)."] },
+                        ],
+                      }}
+                    />
+                  </span>
                   <span className="mono">{ui.mcRunsPerCombo}</span>
                 </div>
                 <input
@@ -572,6 +636,12 @@ export function App() {
                 onChange={(e) => setUi((s) => ({ ...s, devOnlyMcTuning: e.target.checked }))}
               />
               For developers only (unlock MC tuning)
+              <Tooltip
+                content={{
+                  title: "For developers only",
+                  lines: ["These settings can make the optimizer extremely slow.", "Leave them locked for normal usage."],
+                }}
+              />
             </label>
           </div>
         </div>
@@ -579,7 +649,18 @@ export function App() {
         <div className="rightColumn">
           <div className="budgetBar">
             <div className="panelHeader" style={{ marginBottom: 6 }}>
-              <h2 className="panelTitle">Currency budget</h2>
+              <h2 className="panelTitle">
+                Currency budget
+                <Tooltip
+                  content={{
+                    title: "Currency budget",
+                    sections: [
+                      { heading: "What is this?", lines: ["Enter your available event currencies (Tier 1–4)."] },
+                      { heading: "How it is used", lines: ["The optimizer spends these currencies to suggest which upgrade points to buy."] },
+                    ],
+                  }}
+                />
+              </h2>
               <p className="panelHint"></p>
             </div>
 
@@ -614,6 +695,15 @@ export function App() {
               <button className="btn" onClick={onOptimizeGuidedMc} disabled={running}>
                 Optimize (Guided MC)
               </button>
+              <Tooltip
+                content={{
+                  title: "Optimize (Guided MC)",
+                  sections: [
+                    { heading: "How it works", lines: ["Tries many candidate allocations and evaluates them via simulation."] },
+                    { heading: "Total work", lines: ["Total simulations = N candidates × runs per combo."] },
+                  ],
+                }}
+              />
               {running ? (
                 <button className="btn btnSecondary" onClick={onCancel}>
                   Cancel
@@ -679,6 +769,15 @@ export function App() {
                   <button className="btn btnGood" onClick={onAddPoints} disabled={!result || appliedSinceLastOptimize}>
                     {appliedSinceLastOptimize ? "Applied" : "Add Points!"}
                   </button>
+                  <Tooltip
+                    content={{
+                      title: "Add Points!",
+                      sections: [
+                        { heading: "What it does", lines: ["Applies the recommended upgrade points to your current upgrade levels."] },
+                        { heading: "Note", lines: ["Disabled after applying, until you run Optimize again."] },
+                      ],
+                    }}
+                  />
                 </div>
                 {[1, 2, 3, 4].map((tier) => {
                   const levels = result.upgrades.levels[tier as 1 | 2 | 3 | 4];
