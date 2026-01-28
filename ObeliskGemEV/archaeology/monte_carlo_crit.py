@@ -223,11 +223,19 @@ class MonteCarloCritSimulator:
         # Return None if enrage was disabled, otherwise return updated state
         return hits, enrage_state if enrage_was_enabled else None
     
-    def simulate_run(self, stats: Dict, starting_floor: int, 
-                    use_crit: bool = True, enrage_enabled: bool = False,
-                    flurry_enabled: bool = False, quake_enabled: bool = False,
-                    block_cards: Optional[Dict] = None,
-                    debug: bool = False, return_metrics: bool = False) -> float:
+    def simulate_run(
+        self,
+        stats: Dict,
+        starting_floor: int,
+        use_crit: bool = True,
+        enrage_enabled: bool = False,
+        flurry_enabled: bool = False,
+        quake_enabled: bool = False,
+        block_cards: Optional[Dict] = None,
+        debug: bool = False,
+        return_metrics: bool = False,
+        return_block_metrics: bool = False,
+    ) -> float:
         """
         Simulate a complete run, returning floors cleared.
         
@@ -236,6 +244,7 @@ class MonteCarloCritSimulator:
         Args:
             debug: If True, print detailed debug information for each floor
             return_metrics: If True, return dict with metrics instead of just floors_cleared
+            return_block_metrics: If True (and return_metrics=True), include per-block time/struggle metrics
         
         Returns:
             float: Number of floors cleared (0.0 if no floors cleared, 1.0+ if floors cleared)
@@ -262,6 +271,15 @@ class MonteCarloCritSimulator:
         
         # Run duration tracking (1 hit = 1 second)
         total_hits = 0
+
+        # Optional per-block tracking (kept lightweight; only enabled for final "detailed" MC results)
+        track_blocks = bool(return_metrics and return_block_metrics)
+        if track_blocks:
+            # Values are floats because the last (partial) floor is estimated via scaling.
+            block_hits_by_type = {}  # block_type -> seconds (hits) spent on that block type
+            blocks_destroyed_by_type = {}  # block_type -> estimated destroyed blocks
+            max_hits_single_block = 0
+            max_hits_single_block_type = None
         
         # Stamina mod tracking
         stamina_mod_chance = stats.get('stamina_mod_chance', 0)
@@ -359,6 +377,10 @@ class MonteCarloCritSimulator:
             stamina_before_floor = stamina_remaining
             stamina_mods_this_floor = 0
             block_types_spawned = {}  # Track block types spawned this floor
+
+            if track_blocks:
+                floor_hits_by_type = {}
+                floor_blocks_by_type = {}
             
             # For Quake: track all blocks on the floor and their HP
             floor_blocks = []  # List of (block_type, block_data, current_hp)
@@ -396,6 +418,13 @@ class MonteCarloCritSimulator:
                 stamina_for_floor += hits
                 total_hits += hits
                 blocks_killed += 1
+
+                if track_blocks:
+                    floor_hits_by_type[block_type] = floor_hits_by_type.get(block_type, 0.0) + float(hits)
+                    floor_blocks_by_type[block_type] = floor_blocks_by_type.get(block_type, 0.0) + 1.0
+                    if hits > max_hits_single_block:
+                        max_hits_single_block = int(hits)
+                        max_hits_single_block_type = str(block_type)
                 
                 # Check Flurry: cooldown reduces per hit (1 hit = 1 second)
                 # When cooldown reaches 0, Flurry triggers immediately
@@ -516,7 +545,24 @@ class MonteCarloCritSimulator:
                 # max_stage_reached remains at the last fully cleared floor
                 if stamina_for_floor > 0:
                     floors_cleared += stamina_remaining / stamina_for_floor
+
+                if track_blocks:
+                    # Estimate how much of this floor we cleared, and scale block stats accordingly.
+                    # This keeps the "destroyed blocks" and "time per block" metrics realistic.
+                    scale = (float(stamina_remaining) / float(stamina_for_floor)) if stamina_for_floor > 0 else 0.0
+                    scale = max(0.0, min(1.0, scale))
+                    for bt, v in floor_hits_by_type.items():
+                        block_hits_by_type[bt] = block_hits_by_type.get(bt, 0.0) + (float(v) * scale)
+                    for bt, v in floor_blocks_by_type.items():
+                        blocks_destroyed_by_type[bt] = blocks_destroyed_by_type.get(bt, 0.0) + (float(v) * scale)
                 break
+
+            if track_blocks:
+                # Full floor cleared: add without scaling.
+                for bt, v in floor_hits_by_type.items():
+                    block_hits_by_type[bt] = block_hits_by_type.get(bt, 0.0) + float(v)
+                for bt, v in floor_blocks_by_type.items():
+                    blocks_destroyed_by_type[bt] = blocks_destroyed_by_type.get(bt, 0.0) + float(v)
         
         # Persist ability states for next run (realistic behavior)
         if enrage_enabled and enrage_state is not None:
@@ -547,6 +593,39 @@ class MonteCarloCritSimulator:
             # Run duration in seconds (1 hit = 1 second, but speed mods/flurry can reduce it)
             # For simplicity, we use total_hits as duration (speed mods/flurry are QoL, not resource benefit)
             run_duration_seconds = max(1.0, float(total_hits))
+
+            block_breakdown = None
+            if track_blocks:
+                # Build a stable, UI-friendly structure.
+                ordered_types = ['dirt', 'common', 'rare', 'epic', 'legendary', 'mythic']
+                by_type = {}
+                total_time = float(sum(block_hits_by_type.values()))
+                for bt in ordered_types:
+                    blocks_est = float(blocks_destroyed_by_type.get(bt, 0.0))
+                    time_est = float(block_hits_by_type.get(bt, 0.0))
+                    if blocks_est <= 0.0 and time_est <= 0.0:
+                        continue
+                    by_type[str(bt)] = {
+                        "blocks_destroyed_est": float(blocks_est),
+                        "time_seconds_est": float(time_est),
+                        "avg_hits_per_block_est": float(time_est / blocks_est) if blocks_est > 0 else 0.0,
+                    }
+
+                most_time_type = None
+                most_avg_hits_type = None
+                if by_type:
+                    most_time_type = max(by_type.items(), key=lambda kv: kv[1].get("time_seconds_est", 0.0))[0]
+                    most_avg_hits_type = max(by_type.items(), key=lambda kv: kv[1].get("avg_hits_per_block_est", 0.0))[0]
+
+                block_breakdown = {
+                    "by_type": by_type,
+                    "total_time_seconds_est": float(total_time),
+                    "most_time_type": most_time_type,
+                    "most_avg_hits_type": most_avg_hits_type,
+                    "max_hits_single_block": int(max_hits_single_block),
+                    "max_hits_single_block_type": max_hits_single_block_type,
+                    "note": "Estimated for partial floors via scaled clear fraction.",
+                }
             
             return {
                 'floors_cleared': floors_cleared,
@@ -557,6 +636,7 @@ class MonteCarloCritSimulator:
                 'xp_per_run': total_xp,
                 'run_duration_seconds': run_duration_seconds,
                 'total_hits': total_hits,
+                **({"block_breakdown": block_breakdown} if track_blocks else {}),
             }
         
         return floors_cleared
@@ -683,7 +763,14 @@ def debug_single_run(stats: Dict, starting_floor: int,
     
     simulator = MonteCarloCritSimulator(seed=seed)
     floors_cleared = simulator.simulate_run(
-        stats_with_skills, starting_floor, use_crit, enrage_enabled, flurry_enabled, block_cards, debug=True
+        stats_with_skills,
+        starting_floor,
+        use_crit=use_crit,
+        enrage_enabled=enrage_enabled,
+        flurry_enabled=flurry_enabled,
+        quake_enabled=False,
+        block_cards=block_cards,
+        debug=True,
     )
     return floors_cleared
 

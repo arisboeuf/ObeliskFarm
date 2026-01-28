@@ -62,6 +62,7 @@ def run_stage_sims_summary(
             quake_enabled=bool(quake_enabled),
             block_cards=block_cards,
             return_metrics=True,
+            return_block_metrics=False,
         )
 
         max_stage = float(result.get("max_stage_reached", 0.0))
@@ -140,6 +141,7 @@ def run_stage_sims_detailed(
             quake_enabled=bool(quake_enabled),
             block_cards=block_cards,
             return_metrics=True,
+            return_block_metrics=True,
         )
 
         max_stage_samples.append(float(result.get("max_stage_reached", 0.0)))
@@ -150,6 +152,8 @@ def run_stage_sims_detailed(
                 "fragments": (result.get("fragments", {}) or {}).copy(),
                 "floors_cleared": float(result.get("floors_cleared", 0.0)),
                 "run_duration_seconds": float(result.get("run_duration_seconds", 1.0)),
+                # Optional (only present when return_block_metrics=True)
+                "block_breakdown": (result.get("block_breakdown") or None),
             }
         )
 
@@ -197,6 +201,7 @@ def run_fragment_sims_summary(
             quake_enabled=bool(quake_enabled),
             block_cards=block_cards,
             return_metrics=True,
+            return_block_metrics=False,
         )
 
         fragments = result.get("fragments", {}) or {}

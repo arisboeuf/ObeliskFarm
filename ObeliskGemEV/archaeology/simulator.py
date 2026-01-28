@@ -5235,6 +5235,157 @@ class ArchaeologySimulatorWindow:
             pass
         
         return " | ".join(metrics) if metrics else ""
+
+    def _compute_avg_block_breakdown(self, metrics_samples):
+        """
+        Aggregate per-run block breakdowns into per-run averages for display.
+
+        Expected input shape (per metrics sample):
+          sample["block_breakdown"]["by_type"][block_type] = {
+              "blocks_destroyed_est": float,
+              "time_seconds_est": float,
+              "avg_hits_per_block_est": float,
+          }
+        """
+        if not metrics_samples:
+            return None
+
+        runs_with_data = 0
+        time_sum_by_type = {}
+        blocks_sum_by_type = {}
+        note = None
+
+        for m in metrics_samples:
+            bb = (m or {}).get("block_breakdown") or None
+            if not isinstance(bb, dict):
+                continue
+            by_type = bb.get("by_type") or {}
+            if not isinstance(by_type, dict) or not by_type:
+                continue
+            runs_with_data += 1
+            note = note or bb.get("note")
+            for bt, vals in by_type.items():
+                if not isinstance(vals, dict):
+                    continue
+                t = float(vals.get("time_seconds_est", 0.0) or 0.0)
+                b = float(vals.get("blocks_destroyed_est", 0.0) or 0.0)
+                time_sum_by_type[bt] = time_sum_by_type.get(bt, 0.0) + t
+                blocks_sum_by_type[bt] = blocks_sum_by_type.get(bt, 0.0) + b
+
+        if runs_with_data <= 0:
+            return None
+
+        total_time_avg = (sum(time_sum_by_type.values()) / runs_with_data) if runs_with_data > 0 else 0.0
+
+        ordered_types = ['dirt', 'common', 'rare', 'epic', 'legendary', 'mythic']
+        out_by_type = {}
+        for bt in ordered_types:
+            t_avg = float(time_sum_by_type.get(bt, 0.0) / runs_with_data)
+            b_avg = float(blocks_sum_by_type.get(bt, 0.0) / runs_with_data)
+            if t_avg <= 0.0 and b_avg <= 0.0:
+                continue
+            out_by_type[bt] = {
+                "blocks_destroyed_per_run": b_avg,
+                "time_seconds_per_run": t_avg,
+                "time_share": (t_avg / total_time_avg) if total_time_avg > 0 else 0.0,
+                "avg_hits_per_block": (t_avg / b_avg) if b_avg > 0 else 0.0,
+            }
+
+        if not out_by_type:
+            return None
+
+        most_time_type = max(out_by_type.items(), key=lambda kv: kv[1].get("time_seconds_per_run", 0.0))[0]
+        most_avg_hits_type = max(out_by_type.items(), key=lambda kv: kv[1].get("avg_hits_per_block", 0.0))[0]
+
+        return {
+            "by_type": out_by_type,
+            "total_time_seconds_per_run": float(total_time_avg),
+            "most_time_type": most_time_type,
+            "most_avg_hits_type": most_avg_hits_type,
+            "note": note,
+        }
+
+    def _add_block_breakdown_to_metrics_frame(self, metrics_frame, metrics_samples):
+        """Append a per-block time/struggle section to an existing Performance Metrics frame."""
+        agg = self._compute_avg_block_breakdown(metrics_samples)
+        if not agg:
+            return
+
+        try:
+            ttk.Separator(metrics_frame, orient="horizontal").pack(fill=tk.X, pady=(8, 6))
+        except Exception:
+            pass
+
+        header = ttk.Label(metrics_frame, text="Block Struggle Breakdown (Estimated)", font=("Arial", 9, "bold"))
+        header.pack(anchor=tk.CENTER)
+
+        # Center the table as a whole (avoid stretching columns to full width)
+        outer = tk.Frame(metrics_frame)
+        outer.pack(fill=tk.X, pady=(4, 0))
+        table = tk.Frame(outer)
+        table.pack(anchor=tk.CENTER)
+
+        # Keep icon references alive
+        table._icon_refs = []
+
+        # Table headers (centered)
+        cols = ["", "Block", "Destroyed/run", "Time/run (s)", "Share", "Avg hits/block"]
+        for c, text in enumerate(cols):
+            tk.Label(table, text=text, font=("Arial", 8, "bold"), justify=tk.CENTER).grid(
+                row=0, column=c, padx=(6, 6), pady=(0, 2)
+            )
+
+        by_type = agg.get("by_type", {}) or {}
+        row = 1
+        for bt in ['dirt', 'common', 'rare', 'epic', 'legendary', 'mythic']:
+            vals = by_type.get(bt)
+            if not vals:
+                continue
+            b = float(vals.get("blocks_destroyed_per_run", 0.0))
+            t = float(vals.get("time_seconds_per_run", 0.0))
+            share = float(vals.get("time_share", 0.0))
+            avg_hits = float(vals.get("avg_hits_per_block", 0.0))
+
+            # Skip ultra-tiny contributions to keep UI compact
+            if b < 0.01 and t < 0.5:
+                continue
+
+            # Icon (if available)
+            icon = None
+            if hasattr(self, "block_icons") and isinstance(getattr(self, "block_icons", None), dict):
+                icon = self.block_icons.get(bt)
+            if icon is not None:
+                lbl_icon = tk.Label(table, image=icon)
+                lbl_icon.grid(row=row, column=0, padx=(6, 6), pady=1)
+                table._icon_refs.append(icon)
+            else:
+                tk.Label(table, text="").grid(row=row, column=0, padx=(6, 6), pady=1)
+
+            tk.Label(table, text=bt.capitalize(), font=("Arial", 8), justify=tk.CENTER).grid(row=row, column=1, padx=(6, 6))
+            tk.Label(table, text=f"{b:.1f}", font=("Arial", 8), justify=tk.CENTER).grid(row=row, column=2, padx=(6, 6))
+            tk.Label(table, text=f"{t:.0f}", font=("Arial", 8), justify=tk.CENTER).grid(row=row, column=3, padx=(6, 6))
+            tk.Label(table, text=f"{share * 100:.1f}%", font=("Arial", 8), justify=tk.CENTER).grid(row=row, column=4, padx=(6, 6))
+            tk.Label(table, text=f"{avg_hits:.1f}", font=("Arial", 8), justify=tk.CENTER).grid(row=row, column=5, padx=(6, 6))
+            row += 1
+
+        # Highlights
+        most_time = agg.get("most_time_type")
+        most_avg = agg.get("most_avg_hits_type")
+        highlight = []
+        if most_time:
+            highlight.append(f"Most time spent on: {str(most_time).capitalize()}")
+        if most_avg:
+            highlight.append(f"Highest avg hits/block: {str(most_avg).capitalize()}")
+        if highlight:
+            ttk.Label(metrics_frame, text=" | ".join(highlight), font=("Arial", 8), foreground="#555555").pack(
+                anchor=tk.CENTER, pady=(4, 0)
+            )
+
+        note = agg.get("note")
+        if note:
+            ttk.Label(metrics_frame, text=f"Note: {note}", font=("Arial", 8), foreground="#777777").pack(
+                anchor=tk.CENTER, pady=(2, 0)
+            )
     
     def _reset_mc_log(self):
         """Reset the MC log (clear all entries)"""
@@ -9056,6 +9207,9 @@ Fragments/h: {fragments_per_hour:.2f}"""
                     )
                     frag_label.pack(side=tk.LEFT)
                     frag_labels.append(frag_item_frame)
+
+            # Optional: show per-block struggle/time breakdown (only present for detailed MC runs)
+            self._add_block_breakdown_to_metrics_frame(metrics_frame, metrics_samples)
             
             # Adjust row numbers for subsequent elements
             skill_row = 3
@@ -9476,6 +9630,9 @@ Fragments/h: {fragments_per_hour:.2f}"""
                     )
                     frag_label.pack(side=tk.LEFT)
                     frag_labels.append(frag_item_frame)
+
+            # Optional: show per-block struggle/time breakdown (only present for detailed MC runs)
+            self._add_block_breakdown_to_metrics_frame(metrics_frame, metrics_samples)
             
             # Adjust row numbers for subsequent elements
             skill_row = 3
@@ -10155,6 +10312,9 @@ Fragments/h: {fragments_per_hour:.2f}"""
                     )
                     frag_label.pack(side=tk.LEFT)
                     frag_labels.append(frag_item_frame)
+
+            # Optional: show per-block struggle/time breakdown (only present for detailed MC runs)
+            self._add_block_breakdown_to_metrics_frame(metrics_frame, metrics_samples)
             
             # Adjust row numbers for subsequent elements
             skill_row = 3
