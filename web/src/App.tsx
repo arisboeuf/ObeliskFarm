@@ -10,7 +10,7 @@ import {
   type OptimizationResult,
   type UpgradeState,
 } from "./lib/event/optimizer";
-import { type MCOptimizationResult } from "./lib/event/monteCarloOptimizer";
+import { monteCarloOptimizeGuided, type MCOptimizationResult } from "./lib/event/monteCarloOptimizer";
 import { getGemMaxLevel } from "./lib/event/simulation";
 import { assetUrl } from "./lib/assets";
 import { currencyIconFilename, gemUpgradeIconFilename, upgradeIconFilename } from "./lib/event/icons";
@@ -281,7 +281,7 @@ export function App() {
           numRuns: ui.mcCandidates,
           eventRunsPerCombination: ui.mcRunsPerCombo,
           seedBase: null,
-          progressCallback: (cur, total, curWave, bestWave) => {
+          progressCallback: (cur: number, total: number, curWave: number, bestWave: number) => {
             if (cur % 25 === 0 || cur === total) setProgress({ cur, total, curWave, bestWave });
           },
         });
