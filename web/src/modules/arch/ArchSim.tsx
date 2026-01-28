@@ -71,7 +71,7 @@ type McSettings = {
 };
 
 function defaultMcSettings(): McSettings {
-  return { targetFrag: "common", devTuning: false, screeningSims: 100, refinementSims: 200, combosMult: 1 };
+  return { targetFrag: "common", devTuning: false, screeningSims: 150, refinementSims: 150, combosMult: 2 };
 }
 
 function Sprite(props: { path: string | null; alt: string; className?: string; label?: string }) {
@@ -274,6 +274,18 @@ export function ArchSim() {
   void summary; // MC-only UI: keep deterministic summary internal, but do not render it.
 
   const totalSkillPoints = useMemo(() => Object.values(build.skillPoints).reduce((a, b) => a + b, 0), [build.skillPoints]);
+
+  const PLAYER_STATS_TOOLTIP = useMemo(
+    () => ({
+      title: "Player stats (optional)",
+      lines: [
+        "This section is informational and can be ignored if you only care about the optimizers.",
+        "The simulation uses your build settings (stats, skills, upgrades, cards, stages).",
+        "The numbers shown here are derived from the current build; you don't edit them directly.",
+      ],
+    }),
+    [],
+  );
 
   const sortedFragmentUpgrades = useMemo(() => {
     const entries = Object.entries(FRAGMENT_UPGRADES);
@@ -1356,18 +1368,87 @@ export function ArchSim() {
       </div>
 
       <div className="archGrid archGridNoMc">
-        {/* Column 1: stats (collapsible) */}
+        {/* Column 1: build (collapsible) */}
         <div style={{ display: "grid", gap: 12 }}>
+          <Collapsible id="arch-skills" title="Skills" defaultExpanded={true}>
+            <div className="small" style={{ marginBottom: 8 }}>
+              Toggle skills that affect the simulation.
+            </div>
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+              <button className="btn btnSecondary" type="button" onClick={() => setBuild((s) => ({ ...s, enrageEnabled: !s.enrageEnabled }))}>
+                <Sprite path="sprites/archaeology/Archaeology_Ability_Enrage.png" alt="Enrage" className="iconSmall" /> Enrage:{" "}
+                <span className="mono">{build.enrageEnabled ? "ON" : "OFF"}</span>
+              </button>
+              <button className="btn btnSecondary" type="button" onClick={() => setBuild((s) => ({ ...s, flurryEnabled: !s.flurryEnabled }))}>
+                <Sprite path="sprites/archaeology/Archaeology_Ability_Flurry.png" alt="Flurry" className="iconSmall" /> Flurry:{" "}
+                <span className="mono">{build.flurryEnabled ? "ON" : "OFF"}</span>
+              </button>
+              <button className="btn btnSecondary" type="button" onClick={() => setBuild((s) => ({ ...s, quakeEnabled: !s.quakeEnabled }))}>
+                <Sprite path="sprites/archaeology/Archaeology_Ability_Quake.png" alt="Quake" className="iconSmall" /> Quake:{" "}
+                <span className="mono">{build.quakeEnabled ? "ON" : "OFF"}</span>
+              </button>
+              <button className="btn btnSecondary" type="button" onClick={() => setBuild((s) => ({ ...s, avadaKedaEnabled: !s.avadaKedaEnabled }))}>
+                <Sprite path="sprites/archaeology/avadakeda.png" alt="Avada Keda" className="iconSmall" /> Avada Keda:{" "}
+                <span className="mono">{build.avadaKedaEnabled ? "ON" : "OFF"}</span>
+              </button>
+              <button className="btn btnSecondary" type="button" onClick={() => setBuild((s) => ({ ...s, blockBonkerEnabled: !s.blockBonkerEnabled }))}>
+                <Sprite path="sprites/archaeology/blockbonker.png" alt="Block Bonker" className="iconSmall" /> Block Bonker:{" "}
+                <span className="mono">{build.blockBonkerEnabled ? "ON" : "OFF"}</span>
+              </button>
+            </div>
+          </Collapsible>
+
           <Collapsible
             id="arch-player-stats"
-            title="Player stats"
-            defaultExpanded={true}
+            title={
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                <span>Player stats (OPTIONAL)</span>
+                <Tooltip content={PLAYER_STATS_TOOLTIP} />
+              </span>
+            }
+            defaultExpanded={false}
             headerRight={
               <span className="mono">
                 {totalSkillPoints}/{build.archLevel}
               </span>
             }
           >
+            <div className="sectionTitle">Stats</div>
+            <div className="small" style={{ marginBottom: 8 }}>
+              Spend your <span className="mono">Arch level</span> points here.
+            </div>
+            {(["strength", "agility", "perception", "intellect", "luck"] as const).map((statKey) => {
+              const cap = getSkillPointCap(build, statKey);
+              const v = build.skillPoints[statKey];
+              const short =
+                statKey === "strength" ? "STR" : statKey === "agility" ? "AGI" : statKey === "perception" ? "PER" : statKey === "intellect" ? "INT" : "LCK";
+              return (
+                <div key={statKey} className="row" style={{ marginBottom: 8 }}>
+                  <div className="label">
+                    <span className="mono">{short}</span>
+                    <span className="mono">
+                      {v} / {cap}
+                    </span>
+                  </div>
+                  <div className="btnRow" style={{ marginTop: 0 }}>
+                    <button className="btn btnSecondary" type="button" onClick={() => setSkill(statKey, -1)} disabled={v <= 0}>
+                      −
+                    </button>
+                    <button className="btn" type="button" onClick={() => setSkill(statKey, +1)} disabled={v >= cap || totalSkillPoints >= build.archLevel}>
+                      +
+                    </button>
+                    <button className="btn btnSecondary" type="button" onClick={() => setSkill(statKey, +5)} disabled={v >= cap || totalSkillPoints >= build.archLevel}>
+                      +5
+                    </button>
+                    <button className="btn btnSecondary" type="button" onClick={() => setSkill(statKey, -5)} disabled={v <= 0}>
+                      −5
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+
+            <div className="sectionTitle">Derived stats</div>
             <div className="kv" style={{ background: "var(--tier1)" }}>
               <kbd>XP gain</kbd>
               <div className="mono">{stats.xp_gain_total.toFixed(3)}x</div>
@@ -1393,64 +1474,6 @@ export function ArchSim() {
               <div className="mono">{stats.ultra_crit_dmg_mult.toFixed(3)}x</div>
               <kbd>One-hit</kbd>
               <div className="mono">{formatPct(stats.one_hit_chance, 3)}</div>
-            </div>
-
-            <div className="sectionTitle">Stats</div>
-            <div className="small" style={{ marginBottom: 8 }}>
-              Spend your <span className="mono">Arch level</span> points here.
-            </div>
-            {(["strength", "agility", "perception", "intellect", "luck"] as const).map((skill) => {
-              const cap = getSkillPointCap(build, skill);
-              const v = build.skillPoints[skill];
-              const short = skill === "strength" ? "STR" : skill === "agility" ? "AGI" : skill === "perception" ? "PER" : skill === "intellect" ? "INT" : "LCK";
-              return (
-                <div key={skill} className="row" style={{ marginBottom: 8 }}>
-                  <div className="label">
-                    <span className="mono">{short}</span>
-                    <span className="mono">
-                      {v} / {cap}
-                    </span>
-                  </div>
-                  <div className="btnRow" style={{ marginTop: 0 }}>
-                    <button className="btn btnSecondary" type="button" onClick={() => setSkill(skill, -1)} disabled={v <= 0}>
-                      −
-                    </button>
-                    <button className="btn" type="button" onClick={() => setSkill(skill, +1)} disabled={v >= cap || totalSkillPoints >= build.archLevel}>
-                      +
-                    </button>
-                    <button className="btn btnSecondary" type="button" onClick={() => setSkill(skill, +5)} disabled={v >= cap || totalSkillPoints >= build.archLevel}>
-                      +5
-                    </button>
-                    <button className="btn btnSecondary" type="button" onClick={() => setSkill(skill, -5)} disabled={v <= 0}>
-                      −5
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-
-            <div className="sectionTitle">Abilities</div>
-            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-              <button className="btn btnSecondary" type="button" onClick={() => setBuild((s) => ({ ...s, enrageEnabled: !s.enrageEnabled }))}>
-                <Sprite path="sprites/archaeology/Archaeology_Ability_Enrage.png" alt="Enrage" className="iconSmall" /> Enrage:{" "}
-                <span className="mono">{build.enrageEnabled ? "ON" : "OFF"}</span>
-              </button>
-              <button className="btn btnSecondary" type="button" onClick={() => setBuild((s) => ({ ...s, flurryEnabled: !s.flurryEnabled }))}>
-                <Sprite path="sprites/archaeology/Archaeology_Ability_Flurry.png" alt="Flurry" className="iconSmall" /> Flurry:{" "}
-                <span className="mono">{build.flurryEnabled ? "ON" : "OFF"}</span>
-              </button>
-              <button className="btn btnSecondary" type="button" onClick={() => setBuild((s) => ({ ...s, quakeEnabled: !s.quakeEnabled }))}>
-                <Sprite path="sprites/archaeology/Archaeology_Ability_Quake.png" alt="Quake" className="iconSmall" /> Quake:{" "}
-                <span className="mono">{build.quakeEnabled ? "ON" : "OFF"}</span>
-              </button>
-              <button className="btn btnSecondary" type="button" onClick={() => setBuild((s) => ({ ...s, avadaKedaEnabled: !s.avadaKedaEnabled }))}>
-                <Sprite path="sprites/archaeology/avadakeda.png" alt="Avada Keda" className="iconSmall" /> Avada Keda:{" "}
-                <span className="mono">{build.avadaKedaEnabled ? "ON" : "OFF"}</span>
-              </button>
-              <button className="btn btnSecondary" type="button" onClick={() => setBuild((s) => ({ ...s, blockBonkerEnabled: !s.blockBonkerEnabled }))}>
-                <Sprite path="sprites/archaeology/blockbonker.png" alt="Block Bonker" className="iconSmall" /> Block Bonker:{" "}
-                <span className="mono">{build.blockBonkerEnabled ? "ON" : "OFF"}</span>
-              </button>
             </div>
 
             <div className="sectionTitle">Mods</div>

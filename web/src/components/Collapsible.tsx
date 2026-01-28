@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 
 export function Collapsible(props: {
   id: string;
-  title: string;
+  title: React.ReactNode;
   defaultExpanded?: boolean;
   headerRight?: React.ReactNode;
   children: React.ReactNode;

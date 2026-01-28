@@ -1,0 +1,12 @@
+---
+description: Default all work to web/ unless explicitly requested otherwise
+alwaysApply: true
+---
+
+# Default scope: `web/` only
+
+- **Default target is the `web/` app.** When the user asks for changes without specifying scope, implement them in `web/`.
+- **Do not change desktop/Python (“main” / `ObeliskGemEV/` etc.) unless the user explicitly asks.**
+- Reading non-`web/` files for reference is allowed, but edits outside `web/` require explicit user instruction.
+- If a request could be interpreted as either desktop or web, **assume web**.
+

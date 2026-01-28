@@ -1361,7 +1361,8 @@ a:hover {
 }
 
 .tooltipTitle {
-  font-weight: 900;
+  /* Keep emphasis via color, avoid heavy bold by default. */
+  font-weight: 700;
   color: #1976d2;
   font-size: 13px;
   margin-bottom: 6px;
@@ -1372,7 +1373,8 @@ a:hover {
 }
 
 .tooltipHeading {
-  font-weight: 900;
+  /* Avoid heavy bold in tooltip text; headings can still be slightly emphasized. */
+  font-weight: 700;
   font-size: 12px;
   color: rgba(15, 23, 42, 0.86);
   margin-bottom: 3px;
