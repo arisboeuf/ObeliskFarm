@@ -194,6 +194,24 @@ body {
   background: #ffffff;
 }
 
+.fragmentUpgradeTop {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.fragmentUpgradeRight {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.fragmentUpgradeButtons {
+  justify-content: center;
+}
+
 .gemPanel {
   border: 1px solid rgba(25, 118, 210, 0.22);
   box-shadow: 0 0 0 3px rgba(25, 118, 210, 0.08);
@@ -239,30 +257,30 @@ body {
 .mcCardStage {
   background: repeating-linear-gradient(
       45deg,
-      rgba(46, 125, 50, 0.14),
-      rgba(46, 125, 50, 0.14) 7px,
-      rgba(255, 255, 255, 0.94) 7px,
-      rgba(255, 255, 255, 0.94) 14px
+      rgba(46, 125, 50, 0.06),
+      rgba(46, 125, 50, 0.06) 8px,
+      rgba(255, 255, 255, 0.98) 8px,
+      rgba(255, 255, 255, 0.98) 16px
     );
 }
 
 .mcCardXp {
   background: repeating-linear-gradient(
       135deg,
-      rgba(103, 58, 183, 0.14),
-      rgba(103, 58, 183, 0.14) 7px,
-      rgba(255, 255, 255, 0.94) 7px,
-      rgba(255, 255, 255, 0.94) 14px
+      rgba(103, 58, 183, 0.06),
+      rgba(103, 58, 183, 0.06) 8px,
+      rgba(255, 255, 255, 0.98) 8px,
+      rgba(255, 255, 255, 0.98) 16px
     );
 }
 
 .mcCardFrag {
   background: repeating-linear-gradient(
       45deg,
-      rgba(245, 124, 0, 0.14),
-      rgba(245, 124, 0, 0.14) 7px,
-      rgba(255, 255, 255, 0.94) 7px,
-      rgba(255, 255, 255, 0.94) 14px
+      rgba(245, 124, 0, 0.06),
+      rgba(245, 124, 0, 0.06) 8px,
+      rgba(255, 255, 255, 0.98) 8px,
+      rgba(255, 255, 255, 0.98) 16px
     );
 }
 
@@ -508,6 +526,13 @@ a:hover {
   background: rgba(255, 255, 255, 0.08);
 }
 
+.cardBtnActive {
+  border-color: rgba(46, 125, 50, 0.55) !important;
+  box-shadow: 0 0 0 3px rgba(46, 125, 50, 0.18), 0 0 18px rgba(46, 125, 50, 0.16);
+  background: rgba(46, 125, 50, 0.08) !important;
+  color: rgba(15, 23, 42, 0.92) !important;
+}
+
 .error {
   border: 1px solid rgba(251, 113, 133, 0.45);
   background: rgba(198, 40, 40, 0.08);
@@ -603,10 +628,18 @@ a:hover {
   display: inline-block;
   min-width: 28px;
   text-align: center;
-  padding: 1px 8px;
+  padding: 2px 10px;
   border-radius: 999px;
   border: 1px solid rgba(15, 23, 42, 0.16);
   font-weight: 900;
+  font-size: 14px;
+  line-height: 18px;
+}
+
+.upgradeLevel {
+  font-size: 14px;
+  font-weight: 900;
+  color: rgba(15, 23, 42, 0.95);
 }
 
 .iconPlaceholder {

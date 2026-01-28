@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { Collapsible } from "../../components/Collapsible";
 import { Tooltip } from "../../components/Tooltip";
 import { assetUrl } from "../../lib/assets";
@@ -42,17 +42,31 @@ type McLogEntry = {
     targetFrag?: BlockType;
     objective: "stage" | "XP" | "frag";
     objectiveSamples: number[]; // usually 1000 samples
+    tieBreak?: {
+      mode: "stage" | "XP" | "frag";
+      epsilon: number;
+      primaryMetric: string;
+      tiedAtPrimary: number;
+      winnerReason: string;
+      top3: Array<{
+        label: string;
+        primary: number;
+        secondary?: number;
+        tertiary?: number;
+        dist: { strength: number; agility: number; perception: number; intellect: number; luck: number };
+      }>;
+    };
   };
 };
 
+type TieBreakReport = NonNullable<McLogEntry["mc"]>["tieBreak"];
+
 type McSettings = {
-  useScreening: boolean;
-  useRefinement: boolean;
   targetFrag: BlockType;
 };
 
 function defaultMcSettings(): McSettings {
-  return { useScreening: true, useRefinement: true, targetFrag: "common" };
+  return { targetFrag: "common" };
 }
 
 function Sprite(props: { path: string | null; alt: string; className?: string; label?: string }) {
@@ -141,11 +155,36 @@ export function ArchSim() {
     const base = defaultMcSettings();
     if (!raw) return base;
     return {
-      useScreening: typeof raw.useScreening === "boolean" ? raw.useScreening : base.useScreening,
-      useRefinement: typeof raw.useRefinement === "boolean" ? raw.useRefinement : base.useRefinement,
       targetFrag: (raw.targetFrag as BlockType) ?? base.targetFrag,
     };
   });
+  function confirmDanger(message: string): boolean {
+    try {
+      return window.confirm(message);
+    } catch {
+      return false;
+    }
+  }
+
+  function heatAlphaFromLevel(level: number): number {
+    const lvl = Math.max(0, Math.trunc(level));
+    if (lvl <= 0) return 0;
+    const maxRef = 50;
+    const alpha = (Math.log1p(lvl) / Math.log1p(maxRef)) * 0.28;
+    return Math.max(0.06, Math.min(0.28, alpha));
+  }
+
+  function heatStyle(level: number): CSSProperties {
+    const a = heatAlphaFromLevel(level);
+    if (a <= 0) return {};
+    const maxRef = 50;
+    const t = Math.max(0, Math.min(1, Math.log1p(Math.max(0, level)) / Math.log1p(maxRef)));
+    const hue = t < 0.5 ? 120 + (60 - 120) * (t / 0.5) : 60 + (30 - 60) * ((t - 0.5) / 0.5);
+    const bg = `hsla(${hue.toFixed(1)}, 85%, 70%, ${a.toFixed(3)})`;
+    const border = `hsla(${hue.toFixed(1)}, 85%, 38%, 0.35)`;
+    return { backgroundColor: bg, borderColor: border };
+  }
+
   const [mcRunning, setMcRunning] = useState(false);
   const [mcProgress, setMcProgress] = useState<string | null>(null);
   const cancelRef = useRef<{ cancelled: boolean; pool: WorkerPool | null }>({ cancelled: false, pool: null });
@@ -466,8 +505,9 @@ export function ArchSim() {
     setMcProgress("Starting…");
 
     const archLevel = clampInt(Number(build.archLevel ?? 0), 0, 999);
-    const screeningSims = mcSettings.useScreening ? 200 : 0;
-    const refinementSims = mcSettings.useRefinement ? 500 : 0;
+    // Always enabled (matches desktop; user should not toggle)
+    const screeningSims = 200;
+    const refinementSims = 500;
     const targetFrag = mcSettings.targetFrag;
 
     const caps: Record<Skill, number> = {
@@ -489,7 +529,7 @@ export function ArchSim() {
     const cardCfg = { blockCards: build.blockCards, polychromeBonus: getPolychromeBonus() };
     const options = { use_crit: true, enrage_enabled: build.enrageEnabled, flurry_enabled: build.flurryEnabled, quake_enabled: build.quakeEnabled };
 
-    type Cand = { dist: number[]; score: number };
+    type Cand = { dist: number[]; primary: number; secondary: number | null; tertiary: number | null };
     const scores: Cand[] = [];
 
     const maxPending = Math.max(2, pool.size * 2);
@@ -503,16 +543,59 @@ export function ArchSim() {
           type: "fragmentSummary",
           payload: { stats: stats2, starting_floor: 1, n_sims: simN, options, cardCfg, seed, target_frag: targetFrag },
         });
-        scores.push({ dist, score: Number(out.avg_frag_per_hour ?? 0) });
+        scores.push({ dist, primary: Number(out.avg_frag_per_hour ?? 0), secondary: null, tertiary: null });
         return;
       }
       const out = await pool.run({
         type: "stageSummary",
         payload: { stats: stats2, starting_floor: 1, n_sims: simN, options, cardCfg, seed },
       });
-      if (mode === "XP") scores.push({ dist, score: Number(out.xp_per_hour ?? 0) });
-      else scores.push({ dist, score: Number(out.avg_max_stage ?? 0) });
+      const avgMaxStage = Number(out.avg_max_stage ?? 0);
+      const fragsPerHour = Number(out.fragments_per_hour ?? 0);
+      const xpPerHour = Number(out.xp_per_hour ?? 0);
+      if (mode === "XP") {
+        // primary XP/h, tie-break by avg stage then fragments/h
+        scores.push({ dist, primary: xpPerHour, secondary: avgMaxStage, tertiary: fragsPerHour });
+      } else {
+        // primary avg stage, tie-break by fragments/h then XP/h (matches desktop intent)
+        scores.push({ dist, primary: avgMaxStage, secondary: fragsPerHour, tertiary: xpPerHour });
+      }
     };
+
+    function compareCand(a: Cand, b: Cand): number {
+      const eps = 0.01;
+      if (Math.abs(a.primary - b.primary) >= eps) return b.primary - a.primary;
+      const as = a.secondary ?? -Infinity;
+      const bs = b.secondary ?? -Infinity;
+      if (Math.abs(as - bs) >= eps) return bs - as;
+      const at = a.tertiary ?? -Infinity;
+      const bt = b.tertiary ?? -Infinity;
+      if (Math.abs(at - bt) >= eps) return bt - at;
+      return 0;
+    }
+
+    function candToDistMap(dist: number[]): { strength: number; agility: number; perception: number; intellect: number; luck: number } {
+      return { strength: dist[0] ?? 0, agility: dist[1] ?? 0, perception: dist[2] ?? 0, intellect: dist[3] ?? 0, luck: dist[4] ?? 0 };
+    }
+
+    function makeTieBreakReport(cands: Cand[], best: Cand, eps: number): TieBreakReport {
+      const tiedAtPrimary = cands.filter((c) => Math.abs(c.primary - best.primary) < eps).length;
+      const hasSecondary = (best.secondary ?? 0) > 0 || cands.some((c) => (c.secondary ?? 0) !== 0);
+      const hasTertiary = (best.tertiary ?? 0) > 0 || cands.some((c) => (c.tertiary ?? 0) !== 0);
+      const primaryMetric = mode === "stage" ? "avg_max_stage" : mode === "XP" ? "xp_per_hour" : "frag_per_hour";
+      let winnerReason = "highest primary score";
+      if (tiedAtPrimary > 1 && (mode === "stage" || mode === "XP")) {
+        winnerReason = hasTertiary ? "tie-break by secondary then tertiary" : hasSecondary ? "tie-break by secondary" : "tie-break (lexicographic)";
+      }
+      const top3 = cands.slice(0, 3).map((c, i) => ({
+        label: `#${i + 1}`,
+        primary: c.primary,
+        secondary: c.secondary ?? undefined,
+        tertiary: c.tertiary ?? undefined,
+        dist: candToDistMap(c.dist),
+      }));
+      return { mode, epsilon: eps, primaryMetric, tiedAtPrimary, winnerReason, top3 };
+    }
 
     try {
       if (archLevel <= 0) throw new Error("Arch level must be >= 1.");
@@ -627,11 +710,12 @@ export function ArchSim() {
       await Promise.allSettled(Array.from(inFlight));
 
       if (cancelRef.current.cancelled) throw new Error("cancelled");
-      scores.sort((a, b) => b.score - a.score);
+      scores.sort(compareCand);
       const numAnchors = Math.max(1, Math.trunc(scores.length * topRatio));
       const anchors = scores.slice(0, numAnchors);
 
       let best: Cand | undefined = scores[0];
+      let bestPool: Cand[] = scores;
       if (refinementSims > 0) {
         setMcProgress(`Phase 2: Refinement (${numAnchors} anchors, N=${refinementSims})…`);
         const refined: Cand[] = [];
@@ -652,14 +736,18 @@ export function ArchSim() {
                   type: "fragmentSummary",
                   payload: { stats: stats2, starting_floor: 1, n_sims: refinementSims, options, cardCfg, seed: seedBase + 100_000 + a * 100 + j, target_frag: targetFrag },
                 });
-                refined.push({ dist, score: Number(out.avg_frag_per_hour ?? 0) });
+                refined.push({ dist, primary: Number(out.avg_frag_per_hour ?? 0), secondary: null, tertiary: null });
                 return;
               }
               const out = await pool.run({
                 type: "stageSummary",
                 payload: { stats: stats2, starting_floor: 1, n_sims: refinementSims, options, cardCfg, seed: seedBase + 100_000 + a * 100 + j },
               });
-              refined.push({ dist, score: mode === "XP" ? Number(out.xp_per_hour ?? 0) : Number(out.avg_max_stage ?? 0) });
+              const avgMaxStage = Number(out.avg_max_stage ?? 0);
+              const fragsPerHour = Number(out.fragments_per_hour ?? 0);
+              const xpPerHour = Number(out.xp_per_hour ?? 0);
+              if (mode === "XP") refined.push({ dist, primary: xpPerHour, secondary: avgMaxStage, tertiary: fragsPerHour });
+              else refined.push({ dist, primary: avgMaxStage, secondary: fragsPerHour, tertiary: xpPerHour });
             })().then(() => {
               completed += 1;
               if (completed % 10 === 0 || completed === totalRef) setMcProgress(`Phase 2: Refinement (${completed}/${totalRef})`);
@@ -672,10 +760,14 @@ export function ArchSim() {
         await Promise.allSettled(Array.from(inFlight2));
 
         if (cancelRef.current.cancelled) throw new Error("cancelled");
-        refined.sort((a, b) => b.score - a.score);
-        best = refined[0] && refined[0].score >= (scores[0]?.score ?? -Infinity) ? refined[0] : scores[0];
+        refined.sort(compareCand);
+        const bestRefined = refined[0] ?? null;
+        const bestScreen = scores[0] ?? null;
+        best = bestRefined && bestScreen ? (compareCand(bestRefined, bestScreen) <= 0 ? bestRefined : bestScreen) : bestRefined ?? bestScreen ?? undefined;
+        bestPool = bestRefined && bestScreen ? (compareCand(bestRefined, bestScreen) <= 0 ? refined : scores) : refined.length ? refined : scores;
       }
       if (!best) throw new Error("No candidates");
+      const tieBreakReport = makeTieBreakReport(bestPool, best, 0.01);
 
       const bestBuild: ArchBuild = {
         ...build,
@@ -765,7 +857,7 @@ export function ArchSim() {
           xpPerHour,
           fragmentsPerHour,
         },
-        mc: { archLevel, screeningSims, refinementSims, targetFrag: mode === "frag" ? targetFrag : undefined, objective: mode, objectiveSamples },
+        mc: { archLevel, screeningSims, refinementSims, targetFrag: mode === "frag" ? targetFrag : undefined, objective: mode, objectiveSamples, tieBreak: tieBreakReport },
       };
       setMcLog((xs) => [entry, ...xs]);
       setActiveLogId(entry.id);
@@ -799,6 +891,59 @@ export function ArchSim() {
     const mean = sum / samples.length;
     const variance = Math.max(0, sum2 / samples.length - mean * mean);
     return { mean, std: Math.sqrt(variance), min, max };
+  }
+
+  function renderHistogram(samples: number[], opts: { kind: "stage" | "rate" }): ReactNode {
+    if (!samples.length) return null;
+    const W = 320;
+    const H = 72;
+    const pad = 4;
+
+    const xs = samples.map((x) => Number(x)).filter((x) => Number.isFinite(x));
+    if (!xs.length) return null;
+
+    let bins: number[] = [];
+    let counts: number[] = [];
+    let min = Math.min(...xs);
+    let max = Math.max(...xs);
+
+    if (opts.kind === "stage") {
+      const lo = Math.floor(min);
+      const hi = Math.ceil(max);
+      const n = Math.max(1, Math.min(40, hi - lo + 1));
+      bins = Array.from({ length: n }, (_, i) => lo + i);
+      counts = new Array(n).fill(0);
+      for (const v of xs) {
+        const k = Math.max(lo, Math.min(hi, Math.floor(v)));
+        const idx = k - lo;
+        if (idx >= 0 && idx < counts.length) counts[idx] += 1;
+      }
+    } else {
+      const n = 30;
+      if (max <= min) max = min + 1;
+      const step = (max - min) / n;
+      counts = new Array(n).fill(0);
+      for (const v of xs) {
+        const idx = Math.max(0, Math.min(n - 1, Math.floor((v - min) / step)));
+        counts[idx] += 1;
+      }
+      bins = Array.from({ length: n }, (_, i) => min + i * step);
+    }
+
+    const maxC = Math.max(1, ...counts);
+    const barW = (W - pad * 2) / counts.length;
+    const bars = counts.map((c, i) => {
+      const h = ((H - pad * 2) * c) / maxC;
+      const x = pad + i * barW;
+      const y = H - pad - h;
+      return <rect key={i} x={x} y={y} width={Math.max(1, barW - 1)} height={h} fill="rgba(92,107,192,0.55)" />;
+    });
+
+    return (
+      <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ display: "block", borderRadius: 10, border: "1px solid rgba(15,23,42,0.10)", background: "#fff" }}>
+        {bars}
+      </svg>
+    );
   }
 
   const visibleMcLog = useMemo(() => mcLog.filter((e) => e.mcType !== "det"), [mcLog]);
@@ -863,13 +1008,22 @@ export function ArchSim() {
         </div>
 
         <div className="btnRow" style={{ marginTop: 10 }}>
-          <button className="btn btnSecondary" type="button" onClick={() => setBuild(defaultBuild())} disabled={mcRunning}>
+          <button
+            className="btn btnSecondary"
+            type="button"
+            onClick={() => {
+              if (!confirmDanger("Reset all Arch settings? This will reset stages, arch level, stats, upgrades, cards, and toggles.")) return;
+              setBuild(defaultBuild());
+            }}
+            disabled={mcRunning}
+          >
             Reset all
           </button>
           <button
             className="btn btnSecondary"
             type="button"
             onClick={() => {
+              if (!confirmDanger("Reset MC results log? This will delete all saved MC runs in this browser.")) return;
               setMcLog([]);
               setActiveLogId(null);
             }}
@@ -980,19 +1134,20 @@ export function ArchSim() {
           </Collapsible>
         </div>
 
-        {/* Column 2: skills/upgrades/cards */}
+        {/* Column 2: upgrades/cards */}
         <div style={{ display: "grid", gap: 12 }}>
-          <div className="panel fragmentUpgradesPanel" style={{ background: "var(--tier2)" }}>
-            <div className="panelHeader">
-              <h2 className="panelTitle">Fragment upgrades</h2>
-              <p className="panelHint">Grouped by fragment type.</p>
-            </div>
+          <Collapsible
+            id="arch-fragment-upgrades"
+            title="Fragment upgrades"
+            defaultExpanded={true}
+            headerRight={<Sprite path="sprites/common/skill_shard.png" alt="Fragment upgrades" className="iconSmall" />}
+          >
+            <div className="panel fragmentUpgradesPanel" style={{ background: "var(--tier2)" }}>
+              <div className="small" style={{ marginBottom: 10 }}>
+                Unlock gating uses <span className="mono">unlockedStage</span>.
+              </div>
 
-            <div className="small" style={{ marginBottom: 10 }}>
-              Unlock gating uses <span className="mono">unlockedStage</span>.
-            </div>
-
-            {(["common", "rare", "epic", "legendary", "mythic"] as const).map((ct) => {
+              {(["common", "rare", "epic", "legendary", "mythic"] as const).map((ct) => {
               const entries = fragmentGroups[ct] ?? [];
               const color = BLOCK_COLORS[ct];
               const icon = `sprites/archaeology/block_${ct}_t1.png`;
@@ -1011,16 +1166,23 @@ export function ArchSim() {
                   <div style={{ display: "grid", gap: 8 }}>
                     {entries.map(([key, info]) => {
                       const lvl = clampInt(Number(build.fragmentUpgradeLevels[key] ?? 0), 0, clampInt(Number(info.max_level ?? 0), 0, 999));
+                      const maxLvl = clampInt(Number(info.max_level ?? 0), 0, 999);
                       const stageUnlock = clampInt(Number(info.stage_unlock ?? 0), 0, 999);
                       const locked = build.unlockedStage < stageUnlock;
                       const nextCost = getUpgradeCost(key, lvl);
                       return (
-                        <div key={key} className="fragmentUpgradeRow">
-                          <div className="label">
-                            <span className="mono">{info.display_name}</span>
-                            <span className="mono">
-                              {lvl}/{info.max_level}
-                            </span>
+                        <div key={key} className="fragmentUpgradeRow" style={heatStyle(lvl)}>
+                          <div className="fragmentUpgradeTop">
+                            <div className="mono" style={{ fontWeight: 900 }}>
+                              {info.display_name}
+                            </div>
+                            <div className="fragmentUpgradeRight upgradeLevel">
+                              <span className="small">lvl</span>{" "}
+                              <span className="heatNum mono" style={heatStyle(lvl)}>
+                                {lvl}
+                              </span>{" "}
+                              <span className="small">/</span> <span className="mono">{maxLvl}</span>
+                            </div>
                           </div>
                           <div className="small">
                             next cost: <span className="mono">{nextCost == null ? "—" : String(nextCost)}</span>
@@ -1031,12 +1193,18 @@ export function ArchSim() {
                               </>
                             ) : null}
                           </div>
-                          <div className="btnRow" style={{ marginTop: 8 }}>
+                          <div className="btnRow fragmentUpgradeButtons" style={{ marginTop: 8 }}>
+                            <button className="btn btnSecondary" type="button" onClick={() => setFragmentUpgrade(key, -5)} disabled={lvl <= 0 || mcRunning}>
+                              −5
+                            </button>
                             <button className="btn btnSecondary" type="button" onClick={() => setFragmentUpgrade(key, -1)} disabled={lvl <= 0 || mcRunning}>
                               −
                             </button>
-                            <button className="btn" type="button" onClick={() => setFragmentUpgrade(key, +1)} disabled={locked || lvl >= info.max_level || mcRunning}>
+                            <button className="btn" type="button" onClick={() => setFragmentUpgrade(key, +1)} disabled={locked || lvl >= maxLvl || mcRunning}>
                               +
+                            </button>
+                            <button className="btn btnSecondary" type="button" onClick={() => setFragmentUpgrade(key, +5)} disabled={locked || lvl >= maxLvl || mcRunning}>
+                              +5
                             </button>
                           </div>
                         </div>
@@ -1046,28 +1214,31 @@ export function ArchSim() {
                 </div>
               );
             })}
-          </div>
-
-          <div className="panel gemPanel" style={{ background: "var(--tier1)" }}>
-            <div className="panelHeader">
-              <h2 className="panelTitle" style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <Sprite path="sprites/common/gem.png" alt="Gem" className="iconSmall" /> Gem upgrades
-              </h2>
-              <p className="panelHint">Permanent. Matches desktop values/caps.</p>
             </div>
+          </Collapsible>
 
-            {(["stamina", "xp", "fragment", "arch_xp"] as const).map((k) => {
+          <Collapsible id="arch-gem-upgrades" title="Gem upgrades" defaultExpanded={true} headerRight={<Sprite path="sprites/common/gem.png" alt="Gem" className="iconSmall" />}>
+            <div className="panel gemPanel" style={{ background: "var(--tier1)" }}>
+              <div className="small" style={{ marginBottom: 10 }}>
+                Permanent. Maxed levels are highlighted.
+              </div>
+
+              {(["stamina", "xp", "fragment", "arch_xp"] as const).map((k) => {
               const lvl = build.gemUpgrades[k] ?? 0;
               const max = GEM_UPGRADE_BONUSES[k].max_level;
               const nextCost = GEM_COSTS[k][lvl] ?? null;
               const locked = build.unlockedStage < (GEM_UPGRADE_BONUSES[k].stage_unlock ?? 0);
               const maxed = lvl >= max;
               return (
-                <div key={k} className={`gemUpgradeRow ${maxed ? "gemUpgradeMaxed" : ""}`}>
+                <div key={k} className={`gemUpgradeRow ${maxed ? "gemUpgradeMaxed" : ""}`} style={maxed ? undefined : heatStyle(lvl)}>
                   <div className="label">
                     <span className="mono">{k}</span>
-                    <span className="mono">
-                      {lvl}/{max}
+                    <span className="mono upgradeLevel">
+                      <span className="small">lvl</span>{" "}
+                      <span className="heatNum mono" style={heatStyle(lvl)}>
+                        {lvl}
+                      </span>{" "}
+                      <span className="small">/</span> <span className="mono">{max}</span>
                     </span>
                   </div>
                   <div className="small">
@@ -1090,7 +1261,8 @@ export function ArchSim() {
                 </div>
               );
             })}
-          </div>
+            </div>
+          </Collapsible>
 
           <Collapsible id="arch-cards" title="Cards" defaultExpanded={true} headerRight={<Sprite path="sprites/archaeology/cards.png" alt="Cards" className="iconSmall" />}>
             <div className="small" style={{ marginBottom: 8 }}>
@@ -1123,13 +1295,28 @@ export function ArchSim() {
                             </div>
                           </div>
                           <div style={{ display: "flex", gap: 6, justifyContent: "flex-end", flexWrap: "wrap" }}>
-                            <button className="btn btnSecondary" type="button" onClick={() => setBlockCard(bt, t, 1)} style={{ padding: "6px 10px" }}>
+                            <button
+                              className={`btn btnSecondary ${cur === 1 ? "cardBtnActive" : ""}`}
+                              type="button"
+                              onClick={() => setBlockCard(bt, t, 1)}
+                              style={{ padding: "6px 10px" }}
+                            >
                               Card {cur === 1 ? "✓" : ""}
                             </button>
-                            <button className="btn btnSecondary" type="button" onClick={() => setBlockCard(bt, t, 2)} style={{ padding: "6px 10px" }}>
+                            <button
+                              className={`btn btnSecondary ${cur === 2 ? "cardBtnActive" : ""}`}
+                              type="button"
+                              onClick={() => setBlockCard(bt, t, 2)}
+                              style={{ padding: "6px 10px" }}
+                            >
                               Gild {cur === 2 ? "✓" : ""}
                             </button>
-                            <button className="btn btnSecondary" type="button" onClick={() => setBlockCard(bt, t, 3)} style={{ padding: "6px 10px" }}>
+                            <button
+                              className={`btn btnSecondary ${cur === 3 ? "cardBtnActive" : ""}`}
+                              type="button"
+                              onClick={() => setBlockCard(bt, t, 3)}
+                              style={{ padding: "6px 10px" }}
+                            >
                               Poly {cur === 3 ? "✓" : ""}
                             </button>
                           </div>
@@ -1147,13 +1334,13 @@ export function ArchSim() {
                 </div>
                 <div className="small">Card: −3% cooldown • Gild: −6% • Poly: −10%</div>
                 <div className="btnRow" style={{ marginTop: 8 }}>
-                  <button className="btn btnSecondary" type="button" onClick={() => setMiscCard(1)}>
+                  <button className={`btn btnSecondary ${build.miscCardLevel === 1 ? "cardBtnActive" : ""}`} type="button" onClick={() => setMiscCard(1)}>
                     Card {build.miscCardLevel === 1 ? "✓" : ""}
                   </button>
-                  <button className="btn btnSecondary" type="button" onClick={() => setMiscCard(2)}>
+                  <button className={`btn btnSecondary ${build.miscCardLevel === 2 ? "cardBtnActive" : ""}`} type="button" onClick={() => setMiscCard(2)}>
                     Gild {build.miscCardLevel === 2 ? "✓" : ""}
                   </button>
-                  <button className="btn btnSecondary" type="button" onClick={() => setMiscCard(3)}>
+                  <button className={`btn btnSecondary ${build.miscCardLevel === 3 ? "cardBtnActive" : ""}`} type="button" onClick={() => setMiscCard(3)}>
                     Poly {build.miscCardLevel === 3 ? "✓" : ""}
                   </button>
                 </div>
@@ -1176,18 +1363,16 @@ export function ArchSim() {
             <label className="toggle">
               <input
                 type="checkbox"
-                checked={mcSettings.useScreening}
-                disabled={mcRunning}
-                onChange={(e) => setMcSettings((s) => ({ ...s, useScreening: e.target.checked }))}
+                checked={true}
+                disabled={true}
               />
               Screening phase (fast)
             </label>
             <label className="toggle" style={{ marginTop: 6 }}>
               <input
                 type="checkbox"
-                checked={mcSettings.useRefinement}
-                disabled={mcRunning}
-                onChange={(e) => setMcSettings((s) => ({ ...s, useRefinement: e.target.checked }))}
+                checked={true}
+                disabled={true}
               />
               Refinement phase (accurate)
             </label>
@@ -1269,6 +1454,7 @@ export function ArchSim() {
                   type="button"
                   style={{ padding: "6px 10px", background: "#ffffff" }}
                   onClick={() => {
+                    if (!confirmDanger("Reset MC results log? This will delete all saved MC runs in this browser.")) return;
                     setMcLog([]);
                     setActiveLogId(null);
                   }}
@@ -1317,6 +1503,7 @@ export function ArchSim() {
                             className="btn btnSecondary"
                             type="button"
                             onClick={() => {
+                              if (!confirmDanger("Delete this saved MC run?")) return;
                               setMcLog((xs) => xs.filter((x) => x.id !== e.id));
                               if (active) setActiveLogId(null);
                             }}
@@ -1363,6 +1550,48 @@ export function ArchSim() {
                             return `${s.mean.toFixed(2)} ± ${s.std.toFixed(2)} (min ${s.min.toFixed(2)}, max ${s.max.toFixed(2)})`;
                           })()}
                         </div>
+                        <kbd>Distribution</kbd>
+                        <div>
+                          {renderHistogram(activeLog.mc?.objectiveSamples ?? [], {
+                            kind: activeLog.mc.objective === "stage" ? "stage" : "rate",
+                          }) ?? <div className="small">—</div>}
+                        </div>
+                        {activeLog.mc.tieBreak ? (
+                          <>
+                            <kbd>Tie-break</kbd>
+                            <div className="small">
+                              Tied at primary: <span className="mono">{activeLog.mc.tieBreak.tiedAtPrimary}</span> • Winner:{" "}
+                              <span className="mono">{activeLog.mc.tieBreak.winnerReason}</span>
+                            </div>
+                            {activeLog.mc.tieBreak.top3?.length ? (
+                              <div className="small" style={{ marginTop: 6 }}>
+                                Top candidates:
+                                <ul className="list" style={{ marginTop: 6 }}>
+                                  {activeLog.mc.tieBreak.top3.map((c) => (
+                                    <li key={c.label}>
+                                      <span className="mono">{c.label}</span> • primary <span className="mono">{c.primary.toFixed(3)}</span>
+                                      {c.secondary != null ? (
+                                        <>
+                                          {" "}
+                                          • secondary <span className="mono">{c.secondary.toFixed(3)}</span>
+                                        </>
+                                      ) : null}
+                                      {c.tertiary != null ? (
+                                        <>
+                                          {" "}
+                                          • tertiary <span className="mono">{c.tertiary.toFixed(3)}</span>
+                                        </>
+                                      ) : null}
+                                      <div className="mono" style={{ marginTop: 4 }}>
+                                        STR {c.dist.strength} • AGI {c.dist.agility} • PER {c.dist.perception} • INT {c.dist.intellect} • LCK {c.dist.luck}
+                                      </div>
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
+                            ) : null}
+                          </>
+                        ) : null}
                       </>
                     ) : null}
                   </div>
