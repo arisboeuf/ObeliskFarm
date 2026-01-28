@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { formatInt, formatTime } from "./lib/format";
 import { loadJson, saveJson } from "./lib/storage";
 import { COSTS, GEM_UPGRADE_NAMES, PRESTIGE_UNLOCKED, UPGRADE_SHORT_NAMES } from "./lib/event/constants";
@@ -72,7 +72,7 @@ function heatAlphaFromLevel(level: number): number {
   return Math.max(0.06, Math.min(0.28, alpha));
 }
 
-function heatStyle(level: number): React.CSSProperties {
+function heatStyle(level: number): CSSProperties {
   const a = heatAlphaFromLevel(level);
   if (a <= 0) return {};
   // Green -> Yellow -> Orange based on absolute points.
