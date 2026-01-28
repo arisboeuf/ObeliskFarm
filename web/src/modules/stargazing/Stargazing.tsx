@@ -77,7 +77,9 @@ function Sprite(props: { paths: string[]; alt: string; className?: string; label
 
 function Stepper(props: {
   label: React.ReactNode;
-  iconEmoji?: string;
+  spritePaths?: string[];
+  spriteAlt?: string;
+  spriteLabel?: string;
   value: number;
   onChange: (next: number) => void;
   step?: number;
@@ -86,7 +88,19 @@ function Stepper(props: {
   inputMode?: "decimal" | "numeric";
   decimals?: number;
 }) {
-  const { label, iconEmoji, value, onChange, step = 1, min = -Infinity, max = Infinity, inputMode = "decimal", decimals = 2 } = props;
+  const {
+    label,
+    spritePaths,
+    spriteAlt,
+    spriteLabel,
+    value,
+    onChange,
+    step = 1,
+    min = -Infinity,
+    max = Infinity,
+    inputMode = "decimal",
+    decimals = 2,
+  } = props;
   const [raw, setRaw] = useState<string>(Number.isFinite(value) ? String(value) : "");
 
   // Keep input in sync when value changes via +/- buttons or external state updates.
@@ -118,10 +132,8 @@ function Stepper(props: {
     <div className="sgRow">
       <div className="sgLabel">
         <div className="sgLabelLeft">
-          {iconEmoji ? (
-            <span className="navEmoji" aria-hidden="true" style={{ width: 18, fontSize: 14 }}>
-              {iconEmoji}
-            </span>
+          {spritePaths?.length ? (
+            <Sprite paths={spritePaths} alt={spriteAlt ?? String(label)} className="iconSmall" label={spriteLabel ?? spriteAlt ?? ""} />
           ) : null}
           <span className="sgLabelName">{label}</span>
         </div>
@@ -315,6 +327,21 @@ export function Stargazing() {
           </div>
 
           <div className="sgGrid">
+            {/* CTRL+F should be at the very top (matches desktop emphasis). */}
+            <div className="sgSection" style={{ background: "rgba(227,242,253,0.55)" }}>
+              <div className="sgSectionHeader">
+                <div className="sgSectionTitle">
+                  <Sprite paths={["sprites/stargazing/Ctrl+F_Stars.png"]} alt="CTRL+F Stars" className="iconSmall" label="sprites/stargazing/Ctrl+F_Stars.png" />
+                  <span className="mono">CTRL+F Stars</span>
+                  <Tooltip content={ctrlFInfo} />
+                </div>
+              </div>
+              <label className="toggle">
+                <input type="checkbox" checked={ctrlF} onChange={(e) => setCtrlF(e.target.checked)} />
+                Enabled (offline gains ×5)
+              </label>
+            </div>
+
             <div className="sgSection tierHeader2">
               <div className="sgSectionHeader">
                 <div className="sgSectionTitle">
@@ -323,7 +350,6 @@ export function Stargazing() {
               </div>
               <div className="sgRows">
                 <Stepper
-                  iconEmoji="🏃"
                   label="Floor Clears / min"
                   value={ui.floor_clears_per_minute}
                   onChange={(v) => setUi((s) => ({ ...s, floor_clears_per_minute: v }))}
@@ -333,8 +359,10 @@ export function Stargazing() {
                   decimals={2}
                 />
                 <Stepper
-                  iconEmoji="⭐"
                   label="Star Spawn Rate Multiplier (x)"
+                  spritePaths={["sprites/stargazing/Star_Spawn_Rate_Multiplier.png"]}
+                  spriteAlt="Star Spawn Rate Multiplier"
+                  spriteLabel="sprites/stargazing/Star_Spawn_Rate_Multiplier.png"
                   value={ui.star_spawn_rate_mult}
                   onChange={(v) => setUi((s) => ({ ...s, star_spawn_rate_mult: v }))}
                   step={0.05}
@@ -343,8 +371,10 @@ export function Stargazing() {
                   decimals={2}
                 />
                 <Stepper
-                  iconEmoji="🧲"
                   label="Auto-Catch Chance (%)"
+                  spritePaths={["sprites/stargazing/Auto-Catch_Chance.png"]}
+                  spriteAlt="Auto-Catch Chance"
+                  spriteLabel="sprites/stargazing/Auto-Catch_Chance.png"
                   value={ui.auto_catch_chance}
                   onChange={(v) => setUi((s) => ({ ...s, auto_catch_chance: v }))}
                   step={0.5}
@@ -363,8 +393,10 @@ export function Stargazing() {
               </div>
               <div className="sgRows">
                 <Stepper
-                  iconEmoji="➕"
                   label="Double Star Chance (%)"
+                  spritePaths={["sprites/stargazing/Star_Double_Spawn_Chance.png"]}
+                  spriteAlt="Double Star Chance"
+                  spriteLabel="sprites/stargazing/Star_Double_Spawn_Chance.png"
                   value={ui.double_star_chance}
                   onChange={(v) => setUi((s) => ({ ...s, double_star_chance: v }))}
                   step={0.5}
@@ -373,7 +405,6 @@ export function Stargazing() {
                   decimals={2}
                 />
                 <Stepper
-                  iconEmoji="➕"
                   label="Triple Star Chance (%)"
                   value={ui.triple_star_chance}
                   onChange={(v) => setUi((s) => ({ ...s, triple_star_chance: v }))}
@@ -385,8 +416,10 @@ export function Stargazing() {
 
                 <div className="row2">
                   <Stepper
-                    iconEmoji="💥"
                     label="Star Supernova Chance (%)"
+                    spritePaths={["sprites/stargazing/Star_Supernova_Chance.png"]}
+                    spriteAlt="Star Supernova Chance"
+                    spriteLabel="sprites/stargazing/Star_Supernova_Chance.png"
                     value={ui.star_supernova_chance}
                     onChange={(v) => setUi((s) => ({ ...s, star_supernova_chance: v }))}
                     step={0.5}
@@ -395,7 +428,6 @@ export function Stargazing() {
                     decimals={2}
                   />
                   <Stepper
-                    iconEmoji="✖️"
                     label="Supernova Multiplier (x)"
                     value={ui.star_supernova_mult}
                     onChange={(v) => setUi((s) => ({ ...s, star_supernova_mult: v }))}
@@ -408,8 +440,10 @@ export function Stargazing() {
 
                 <div className="row2">
                   <Stepper
-                    iconEmoji="🪐"
                     label="Star Supergiant Chance (%)"
+                    spritePaths={["sprites/stargazing/Star_Supergiant_Chance.png"]}
+                    spriteAlt="Star Supergiant Chance"
+                    spriteLabel="sprites/stargazing/Star_Supergiant_Chance.png"
                     value={ui.star_supergiant_chance}
                     onChange={(v) => setUi((s) => ({ ...s, star_supergiant_chance: v }))}
                     step={0.5}
@@ -418,7 +452,6 @@ export function Stargazing() {
                     decimals={2}
                   />
                   <Stepper
-                    iconEmoji="✖️"
                     label="Supergiant Multiplier (x)"
                     value={ui.star_supergiant_mult}
                     onChange={(v) => setUi((s) => ({ ...s, star_supergiant_mult: v }))}
@@ -431,7 +464,6 @@ export function Stargazing() {
 
                 <div className="row2">
                   <Stepper
-                    iconEmoji="✨"
                     label="Star Radiant Chance (%)"
                     value={ui.star_radiant_chance}
                     onChange={(v) => setUi((s) => ({ ...s, star_radiant_chance: v }))}
@@ -441,7 +473,6 @@ export function Stargazing() {
                     decimals={2}
                   />
                   <Stepper
-                    iconEmoji="✖️"
                     label="Radiant Multiplier (x)"
                     value={ui.star_radiant_mult}
                     onChange={(v) => setUi((s) => ({ ...s, star_radiant_mult: v }))}
@@ -462,8 +493,10 @@ export function Stargazing() {
               </div>
               <div className="sgRows">
                 <Stepper
-                  iconEmoji="🌟"
                   label="Super Star Spawn Rate Multiplier (x)"
+                  spritePaths={["sprites/stargazing/Super_Star_Spawn_Rate_Multiplier.png"]}
+                  spriteAlt="Super Star Spawn Rate Multiplier"
+                  spriteLabel="sprites/stargazing/Super_Star_Spawn_Rate_Multiplier.png"
                   value={ui.super_star_spawn_rate_mult}
                   onChange={(v) => setUi((s) => ({ ...s, super_star_spawn_rate_mult: v }))}
                   step={0.05}
@@ -472,7 +505,6 @@ export function Stargazing() {
                   decimals={2}
                 />
                 <Stepper
-                  iconEmoji="➕"
                   label="Triple Super Star Chance (%)"
                   value={ui.triple_super_star_chance}
                   onChange={(v) => setUi((s) => ({ ...s, triple_super_star_chance: v }))}
@@ -482,8 +514,10 @@ export function Stargazing() {
                   decimals={2}
                 />
                 <Stepper
-                  iconEmoji="🔟"
                   label="Super Star 10× Chance (%)"
+                  spritePaths={["sprites/stargazing/Super_Star_10x_Spawn_Chance.png"]}
+                  spriteAlt="Super Star 10x Spawn Chance"
+                  spriteLabel="sprites/stargazing/Super_Star_10x_Spawn_Chance.png"
                   value={ui.super_star_10x_chance}
                   onChange={(v) => setUi((s) => ({ ...s, super_star_10x_chance: v }))}
                   step={0.5}
@@ -494,8 +528,10 @@ export function Stargazing() {
 
                 <div className="row2">
                   <Stepper
-                    iconEmoji="💥"
                     label="Super Star Supernova Chance (%)"
+                    spritePaths={["sprites/stargazing/Star_Supernova_Chance.png"]}
+                    spriteAlt="Super Star Supernova Chance"
+                    spriteLabel="sprites/stargazing/Star_Supernova_Chance.png"
                     value={ui.super_star_supernova_chance}
                     onChange={(v) => setUi((s) => ({ ...s, super_star_supernova_chance: v }))}
                     step={0.5}
@@ -504,7 +540,6 @@ export function Stargazing() {
                     decimals={2}
                   />
                   <Stepper
-                    iconEmoji="✖️"
                     label="SS Nova Multiplier (x)"
                     value={ui.super_star_supernova_mult}
                     onChange={(v) => setUi((s) => ({ ...s, super_star_supernova_mult: v }))}
@@ -517,8 +552,10 @@ export function Stargazing() {
 
                 <div className="row2">
                   <Stepper
-                    iconEmoji="🪐"
                     label="Super Star Supergiant Chance (%)"
+                    spritePaths={["sprites/stargazing/Super_Star_Supergiant_Chance.png"]}
+                    spriteAlt="Super Star Supergiant Chance"
+                    spriteLabel="sprites/stargazing/Super_Star_Supergiant_Chance.png"
                     value={ui.super_star_supergiant_chance}
                     onChange={(v) => setUi((s) => ({ ...s, super_star_supergiant_chance: v }))}
                     step={0.5}
@@ -527,7 +564,6 @@ export function Stargazing() {
                     decimals={2}
                   />
                   <Stepper
-                    iconEmoji="✖️"
                     label="SS Giant Multiplier (x)"
                     value={ui.super_star_supergiant_mult}
                     onChange={(v) => setUi((s) => ({ ...s, super_star_supergiant_mult: v }))}
@@ -540,8 +576,10 @@ export function Stargazing() {
 
                 <div className="row2">
                   <Stepper
-                    iconEmoji="✨"
                     label="Super Star Radiant Chance (%)"
+                    spritePaths={["sprites/stargazing/Super_Star_Radiant_Chance.png"]}
+                    spriteAlt="Super Star Radiant Chance"
+                    spriteLabel="sprites/stargazing/Super_Star_Radiant_Chance.png"
                     value={ui.super_star_radiant_chance}
                     onChange={(v) => setUi((s) => ({ ...s, super_star_radiant_chance: v }))}
                     step={0.5}
@@ -550,7 +588,6 @@ export function Stargazing() {
                     decimals={2}
                   />
                   <Stepper
-                    iconEmoji="✖️"
                     label="SS Radiant Multiplier (x)"
                     value={ui.super_star_radiant_mult}
                     onChange={(v) => setUi((s) => ({ ...s, super_star_radiant_mult: v }))}
@@ -571,8 +608,10 @@ export function Stargazing() {
               </div>
               <div className="sgRows">
                 <Stepper
-                  iconEmoji="🌌"
                   label="All Star Multiplier (x)"
+                  spritePaths={["sprites/stargazing/All_Star_Multiplier.png"]}
+                  spriteAlt="All Star Multiplier"
+                  spriteLabel="sprites/stargazing/All_Star_Multiplier.png"
                   value={ui.all_star_mult}
                   onChange={(v) => setUi((s) => ({ ...s, all_star_mult: v }))}
                   step={0.05}
@@ -581,7 +620,6 @@ export function Stargazing() {
                   decimals={2}
                 />
                 <Stepper
-                  iconEmoji="🤝"
                   label="Novagiant Combo Multiplier (x)"
                   value={ui.novagiant_combo_mult}
                   onChange={(v) => setUi((s) => ({ ...s, novagiant_combo_mult: v }))}
@@ -591,19 +629,6 @@ export function Stargazing() {
                   decimals={2}
                 />
               </div>
-            </div>
-
-            <div className="sgSection" style={{ background: "rgba(227,242,253,0.55)" }}>
-              <div className="sgSectionHeader">
-                <div className="sgSectionTitle">
-                  <span className="mono">CTRL+F Stars</span>
-                  <Tooltip content={ctrlFInfo} />
-                </div>
-              </div>
-              <label className="toggle">
-                <input type="checkbox" checked={ctrlF} onChange={(e) => setCtrlF(e.target.checked)} />
-                Enabled (offline gains ×5)
-              </label>
             </div>
 
             <div className="btnRow">
@@ -631,11 +656,19 @@ export function Stargazing() {
               <kbd>⭐ Stars/hour (Offline)</kbd>
               <div className="mono sgResultValueBlue">{fmt4(summary.stars_per_hour_offline)}</div>
               <kbd>
-                🌟 Super Stars/hour (Online)
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                  <Sprite paths={["sprites/stargazing/super_star.png"]} alt="Super Star" className="iconSmall" label="sprites/stargazing/super_star.png" />
+                  <span>Super Stars/hour (Online)</span>
+                </span>
                 <Tooltip content={onlineInfo} />
               </kbd>
               <div className="mono sgResultValueOrange">{fmt4(summary.super_stars_per_hour_online)}</div>
-              <kbd>🌟 Super Stars/hour (Offline)</kbd>
+              <kbd>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                  <Sprite paths={["sprites/stargazing/super_star.png"]} alt="Super Star" className="iconSmall" label="sprites/stargazing/super_star.png" />
+                  <span>Super Stars/hour (Offline)</span>
+                </span>
+              </kbd>
               <div className="mono sgResultValueOrange">{fmt4(summary.super_stars_per_hour_offline)}</div>
             </div>
 

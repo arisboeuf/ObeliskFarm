@@ -167,6 +167,12 @@ export function ArchSim() {
   });
   const [openLogId, setOpenLogId] = useState<string | null>(null);
   const [mcWindowOpen, setMcWindowOpen] = useState(false);
+  const [resetAllArmed, setResetAllArmed] = useState(false);
+  const [resetMcLogArmed, setResetMcLogArmed] = useState(false);
+  const [mcRunning, setMcRunning] = useState(false);
+  const [mcProgress, setMcProgress] = useState<string | null>(null);
+  const [mcActiveMode, setMcActiveMode] = useState<null | "frag" | "XP" | "stage">(null);
+  const cancelRef = useRef<{ cancelled: boolean; pool: WorkerPool | null }>({ cancelled: false, pool: null });
   const [mcSettings, setMcSettings] = useState<McSettings>(() => {
     const raw = (loadJson<any>(MC_SETTINGS_KEY) ?? null) as any;
     const base = defaultMcSettings();
@@ -187,6 +193,40 @@ export function ArchSim() {
     }
   }
 
+  const TIEBREAK_TOOLTIP = useMemo(
+    () => ({
+      title: "Tie-break (how ties are resolved)",
+      lines: [
+        "The MC ranks all tested skill-point distributions by a primary metric (depends on the MC mode).",
+        "Primary tie: candidates are considered tied if they are within 3% of the best primary value (minimum absolute epsilon = 0.01).",
+        "If tied, it breaks the tie lexicographically: compare the secondary metric (same 3% rule), then the tertiary metric.",
+        "Max stage MC: primary = avg max stage, secondary = fragments/hour, tertiary = XP/hour.",
+        "XP/hour MC: primary = XP/hour, secondary = fragments/hour, tertiary = avg max stage.",
+        "Fragments/hour MC: primary = fragments/hour, secondary = XP/hour (no tertiary).",
+        "In the log, “Tied at primary” shows how many are within the threshold, and “Winner” explains why #1 won.",
+      ],
+    }),
+    [],
+  );
+
+  useEffect(() => {
+    if (!resetAllArmed) return;
+    const t = window.setTimeout(() => setResetAllArmed(false), 4500);
+    return () => window.clearTimeout(t);
+  }, [resetAllArmed]);
+
+  useEffect(() => {
+    if (!resetMcLogArmed) return;
+    const t = window.setTimeout(() => setResetMcLogArmed(false), 4500);
+    return () => window.clearTimeout(t);
+  }, [resetMcLogArmed]);
+
+  useEffect(() => {
+    if (!mcRunning) return;
+    setResetAllArmed(false);
+    setResetMcLogArmed(false);
+  }, [mcRunning]);
+
   function heatAlphaFromLevel(level: number): number {
     const lvl = Math.max(0, Math.trunc(level));
     if (lvl <= 0) return 0;
@@ -205,11 +245,6 @@ export function ArchSim() {
     const border = `hsla(${hue.toFixed(1)}, 85%, 38%, 0.35)`;
     return { backgroundColor: bg, borderColor: border };
   }
-
-  const [mcRunning, setMcRunning] = useState(false);
-  const [mcProgress, setMcProgress] = useState<string | null>(null);
-  const [mcActiveMode, setMcActiveMode] = useState<null | "frag" | "XP" | "stage">(null);
-  const cancelRef = useRef<{ cancelled: boolean; pool: WorkerPool | null }>({ cancelled: false, pool: null });
 
   useEffect(() => {
     const t = window.setTimeout(() => {
@@ -1284,24 +1319,38 @@ export function ArchSim() {
             className="btn btnSecondary"
             type="button"
             onClick={() => {
+              if (!resetAllArmed) {
+                setResetAllArmed(true);
+                setResetMcLogArmed(false);
+                return;
+              }
+              setResetAllArmed(false);
               if (!confirmDanger("Reset all Arch settings? This will reset stages, arch level, stats, upgrades, cards, and toggles.")) return;
               setBuild(defaultBuild());
             }}
             disabled={mcRunning}
+            title={resetAllArmed ? "Click again to confirm (then confirm dialog)." : "Click once to arm, click again to confirm."}
           >
-            Reset all
+            {resetAllArmed ? "Confirm reset all" : "Reset all"}
           </button>
           <button
             className="btn btnSecondary"
             type="button"
             onClick={() => {
+              if (!resetMcLogArmed) {
+                setResetMcLogArmed(true);
+                setResetAllArmed(false);
+                return;
+              }
+              setResetMcLogArmed(false);
               if (!confirmDanger("Reset MC results log? This will delete all saved MC runs in this browser.")) return;
               setMcLog([]);
               setActiveLogId(null);
             }}
             disabled={mcRunning}
+            title={resetMcLogArmed ? "Click again to confirm (then confirm dialog)." : "Click once to arm, click again to confirm."}
           >
-            Reset MC log
+            {resetMcLogArmed ? "Confirm reset MC log" : "Reset MC log"}
           </button>
         </div>
       </div>
@@ -1979,13 +2028,20 @@ export function ArchSim() {
                         type="button"
                         style={{ padding: "6px 10px", background: "#ffffff" }}
                         onClick={() => {
+                          if (!resetMcLogArmed) {
+                            setResetMcLogArmed(true);
+                            setResetAllArmed(false);
+                            return;
+                          }
+                          setResetMcLogArmed(false);
                           if (!confirmDanger("Reset MC results log? This will delete all saved MC runs in this browser.")) return;
                           setMcLog([]);
                           setActiveLogId(null);
                         }}
                         disabled={mcRunning}
+                        title={resetMcLogArmed ? "Click again to confirm (then confirm dialog)." : "Click once to arm, click again to confirm."}
                       >
-                        Reset
+                        {resetMcLogArmed ? "Confirm reset" : "Reset"}
                       </button>
                     </div>
                   </div>
@@ -2161,7 +2217,11 @@ export function ArchSim() {
 
                   {openLog.mc.tieBreak ? (
                     <div style={{ marginTop: 6 }}>
-                      <div className="sectionTitle">Tie-break</div>
+                      <div className="sectionTitle">
+                        <span>
+                          Tie-break <Tooltip content={TIEBREAK_TOOLTIP} />
+                        </span>
+                      </div>
                       <div className="small">
                         Tied at primary: <span className="mono">{openLog.mc.tieBreak.tiedAtPrimary}</span> • Winner:{" "}
                         <span className="mono">{openLog.mc.tieBreak.winnerReason}</span>
