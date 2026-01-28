@@ -4,37 +4,43 @@
 
 An interactive calculator toolkit for the Android game **Idle Obelisk Miner**.
 
-Main focus: **Gem EV (freebies)**, plus simulators/optimizers for **Event**, **Archaeology**, and **Stargazing**.
+**Core focus: Monte Carlo simulators** that optimize skill point and upgrade distributions across multiple game modes.
 
-## Web App (use this)
+## Web App
 
 Use the browser version (no install, cross-platform):
 
 - **OPEN (GitHub Pages)**: [ObeliskFarm (Web)](https://arisboeuf.github.io/ObeliskFarm/)
-- **Notes**: runs fully client-side (no `.exe` / installer needed); saves are stored via `localStorage` (per device/browser profile)
+- **Notes**: runs fully client-side; saves are stored via `localStorage` (per device/browser profile)
 
 ## Overview
 
-The ObeliskFarm Calculator helps you calculate the optimal return from various freebie mechanisms in the game. The tool automatically calculates the **Gem-equivalent value per hour** based on all active game mechanics such as jackpots, refresh chains, skill shards, founder drops, and more.
+The ObeliskFarm Calculator provides **Monte Carlo simulators** that optimize skill point and upgrade distributions to maximize your progress. The simulators test thousands of build configurations and rank them by your chosen objective (max stage, XP/hour, fragments/hour, etc.).
 
-### Web modules (current)
+### Core: Monte Carlo Simulators
 
-The web app contains multiple modules (top navigation):
+The heart of the toolkit is the **Monte Carlo optimization** system:
+
+- **Archaeology Simulator**
+  - Optimizes skill point distribution (STR/AGI/PER/INT/LCK) via MC search.
+  - Multiple objectives: max stage reached, XP/hour, or fragments/hour (by fragment type).
+  - Tests thousands of stat distributions and breaks ties intelligently (3% threshold, lexicographic tie-break).
+  - Saves MC run history with detailed metrics and tie-break reports.
+  - Also includes gem upgrades, fragment upgrades, and card configuration.
+- **Event Budget Optimizer**
+  - Guided Monte Carlo optimizer for the bimonthly event.
+  - Optimizes upgrade distribution within your budget to maximize wave progression.
+  - Detailed results: wave/time stats, recommended upgrade plan, player stats preview.
+  - Saves prestige + upgrade levels automatically.
+
+### Additional Calculators
 
 - **Gem EV Calculator**
   - Calculates **Gem-equivalent per hour** from freebies (base rolls, jackpots, refresh chains, skill shards, stonks, founder drops, bombs, gift-EV).
   - Includes an **overview chart** (stacked contributions).
   - Saves your inputs automatically in the browser.
-- **Event Simulator**
-  - Budget-based optimization for the bimonthly event.
-  - Guided Monte Carlo optimizer + detailed results (wave/time stats, upgrade plan).
-  - Saves prestige + upgrade levels (budgets are intentionally not saved, matching desktop behavior).
-- **Archaeology Simulator**
-  - Skill point planning + gem upgrades + fragment upgrades.
-  - Monte Carlo search for builds (with logs/history) and multiple objectives.
-  - Uses the same “desktop-style” color coding and tooltip-heavy UX.
 - **Stargazing Calculator**
-  - 1:1 port of the desktop Stargazing math: **Stars/hour** and **Super Stars/hour**, each for **Online** and **Offline**.
+  - Calculates **Stars/hour** and **Super Stars/hour**, each for **Online** and **Offline** modes.
   - Supports **CTRL+F Stars** toggle and **auto-catch**.
   - Defensive clamping for probabilities (0..1) to avoid edge-case bugs.
 
@@ -46,16 +52,14 @@ The web app contains multiple modules (top navigation):
 - **Multipliers** (rolls, refresh, total)
 - **Visual representation** of all contributions as a bar chart
 
-## Desktop / Python GUI (optional)
+## Additional Tools
 
-The repository also contains a Python/Tkinter desktop GUI (`ObeliskGemEV/`). It includes legacy/extra tools not yet exposed in the web UI.
-
-### Lootbug Analyzer (desktop)
+### Lootbug Analyzer
 Analyze whether specific gem purchases are worth it based on your current EV/h. Example:
 - **2× Game Speed** (15 Gems for 10 minutes) - checks if the additional gem income exceeds the cost.
 
 ### Notes on sprites/assets
-The web app copies sprite assets from `ObeliskGemEV/sprites/` into `web/public/sprites/` during build (`web/scripts/copy-assets.mjs`).  
+The web app uses sprite assets from `ObeliskGemEV/sprites/` (copied to `web/public/sprites/` during build).  
 If a sprite is missing, the web UI shows a small placeholder.
 
 ## Main Features
@@ -128,32 +132,26 @@ Controls all bomb-related mechanics and their gem generation:
 - **Total-EV**: Total gem-equivalent per hour (bold highlighted)
 - **Gift-EV**: Separate expected value per opened gift
 
-## Run from Source (optional / for developers)
+## Run from Source (for developers)
 
-### Requirements
+### Web App Development
+
+```bash
+cd web
+npm install
+npm run dev
+```
+
+Then open the URL shown in the terminal (usually `http://localhost:5173`).
+
+### Python Tools (optional)
+
+The repository also contains Python tools (`ObeliskGemEV/`):
 
 ```bash
 cd ObeliskGemEV
 pip install -r requirements.txt
-```
-
-### Starting the GUI
-
-**Windows:**
-```bash
-cd ObeliskGemEV
-start_gui.bat
-```
-
-**Linux/macOS:**
-```bash
-cd ObeliskGemEV
 python gui.py
-```
-
-Or directly:
-```bash
-python ObeliskGemEV/gui.py
 ```
 
 ## Example Output
