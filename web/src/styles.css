@@ -909,6 +909,48 @@ a:hover {
   background: rgba(25, 118, 210, 0.16);
 }
 
+.btnImportant {
+  border-color: rgba(245, 124, 0, 0.55);
+  background: linear-gradient(180deg, rgba(255, 152, 0, 0.22), rgba(255, 152, 0, 0.12));
+  box-shadow:
+    0 0 0 3px rgba(245, 124, 0, 0.10),
+    0 0 26px rgba(245, 124, 0, 0.22);
+  font-weight: 900;
+  letter-spacing: 0.1px;
+  animation: importantPulse 1.6s ease-in-out infinite;
+}
+
+.btnImportant:hover {
+  background: linear-gradient(180deg, rgba(255, 152, 0, 0.28), rgba(255, 152, 0, 0.14));
+  box-shadow:
+    0 0 0 4px rgba(245, 124, 0, 0.16),
+    0 0 34px rgba(245, 124, 0, 0.30);
+}
+
+@keyframes importantPulse {
+  0% {
+    box-shadow:
+      0 0 0 3px rgba(245, 124, 0, 0.10),
+      0 0 22px rgba(245, 124, 0, 0.18);
+  }
+  50% {
+    box-shadow:
+      0 0 0 5px rgba(245, 124, 0, 0.18),
+      0 0 38px rgba(245, 124, 0, 0.34);
+  }
+  100% {
+    box-shadow:
+      0 0 0 3px rgba(245, 124, 0, 0.10),
+      0 0 22px rgba(245, 124, 0, 0.18);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .btnImportant {
+    animation: none;
+  }
+}
+
 .btnSecondary {
   border: 1px solid var(--border);
   background: #ffffff;

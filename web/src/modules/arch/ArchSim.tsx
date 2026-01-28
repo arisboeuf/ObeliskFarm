@@ -1152,8 +1152,8 @@ export function ArchSim() {
         </div>
 
         <div className="btnRow" style={{ marginTop: 10 }}>
-          <button className="btn" type="button" onClick={() => setMcWindowOpen(true)}>
-            Open Monte Carlo
+          <button className="btn btnImportant" type="button" onClick={() => setMcWindowOpen(true)}>
+            Open Simulation
           </button>
           <button
             className="btn btnSecondary"
