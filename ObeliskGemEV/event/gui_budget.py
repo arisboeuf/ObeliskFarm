@@ -27,7 +27,11 @@ from .simulation import (
     calculate_effective_hp
 )
 from .optimizer import greedy_optimize, format_upgrade_summary, UpgradeState
-from .monte_carlo_optimizer import monte_carlo_optimize, MCOptimizationResult
+from .monte_carlo_optimizer import (
+    monte_carlo_optimize,
+    monte_carlo_optimize_guided,
+    MCOptimizationResult,
+)
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from ui_utils import get_resource_path, create_tooltip, calculate_tooltip_position
@@ -54,6 +58,10 @@ class BudgetOptimizerPanel:
         # MC Settings
         self.mc_num_runs_var = tk.IntVar(value=2000)  # Number of upgrade combinations to test
         self.mc_event_runs_var = tk.IntVar(value=5)   # Number of event runs per combination
+        # Optimizer comparison settings (kept fixed for simplicity)
+        self.compare_trials = 10
+        # Hide comparison UI for now (can be re-enabled later)
+        self.enable_optimizer_comparison_ui = False
         
         # Current upgrade levels (for forecast mode)
         self.current_upgrade_levels = {
@@ -508,6 +516,17 @@ class BudgetOptimizerPanel:
                             font=("Arial", 9, "bold"), bg="#4CAF50", fg="white",
                             command=self.calculate_optimal_upgrades)
         calc_btn.pack(pady=3)
+
+        # Compare optimizers (hidden by default)
+        if getattr(self, "enable_optimizer_comparison_ui", False):
+            compare_row = tk.Frame(input_frame, background="#E8F5E9")
+            compare_row.pack(pady=(0, 3))
+
+            compare_btn = tk.Button(compare_row, text="Compare optimizers",
+                                    font=("Arial", 8, "bold"), bg="#1976D2", fg="white",
+                                    command=self.compare_optimizers, padx=10, pady=2)
+            compare_btn.pack(side=tk.LEFT)
+            create_tooltip(compare_btn, "Run optimizer comparison (10 trials)")
         
         # Max combinations label
         self.max_combinations_label = tk.Label(input_frame, text="Max Combinations: Calculating...", 
@@ -2104,6 +2123,257 @@ class BudgetOptimizerPanel:
             self.window.focus_set()
         except (tk.TclError, RuntimeError, AttributeError):
             pass
+
+    def _show_text_dialog(self, title: str, text: str, *, width: int = 700, height: int = 520):
+        """Show a simple read-only text dialog."""
+        try:
+            dialog = tk.Toplevel(self.window)
+            dialog.title(title)
+            dialog.transient(self.window)
+            dialog.grab_set()
+            dialog.minsize(520, 320)
+
+            dialog.update_idletasks()
+            x = (dialog.winfo_screenwidth() // 2) - (width // 2)
+            y = (dialog.winfo_screenheight() // 2) - (height // 2)
+            dialog.geometry(f"{width}x{height}+{x}+{y}")
+
+            main = tk.Frame(dialog, padx=12, pady=12)
+            main.pack(fill=tk.BOTH, expand=True)
+
+            header = tk.Label(main, text=title, font=("Arial", 12, "bold"))
+            header.pack(anchor="w", pady=(0, 8))
+
+            txt = tk.Text(main, font=("Consolas", 10), wrap=tk.NONE)
+            txt.insert("1.0", text)
+            txt.config(state=tk.DISABLED)
+            txt.pack(fill=tk.BOTH, expand=True)
+
+            btn_row = tk.Frame(main)
+            btn_row.pack(fill=tk.X, pady=(10, 0))
+            tk.Button(btn_row, text="Close", command=dialog.destroy,
+                      font=("Arial", 9), bg="#4CAF50", fg="white",
+                      padx=20, pady=5).pack(side=tk.RIGHT)
+        except Exception:
+            # If UI fails, silently ignore (comparison is optional)
+            pass
+
+    def compare_optimizers(self):
+        """Compare old vs new optimizer quality and runtime."""
+        import time
+        import threading
+        import statistics
+        import random as _random
+
+        # Parse currency inputs - mirror calculate_optimal_upgrades() behavior
+        try:
+            total_budget = 0.0
+            for i in range(1, 5):
+                raw_val = ""
+                if i in self.currency_entries:
+                    entry = self.currency_entries[i]
+                    raw_val = entry.get() if entry else ""
+                elif i in self.currency_vars:
+                    var = self.currency_vars[i]
+                    raw_val = var.get() if var else ""
+                else:
+                    raw_val = ""
+
+                if raw_val:
+                    val = str(raw_val).strip().replace(",", "").replace(" ", "")
+                else:
+                    val = ""
+
+                if val:
+                    try:
+                        self.currency_budget[i] = float(val)
+                    except (ValueError, TypeError):
+                        self.currency_budget[i] = 0.0
+                else:
+                    self.currency_budget[i] = 0.0
+
+                total_budget += float(self.currency_budget[i])
+
+            if total_budget <= 0.0:
+                self._show_text_dialog("Optimizer Comparison", "Error: Please enter at least some currency.")
+                return
+        except Exception as e:
+            self._show_text_dialog("Optimizer Comparison", f"Error: Invalid currency input.\n{e}")
+            return
+
+        prestige = self.budget_prestige_var.get()
+
+        initial_state = UpgradeState()
+        for t in range(1, 5):
+            initial_state.levels[t] = self.current_upgrade_levels[t].copy()
+        initial_state.gem_levels = self.current_gem_levels.copy()
+
+        trials = int(getattr(self, "compare_trials", 10))
+        trials = max(1, trials)
+        num_mc_runs = max(1, int(self.mc_num_runs_var.get()))
+        num_event_runs = max(1, int(self.mc_event_runs_var.get()))
+
+        loading_window = self._show_mc_loading_dialog()
+        try:
+            if loading_window and loading_window.winfo_exists():
+                loading_window.title("Optimizer Comparison")
+        except Exception:
+            pass
+
+        results_holder = {"text": ""}
+        error_holder = {"error": None}
+
+        def run_compare():
+            from .monte_carlo_optimizer import (
+                monte_carlo_optimize,
+                monte_carlo_optimize_parallel,
+                monte_carlo_optimize_guided,
+            )
+            from .optimizer import greedy_optimize, calculate_player_stats
+            from .simulation import run_full_simulation
+
+            algorithms = [
+                ("Old Random MC", "monte_carlo_optimize", "single-core random search"),
+                ("New Parallel 2-phase MC", "monte_carlo_optimize_parallel", "multi-core screen+refine"),
+                ("Guided MC (single-core)", "monte_carlo_optimize_guided", "biased sampling, no 2-phase"),
+                ("Greedy baseline", "greedy_optimize", "deterministic heuristic"),
+            ]
+
+            base_seed = int(time.time() * 1000) & 0x7FFFFFFF
+            total_tasks = trials * len(algorithms)
+            done_tasks = 0
+            best_wave_seen = -1.0
+
+            by_algo = {a[0]: {"waves": [], "times": [], "wall_s": []} for a in algorithms}
+
+            for algo_name, algo_key, algo_desc in algorithms:
+                for t_idx in range(trials):
+                    if not self.window.winfo_exists():
+                        return
+
+                    seed = base_seed + (t_idx * 1000) + (0 if algo_key == "monte_carlo_optimize" else 100)
+                    start = time.perf_counter()
+
+                    try:
+                        if algo_key == "monte_carlo_optimize":
+                            res = monte_carlo_optimize(
+                                budget=self.currency_budget,
+                                prestige=prestige,
+                                initial_state=initial_state,
+                                num_runs=num_mc_runs,
+                                progress_callback=None,
+                                event_runs_per_combination=num_event_runs,
+                                seed=seed,
+                            )
+                            wave, sim_time = float(res.best_wave), float(res.best_time)
+                        elif algo_key == "monte_carlo_optimize_parallel":
+                            res = monte_carlo_optimize_parallel(
+                                budget=self.currency_budget,
+                                prestige=prestige,
+                                initial_state=initial_state,
+                                num_runs=num_mc_runs,
+                                progress_callback=None,
+                                event_runs_per_combination=num_event_runs,
+                                seed_base=seed,
+                            )
+                            wave, sim_time = float(res.best_wave), float(res.best_time)
+                        elif algo_key == "monte_carlo_optimize_guided":
+                            res = monte_carlo_optimize_guided(
+                                budget=self.currency_budget,
+                                prestige=prestige,
+                                initial_state=initial_state,
+                                num_runs=num_mc_runs,
+                                progress_callback=None,
+                                event_runs_per_combination=num_event_runs,
+                                seed_base=seed,
+                            )
+                            wave, sim_time = float(res.best_wave), float(res.best_time)
+                        else:
+                            gres = greedy_optimize(
+                                budget=self.currency_budget,
+                                prestige=prestige,
+                                initial_state=initial_state,
+                            )
+                            # Evaluate greedy fairly with the same MC runs
+                            player, enemy = calculate_player_stats(gres.upgrades, prestige)
+                            _r, wave, sim_time = run_full_simulation(player, enemy, runs=num_event_runs)
+                            wave, sim_time = float(wave), float(sim_time)
+                    except Exception as e:
+                        error_holder["error"] = f"{algo_name} failed: {e}"
+                        return
+
+                    wall = time.perf_counter() - start
+                    by_algo[algo_name]["waves"].append(wave)
+                    by_algo[algo_name]["times"].append(sim_time)
+                    by_algo[algo_name]["wall_s"].append(wall)
+
+                    done_tasks += 1
+                    if wave > best_wave_seen:
+                        best_wave_seen = wave
+
+                    # Update progress dialog from main thread
+                    try:
+                        if self.window.winfo_exists():
+                            status = f"{algo_name} (trial {t_idx+1}/{trials})"
+                            self.window.after(0, lambda d=done_tasks, t=total_tasks, w=wave, bw=best_wave_seen, s=status: (
+                                self.mc_status_label.config(text=s),
+                                self._update_mc_progress(loading_window, d, t, w, bw),
+                            ))
+                    except Exception:
+                        pass
+
+            # Build report
+            lines = []
+            lines.append("Optimizer comparison (same budget/prestige/settings)\n")
+            lines.append(f"Candidates (N): {num_mc_runs}")
+            lines.append(f"Event runs per candidate: {num_event_runs}")
+            lines.append(f"Trials per algorithm: {trials}\n")
+            lines.append("Metric: higher Wave is better; ties break by lower Sim Time.\n")
+
+            def fmt_stats(arr):
+                if not arr:
+                    return "n/a"
+                if len(arr) == 1:
+                    return f"{arr[0]:.2f}"
+                return f"{statistics.mean(arr):.2f} ± {statistics.pstdev(arr):.2f} (min {min(arr):.2f}, max {max(arr):.2f})"
+
+            # Determine winner by mean wave, tie by mean time
+            ranking = []
+            for algo_name, _k, _d in algorithms:
+                mw = statistics.mean(by_algo[algo_name]["waves"]) if by_algo[algo_name]["waves"] else -1.0
+                mt = statistics.mean(by_algo[algo_name]["times"]) if by_algo[algo_name]["times"] else float("inf")
+                ranking.append((algo_name, mw, mt))
+            ranking.sort(key=lambda x: (-x[1], x[2]))
+            winner = ranking[0][0] if ranking else "n/a"
+
+            for algo_name, _k, algo_desc in algorithms:
+                waves = by_algo[algo_name]["waves"]
+                times_ = by_algo[algo_name]["times"]
+                wall_s = by_algo[algo_name]["wall_s"]
+                lines.append(f"== {algo_name} ==")
+                lines.append(f"Notes: {algo_desc}")
+                lines.append(f"Best Wave (per trial): {fmt_stats(waves)}")
+                lines.append(f"Sim Time (per trial): {fmt_stats(times_)}")
+                lines.append(f"Wall time (seconds):  {fmt_stats(wall_s)}\n")
+
+            lines.append(f"Winner (by mean Wave, tie mean Time): {winner}")
+
+            results_holder["text"] = "\n".join(lines)
+
+        def on_done():
+            try:
+                self._close_mc_loading_dialog(loading_window)
+            except Exception:
+                pass
+
+            if error_holder["error"]:
+                self._show_text_dialog("Optimizer Comparison", f"Error:\n{error_holder['error']}")
+                return
+            if results_holder["text"]:
+                self._show_text_dialog("Optimizer Comparison", results_holder["text"])
+
+        thread = threading.Thread(target=lambda: (run_compare(), self.window.after(0, on_done)), daemon=True)
+        thread.start()
     
     def show_initial_instructions(self):
         """Show initial instructions in results area"""
@@ -2403,13 +2673,15 @@ class BudgetOptimizerPanel:
                 num_mc_runs = max(1, self.mc_num_runs_var.get())
                 num_event_runs = max(1, self.mc_event_runs_var.get())
                 
-                result = monte_carlo_optimize(
+                # Best-quality optimizer (current winner in compare): guided MC
+                result = monte_carlo_optimize_guided(
                     budget=self.currency_budget,
                     prestige=prestige,
                     initial_state=initial_state_ref[0],
                     num_runs=num_mc_runs,
                     progress_callback=safe_progress_callback,
-                    event_runs_per_combination=num_event_runs
+                    event_runs_per_combination=num_event_runs,
+                    seed_base=None,
                 )
                 mc_result[0] = result
             except Exception as e:
@@ -2499,7 +2771,8 @@ class BudgetOptimizerPanel:
             player_stats=mc_res.player_stats,
             enemy_stats=mc_res.enemy_stats,
             recommendations=[
-                f"Monte Carlo Optimization (N={num_mc_runs}, {num_event_runs} runs/combo)",
+                f"Monte Carlo Optimization (guided MC)",
+                f"N={num_mc_runs} candidates, {num_event_runs} runs/combo",
                 f"Best Wave: {mc_res.best_wave:.1f}",
                 f"Average Wave: {mc_res.statistics['mean_wave']:.1f} ± {mc_res.statistics['std_dev_wave']:.1f}",
                 f"Wave Range: {mc_res.statistics['min_wave']:.1f} - {mc_res.statistics['max_wave']:.1f}",
