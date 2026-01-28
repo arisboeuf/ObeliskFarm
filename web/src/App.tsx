@@ -2,8 +2,9 @@ import { useMemo, useState } from "react";
 import { assetUrl } from "./lib/assets";
 import { EventSim } from "./modules/event/EventSim";
 import { ArchSim } from "./modules/arch/ArchSim";
+import { GemEv } from "./modules/gemev/GemEv";
 
-type ModuleId = "event" | "arch";
+type ModuleId = "event" | "arch" | "gemev";
 
 function Sprite(props: { path: string; alt: string; className?: string }) {
   return <img className={props.className ?? "icon"} src={assetUrl(props.path)} alt={props.alt} />;
@@ -15,6 +16,7 @@ export function App() {
   const modules = useMemo(
     () =>
       [
+        { id: "gemev" as const, label: "Gem EV Calculator", icon: "sprites/common/gem.png" },
         { id: "event" as const, label: "Event Simulator", icon: "sprites/event/event_button.png" },
         { id: "arch" as const, label: "Archaeology Simulator", icon: "sprites/archaeology/archaeology.png" },
       ] as const,
@@ -47,7 +49,7 @@ export function App() {
         </div>
       </div>
 
-      {active === "event" ? <EventSim /> : <ArchSim />}
+      {active === "gemev" ? <GemEv /> : active === "event" ? <EventSim /> : <ArchSim />}
     </div>
   );
 }

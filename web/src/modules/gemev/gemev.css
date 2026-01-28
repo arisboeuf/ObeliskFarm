@@ -1,0 +1,136 @@
+/* ============================
+   Gem EV module (layout parity)
+   ============================ */
+
+.gemEvGrid {
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 980px) {
+  .gemEvGrid {
+    grid-template-columns: 460px 1fr;
+    align-items: start;
+  }
+}
+
+.gemEvLeftPanel {
+  max-height: calc(100vh - 170px);
+  overflow: auto;
+}
+
+.gemEvSection {
+  border: 2px ridge var(--ridge);
+  border-radius: 10px;
+  padding: 10px;
+  margin-bottom: 12px;
+}
+
+.gemEvSectionHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.gemEvSectionTitle {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  font-weight: 900;
+  font-size: 13px;
+  letter-spacing: 0.2px;
+}
+
+.gemEvSectionBody {
+  display: grid;
+  gap: 8px;
+}
+
+.gemEvDivider {
+  height: 1px;
+  background: rgba(15, 23, 42, 0.12);
+  margin: 6px 0;
+}
+
+.gemEvInlineHead {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  font-weight: 900;
+  font-size: 12px;
+  color: rgba(15, 23, 42, 0.82);
+}
+
+.gemEvRow {
+  display: grid;
+  gap: 6px;
+}
+
+.gemEvStepper {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.gemEvInput {
+  padding: 10px 10px;
+}
+
+.gemEvStepBtn {
+  padding: 10px 12px;
+  min-width: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.gemEvMarginal {
+  margin-left: 10px;
+  font-weight: 900;
+  color: var(--good);
+  font-size: 12px;
+}
+
+.gemEvSubSection {
+  border: 2px ridge rgba(15, 23, 42, 0.22);
+  background: #ffe9d6;
+  border-radius: 10px;
+  padding: 10px;
+}
+
+.gemEvSubHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.gemEvCardRow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.gemEvCardBtn {
+  padding: 6px 10px;
+}
+
+.gemEvBombBlock {
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  border-radius: 10px;
+  padding: 10px;
+  background: rgba(255, 255, 255, 0.92);
+}
+
+.gemEvBombHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
