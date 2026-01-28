@@ -7,7 +7,7 @@ import { mulberry32 } from "../../lib/rng";
 import { loadJson, saveJson } from "../../lib/storage";
 import { BLOCK_COLORS, FRAGMENT_UPGRADES, GEM_COSTS, GEM_UPGRADE_BONUSES } from "../../lib/archaeology/constants";
 import { BLOCK_TYPES, getBlockData } from "../../lib/archaeology/blockStats";
-import { calculateFloorsPerRun, computeRunSummary, getCalculationStage, getSkillPointCap, getTotalStats } from "../../lib/archaeology/sim";
+import { computeRunSummary, getCalculationStage, getSkillPointCap, getTotalStats } from "../../lib/archaeology/sim";
 import { getUpgradeCost } from "../../lib/archaeology/upgradeCosts";
 import type { ArchBuild, ArchGemUpgradeKey, BlockTier, BlockType, CardLevel, Skill } from "../../lib/archaeology/types";
 
@@ -36,7 +36,7 @@ type McLogEntry = {
   };
   mc?: {
     // Present only for real MC runs
-    plannerPoints: number;
+    archLevel: number;
     screeningSims: number;
     refinementSims: number;
     targetFrag?: BlockType;
@@ -46,17 +46,13 @@ type McLogEntry = {
 };
 
 type McSettings = {
-  plannerPoints: number;
-  screeningSims: number;
-  refinementSims: number;
+  useScreening: boolean;
+  useRefinement: boolean;
   targetFrag: BlockType;
-  workerCount: number;
 };
 
 function defaultMcSettings(): McSettings {
-  const hc = typeof navigator !== "undefined" ? Number((navigator as any).hardwareConcurrency ?? 4) : 4;
-  const workerCount = clampInt(Math.max(1, hc - 1), 1, 8);
-  return { plannerPoints: 20, screeningSims: 200, refinementSims: 500, targetFrag: "common", workerCount };
+  return { useScreening: true, useRefinement: true, targetFrag: "common" };
 }
 
 function Sprite(props: { path: string | null; alt: string; className?: string; label?: string }) {
@@ -76,6 +72,7 @@ function defaultBuild(): ArchBuild {
   return {
     goalStage: 1,
     unlockedStage: 1,
+    archLevel: 20,
     skillPoints: { strength: 0, agility: 0, perception: 0, intellect: 0, luck: 0 },
     gemUpgrades: { stamina: 0, xp: 0, fragment: 0, arch_xp: 0 },
     fragmentUpgradeLevels: {},
@@ -97,6 +94,28 @@ function formatPct(x: number, digits = 2): string {
   return `${(x * 100).toFixed(digits)}%`;
 }
 
+function normalizeSkillsToTotal(sp: Record<Skill, number>, total: number): Record<Skill, number> {
+  const order: Skill[] = ["luck", "intellect", "perception", "agility", "strength"];
+  const out: Record<Skill, number> = { ...sp };
+  let sum = (Object.values(out) as number[]).reduce((a, b) => a + clampInt(Number(b ?? 0), 0, 999), 0);
+  let diff = sum - total;
+  let guard = 0;
+  while (diff > 0 && guard++ < 10000) {
+    let changed = false;
+    for (const k of order) {
+      if (diff <= 0) break;
+      const v = clampInt(Number(out[k] ?? 0), 0, 999);
+      if (v > 0) {
+        out[k] = v - 1;
+        diff -= 1;
+        changed = true;
+      }
+    }
+    if (!changed) break;
+  }
+  return out;
+}
+
 export function ArchSim() {
   const [build, setBuild] = useState<ArchBuild>(() => {
     const saved = loadJson<Partial<ArchBuild>>(STORAGE_KEY);
@@ -113,8 +132,20 @@ export function ArchSim() {
     };
   });
   const [mcLog, setMcLog] = useState<McLogEntry[]>(() => loadJson<McLogEntry[]>(MC_LOG_KEY) ?? []);
-  const [activeLogId, setActiveLogId] = useState<string | null>(mcLog[0]?.id ?? null);
-  const [mcSettings, setMcSettings] = useState<McSettings>(() => loadJson<McSettings>(MC_SETTINGS_KEY) ?? defaultMcSettings());
+  const [activeLogId, setActiveLogId] = useState<string | null>(() => {
+    const xs = loadJson<McLogEntry[]>(MC_LOG_KEY) ?? [];
+    return xs.find((e) => e.mcType !== "det")?.id ?? null;
+  });
+  const [mcSettings, setMcSettings] = useState<McSettings>(() => {
+    const raw = (loadJson<any>(MC_SETTINGS_KEY) ?? null) as any;
+    const base = defaultMcSettings();
+    if (!raw) return base;
+    return {
+      useScreening: typeof raw.useScreening === "boolean" ? raw.useScreening : base.useScreening,
+      useRefinement: typeof raw.useRefinement === "boolean" ? raw.useRefinement : base.useRefinement,
+      targetFrag: (raw.targetFrag as BlockType) ?? base.targetFrag,
+    };
+  });
   const [mcRunning, setMcRunning] = useState(false);
   const [mcProgress, setMcProgress] = useState<string | null>(null);
   const cancelRef = useRef<{ cancelled: boolean; pool: WorkerPool | null }>({ cancelled: false, pool: null });
@@ -144,7 +175,7 @@ export function ArchSim() {
   const computed = useMemo(() => computeRunSummary(build), [build]);
   const stats = computed.stats;
   const summary = computed.summary;
-  const baseFloors = summary.floorsPerRun;
+  void summary; // MC-only UI: keep deterministic summary internal, but do not render it.
 
   const totalSkillPoints = useMemo(() => Object.values(build.skillPoints).reduce((a, b) => a + b, 0), [build.skillPoints]);
 
@@ -164,47 +195,29 @@ export function ArchSim() {
     return entries;
   }, []);
 
-  const bestNextSkillPoint = useMemo(() => {
-    const baseStage = getCalculationStage(build);
-    let best: { skill: Skill; newFloors: number; delta: number } | null = null;
-    for (const skill of ["strength", "agility", "perception", "intellect", "luck"] as const) {
-      const cap = getSkillPointCap(build, skill);
-      if ((build.skillPoints[skill] ?? 0) >= cap) continue;
-      const b2: ArchBuild = { ...build, skillPoints: { ...build.skillPoints, [skill]: (build.skillPoints[skill] ?? 0) + 1 } };
-      const s2 = getTotalStats(b2);
-      const f2 = calculateFloorsPerRun(b2, s2, baseStage);
-      const delta = f2 - baseFloors;
-      if (!best || delta > best.delta) best = { skill, newFloors: f2, delta };
+  const fragmentGroups = useMemo(() => {
+    const groups: Record<string, Array<[string, any]>> = {};
+    for (const [k, info] of sortedFragmentUpgrades) {
+      const ct = String((info as any)?.cost_type ?? "misc");
+      if (!groups[ct]) groups[ct] = [];
+      groups[ct]!.push([k, info]);
     }
-    return best;
-  }, [build, baseFloors]);
+    return groups;
+  }, [sortedFragmentUpgrades]);
 
-  const bestNextFragmentUpgrades = useMemo(() => {
-    const baseStage = getCalculationStage(build);
-    const out: Array<{ key: string; name: string; cost: number; deltaFloors: number; eff: number }> = [];
-    for (const [key, info] of Object.entries(FRAGMENT_UPGRADES)) {
-      const stageUnlock = clampInt(Number(info.stage_unlock ?? 0), 0, 999);
-      if (build.unlockedStage < stageUnlock) continue;
-      const max = clampInt(Number(info.max_level ?? 0), 0, 999);
-      const cur = clampInt(Number(build.fragmentUpgradeLevels[key] ?? 0), 0, max);
-      if (cur >= max) continue;
-      const cost = getUpgradeCost(key, cur);
-      if (cost == null || cost <= 0) continue;
-      const b2: ArchBuild = { ...build, fragmentUpgradeLevels: { ...build.fragmentUpgradeLevels, [key]: cur + 1 } };
-      const s2 = getTotalStats(b2);
-      const f2 = calculateFloorsPerRun(b2, s2, baseStage);
-      const delta = f2 - baseFloors;
-      out.push({ key, name: String(info.display_name ?? key), cost, deltaFloors: delta, eff: delta / cost });
-    }
-    out.sort((a, b) => b.eff - a.eff);
-    return out.slice(0, 8);
-  }, [build, baseFloors]);
+  // Deterministic recommendation panels removed (MC-only UI).
 
   function setSkill(skill: Skill, delta: number) {
     setBuild((s) => {
       const cap = getSkillPointCap(s, skill);
-      const cur = s.skillPoints[skill] ?? 0;
-      const next = clampInt(cur + delta, 0, cap);
+      const cur = clampInt(Number(s.skillPoints[skill] ?? 0), 0, cap);
+      const otherSum = (Object.entries(s.skillPoints) as Array<[Skill, number]>)
+        .filter(([k]) => k !== skill)
+        .reduce((acc, [, v]) => acc + clampInt(Number(v ?? 0), 0, 999), 0);
+      const totalCap = clampInt(Number(s.archLevel ?? 0), 0, 999);
+      const maxForSkillByTotal = Math.max(0, totalCap - otherSum);
+      const maxAllowed = Math.min(cap, maxForSkillByTotal);
+      const next = clampInt(cur + delta, 0, maxAllowed);
       return { ...s, skillPoints: { ...s.skillPoints, [skill]: next } };
     });
   }
@@ -243,26 +256,12 @@ export function ArchSim() {
     setBuild((s) => ({ ...s, miscCardLevel: toggleCardLevel(s.miscCardLevel, level) }));
   }
 
-  function addMcLogEntry(label: string) {
-    const totalFrags = Object.values(summary.fragmentsPerRun).reduce((a, b) => a + b, 0);
-    const xpPerHour = summary.durationSeconds > 0 ? (summary.xpPerRun * 3600.0) / summary.durationSeconds : 0;
-    const entry: McLogEntry = {
-      id: `mc_${Date.now()}_${Math.random().toString(16).slice(2)}`,
-      createdAt: Date.now(),
-      label,
-      mcType: "det",
-      build,
-      metrics: {
-        floorsPerRun: summary.floorsPerRun,
-        xpPerRun: summary.xpPerRun,
-        durationSeconds: summary.durationSeconds,
-        fragmentsPerRunTotal: totalFrags,
-        xpPerHour,
-        fragmentsPerHour: summary.fragmentsPerHour,
-      },
-    };
-    setMcLog((xs) => [entry, ...xs]);
-    setActiveLogId(entry.id);
+  function setArchLevel(nextLevel: number) {
+    setBuild((s) => {
+      const lvl = clampInt(nextLevel, 0, 999);
+      const normalized = normalizeSkillsToTotal(s.skillPoints, lvl);
+      return { ...s, archLevel: lvl, skillPoints: normalized };
+    });
   }
 
   type WorkerMsg =
@@ -459,25 +458,27 @@ export function ArchSim() {
   async function runMcOptimizer(mode: "frag" | "XP" | "stage") {
     if (mcRunning) return;
     cancelRef.current.cancelled = false;
-    const pool = createWorkerPool(clampInt(mcSettings.workerCount, 1, 8));
+    const hc = typeof navigator !== "undefined" ? Number((navigator as any).hardwareConcurrency ?? 4) : 4;
+    const workerCount = clampInt(Math.max(1, hc - 1), 1, 8);
+    const pool = createWorkerPool(workerCount);
     cancelRef.current.pool = pool;
     setMcRunning(true);
     setMcProgress("Starting…");
 
-    const plannerPoints = clampInt(mcSettings.plannerPoints, 1, 999);
-    const screeningSims = clampInt(mcSettings.screeningSims, 1, 500);
-    const refinementSims = clampInt(mcSettings.refinementSims, 1, 2000);
+    const archLevel = clampInt(Number(build.archLevel ?? 0), 0, 999);
+    const screeningSims = mcSettings.useScreening ? 200 : 0;
+    const refinementSims = mcSettings.useRefinement ? 500 : 0;
     const targetFrag = mcSettings.targetFrag;
 
     const caps: Record<Skill, number> = {
-      strength: Math.min(plannerPoints, getSkillPointCap(build, "strength")),
-      agility: Math.min(plannerPoints, getSkillPointCap(build, "agility")),
-      perception: Math.min(plannerPoints, getSkillPointCap(build, "perception")),
-      intellect: Math.min(plannerPoints, getSkillPointCap(build, "intellect")),
-      luck: Math.min(plannerPoints, getSkillPointCap(build, "luck")),
+      strength: Math.min(archLevel, getSkillPointCap(build, "strength")),
+      agility: Math.min(archLevel, getSkillPointCap(build, "agility")),
+      perception: Math.min(archLevel, getSkillPointCap(build, "perception")),
+      intellect: Math.min(archLevel, getSkillPointCap(build, "intellect")),
+      luck: Math.min(archLevel, getSkillPointCap(build, "luck")),
     };
 
-    const baseSamples = Math.max(500, plannerPoints * 20);
+    const baseSamples = Math.max(500, Math.max(1, archLevel) * 20);
     const nSamples = baseSamples * 4;
     const topRatio = 0.05;
     const requireStr = true;
@@ -492,7 +493,6 @@ export function ArchSim() {
     const scores: Cand[] = [];
 
     const maxPending = Math.max(2, pool.size * 2);
-    let pending: Array<Promise<void>> = [];
     let completed = 0;
 
     const submitCandidate = async (dist: number[], simN: number, seed: number) => {
@@ -515,14 +515,110 @@ export function ArchSim() {
     };
 
     try {
-      setMcProgress(`Phase 1: Screening (${nSamples} samples, N=${screeningSims})…`);
+      if (archLevel <= 0) throw new Error("Arch level must be >= 1.");
+
+      // If both screening+refinement are off, just run final sims on current build.
+      if (screeningSims <= 0 && refinementSims <= 0) {
+        setMcProgress("Final sims (1000) on current build…");
+
+        const bestBuild = build;
+        const bestStats = getTotalStats(bestBuild);
+        const totalFinal = 1000;
+        const chunkSize = clampInt(Math.trunc(totalFinal / Math.max(1, pool.size * 4)), 10, 100);
+        let remaining = totalFinal;
+        let done = 0;
+
+        const objectiveSamples: number[] = [];
+        let sumFloors = 0;
+        let sumXp = 0;
+        let sumTotalFrags = 0;
+        let sumDur = 0;
+        let sampleCount = 0;
+
+        const tasks: Promise<void>[] = [];
+        let submitted = 0;
+        while (remaining > 0) {
+          if (cancelRef.current.cancelled) throw new Error("cancelled");
+          const n = Math.min(chunkSize, remaining);
+          submitted += 1;
+          const seed = seedBase + 1_000_000 + submitted;
+          const t = pool
+            .run({
+              type: "stageLite",
+              payload: { stats: bestStats, starting_floor: 1, n_sims: n, options, cardCfg, seed, targetFrag: mode === "frag" ? targetFrag : null },
+            })
+            .then((out) => {
+              const dur: number[] = out.run_duration_seconds_samples ?? [];
+              const xp: number[] = out.xp_per_run_samples ?? [];
+              const maxs: number[] = out.max_stage_samples ?? [];
+              const floors: number[] = out.floors_cleared_samples ?? [];
+              const totals: number[] = out.total_fragments_samples ?? [];
+              const targ: number[] = out.target_frag_samples ?? [];
+              for (let i = 0; i < dur.length; i += 1) {
+                const d = Number(dur[i] ?? 1);
+                const runsPerHour = d > 0 ? 3600.0 / d : 0;
+                if (mode === "XP") objectiveSamples.push(Number(xp[i] ?? 0) * runsPerHour);
+                else if (mode === "frag") objectiveSamples.push(Number(targ[i] ?? 0) * runsPerHour);
+                else objectiveSamples.push(Number(maxs[i] ?? 0));
+
+                sumDur += d;
+                sumXp += Number(xp[i] ?? 0);
+                sumFloors += Number(floors[i] ?? 0);
+                sumTotalFrags += Number(totals[i] ?? 0);
+                sampleCount += 1;
+              }
+              done += n;
+              setMcProgress(`Final sims (${done}/${totalFinal})`);
+            });
+          tasks.push(t);
+          remaining -= n;
+        }
+        await Promise.all(tasks);
+        if (cancelRef.current.cancelled) throw new Error("cancelled");
+
+        const avgFloors = sampleCount > 0 ? sumFloors / sampleCount : 0;
+        const avgXp = sampleCount > 0 ? sumXp / sampleCount : 0;
+        const avgTotalFrags = sampleCount > 0 ? sumTotalFrags / sampleCount : 0;
+        const avgDur = sampleCount > 0 ? sumDur / sampleCount : 1;
+        const xpPerHour = avgDur > 0 ? (avgXp * 3600.0) / avgDur : 0;
+        const fragmentsPerHour = avgDur > 0 ? (avgTotalFrags * 3600.0) / avgDur : 0;
+
+        const entry: McLogEntry = {
+          id: `mc_${Date.now()}_${Math.random().toString(16).slice(2)}`,
+          createdAt: Date.now(),
+          label:
+            mode === "frag"
+              ? `MC Fragment Farmer (${targetFrag.toUpperCase()})`
+              : mode === "XP"
+                ? "MC XP Optimizer"
+                : "MC Stage Push Optimizer",
+          mcType: mode,
+          build: bestBuild,
+          metrics: {
+            floorsPerRun: avgFloors,
+            xpPerRun: avgXp,
+            durationSeconds: avgDur,
+            fragmentsPerRunTotal: avgTotalFrags,
+            xpPerHour,
+            fragmentsPerHour,
+          },
+          mc: { archLevel, screeningSims, refinementSims, targetFrag: mode === "frag" ? targetFrag : undefined, objective: mode, objectiveSamples },
+        };
+        setMcLog((xs) => [entry, ...xs]);
+        setActiveLogId(entry.id);
+        setMcProgress("Done.");
+        return;
+      }
+
+      const phase1Sims = screeningSims > 0 ? screeningSims : Math.max(1, refinementSims);
+      setMcProgress(`Phase 1: Search (${nSamples} samples, N=${phase1Sims})…`);
       const inFlight = new Set<Promise<void>>();
       for (let i = 0; i < nSamples; i += 1) {
         if (cancelRef.current.cancelled) throw new Error("cancelled");
-        const dist = sampleDirichletInteger({ numPoints: plannerPoints, caps, requireStr, rng });
-        const p = submitCandidate(dist, screeningSims, seedBase + i).then(() => {
+        const dist = sampleDirichletInteger({ numPoints: archLevel, caps, requireStr, rng });
+        const p = submitCandidate(dist, phase1Sims, seedBase + i).then(() => {
           completed += 1;
-          if (completed % 10 === 0 || completed === nSamples) setMcProgress(`Phase 1: Screening (${completed}/${nSamples})`);
+          if (completed % 10 === 0 || completed === nSamples) setMcProgress(`Phase 1: Search (${completed}/${nSamples})`);
         });
         inFlight.add(p);
         p.finally(() => inFlight.delete(p)).catch(() => {});
@@ -535,47 +631,50 @@ export function ArchSim() {
       const numAnchors = Math.max(1, Math.trunc(scores.length * topRatio));
       const anchors = scores.slice(0, numAnchors);
 
-      setMcProgress(`Phase 2: Refinement (${numAnchors} anchors, N=${refinementSims})…`);
-      const refined: Cand[] = [];
-      const perAnchor = clampInt(Math.trunc(refinementSims / 50), 5, 15);
-      const radius = 2;
-      completed = 0;
-      const totalRef = numAnchors * perAnchor;
-      const inFlight2 = new Set<Promise<void>>();
-      for (let a = 0; a < anchors.length; a += 1) {
-        for (let j = 0; j < perAnchor; j += 1) {
-          if (cancelRef.current.cancelled) throw new Error("cancelled");
-          const dist = refineAroundAnchor({ anchor: anchors[a]!.dist, numPoints: plannerPoints, caps, radius, requireStr, rng });
-          const p = (async () => {
-            const b2: ArchBuild = { ...build, skillPoints: { strength: dist[0], agility: dist[1], perception: dist[2], intellect: dist[3], luck: dist[4] } };
-            const stats2 = getTotalStats(b2);
-            if (mode === "frag") {
+      let best: Cand | undefined = scores[0];
+      if (refinementSims > 0) {
+        setMcProgress(`Phase 2: Refinement (${numAnchors} anchors, N=${refinementSims})…`);
+        const refined: Cand[] = [];
+        const perAnchor = clampInt(Math.trunc(refinementSims / 50), 5, 15);
+        const radius = 2;
+        completed = 0;
+        const totalRef = numAnchors * perAnchor;
+        const inFlight2 = new Set<Promise<void>>();
+        for (let a = 0; a < anchors.length; a += 1) {
+          for (let j = 0; j < perAnchor; j += 1) {
+            if (cancelRef.current.cancelled) throw new Error("cancelled");
+            const dist = refineAroundAnchor({ anchor: anchors[a]!.dist, numPoints: archLevel, caps, radius, requireStr, rng });
+            const p = (async () => {
+              const b2: ArchBuild = { ...build, skillPoints: { strength: dist[0], agility: dist[1], perception: dist[2], intellect: dist[3], luck: dist[4] } };
+              const stats2 = getTotalStats(b2);
+              if (mode === "frag") {
+                const out = await pool.run({
+                  type: "fragmentSummary",
+                  payload: { stats: stats2, starting_floor: 1, n_sims: refinementSims, options, cardCfg, seed: seedBase + 100_000 + a * 100 + j, target_frag: targetFrag },
+                });
+                refined.push({ dist, score: Number(out.avg_frag_per_hour ?? 0) });
+                return;
+              }
               const out = await pool.run({
-                type: "fragmentSummary",
-                payload: { stats: stats2, starting_floor: 1, n_sims: refinementSims, options, cardCfg, seed: seedBase + 100_000 + a * 100 + j, target_frag: targetFrag },
+                type: "stageSummary",
+                payload: { stats: stats2, starting_floor: 1, n_sims: refinementSims, options, cardCfg, seed: seedBase + 100_000 + a * 100 + j },
               });
-              refined.push({ dist, score: Number(out.avg_frag_per_hour ?? 0) });
-              return;
-            }
-            const out = await pool.run({
-              type: "stageSummary",
-              payload: { stats: stats2, starting_floor: 1, n_sims: refinementSims, options, cardCfg, seed: seedBase + 100_000 + a * 100 + j },
+              refined.push({ dist, score: mode === "XP" ? Number(out.xp_per_hour ?? 0) : Number(out.avg_max_stage ?? 0) });
+            })().then(() => {
+              completed += 1;
+              if (completed % 10 === 0 || completed === totalRef) setMcProgress(`Phase 2: Refinement (${completed}/${totalRef})`);
             });
-            refined.push({ dist, score: mode === "XP" ? Number(out.xp_per_hour ?? 0) : Number(out.avg_max_stage ?? 0) });
-          })().then(() => {
-            completed += 1;
-            if (completed % 10 === 0 || completed === totalRef) setMcProgress(`Phase 2: Refinement (${completed}/${totalRef})`);
-          });
-          inFlight2.add(p);
-          p.finally(() => inFlight2.delete(p)).catch(() => {});
-          if (inFlight2.size >= maxPending) await Promise.race(inFlight2);
+            inFlight2.add(p);
+            p.finally(() => inFlight2.delete(p)).catch(() => {});
+            if (inFlight2.size >= maxPending) await Promise.race(inFlight2);
+          }
         }
-      }
-      await Promise.allSettled(Array.from(inFlight2));
+        await Promise.allSettled(Array.from(inFlight2));
 
-      if (cancelRef.current.cancelled) throw new Error("cancelled");
-      refined.sort((a, b) => b.score - a.score);
-      const best = refined[0] && refined[0].score >= (scores[0]?.score ?? -Infinity) ? refined[0] : scores[0];
+        if (cancelRef.current.cancelled) throw new Error("cancelled");
+        refined.sort((a, b) => b.score - a.score);
+        best = refined[0] && refined[0].score >= (scores[0]?.score ?? -Infinity) ? refined[0] : scores[0];
+      }
       if (!best) throw new Error("No candidates");
 
       const bestBuild: ArchBuild = {
@@ -666,7 +765,7 @@ export function ArchSim() {
           xpPerHour,
           fragmentsPerHour,
         },
-        mc: { plannerPoints, screeningSims, refinementSims, targetFrag: mode === "frag" ? targetFrag : undefined, objective: mode, objectiveSamples },
+        mc: { archLevel, screeningSims, refinementSims, targetFrag: mode === "frag" ? targetFrag : undefined, objective: mode, objectiveSamples },
       };
       setMcLog((xs) => [entry, ...xs]);
       setActiveLogId(entry.id);
@@ -702,7 +801,8 @@ export function ArchSim() {
     return { mean, std: Math.sqrt(variance), min, max };
   }
 
-  const activeLog = useMemo(() => (activeLogId ? mcLog.find((x) => x.id === activeLogId) ?? null : null), [activeLogId, mcLog]);
+  const visibleMcLog = useMemo(() => mcLog.filter((e) => e.mcType !== "det"), [mcLog]);
+  const activeLog = useMemo(() => (activeLogId ? visibleMcLog.find((x) => x.id === activeLogId) ?? null : null), [activeLogId, visibleMcLog]);
 
   return (
     <div className="container">
@@ -710,22 +810,22 @@ export function ArchSim() {
         <div>
           <h1 className="title">Archaeology Simulator</h1>
           <p className="subtitle">
-            Deterministic parity port. Calculation stage is <span className="mono">goalStage − 1</span> (min 1).
+            Monte Carlo optimizers (multi-core). Saved MC runs can be reopened.
           </p>
         </div>
-        <div className="badge">Stage Rush • Floors/Run</div>
+        <div className="badge">MC • Multi-core</div>
       </div>
 
-      <div className="panel" style={{ background: "var(--tier1)" }}>
+      <div className="panel archSetupPanel" style={{ background: "var(--tier1)" }}>
         <div className="panelHeader" style={{ marginBottom: 8 }}>
-          <h2 className="panelTitle">Controls</h2>
+          <h2 className="panelTitle">Run setup</h2>
           <p className="panelHint">
             Calc stage: <span className="mono">{calcStage}</span>
           </p>
         </div>
 
-        <div className="row2">
-          <div className="row">
+        <div className="archSetupGrid">
+          <div className="archSetupCell" style={{ background: "var(--tier1)" }}>
             <div className="label">
               <span>
                 Goal stage
@@ -735,7 +835,8 @@ export function ArchSim() {
             </div>
             <input className="input" type="number" min={1} step={1} value={build.goalStage} onChange={(e) => setBuild((s) => ({ ...s, goalStage: clampInt(Number(e.target.value), 1, 999) }))} />
           </div>
-          <div className="row">
+
+          <div className="archSetupCell" style={{ background: "var(--tier2)" }}>
             <div className="label">
               <span>
                 Unlocked stage
@@ -743,153 +844,55 @@ export function ArchSim() {
               </span>
               <span className="mono">{build.unlockedStage}</span>
             </div>
-            <input
-              className="input"
-              type="number"
-              min={1}
-              step={1}
-              value={build.unlockedStage}
-              onChange={(e) => setBuild((s) => ({ ...s, unlockedStage: clampInt(Number(e.target.value), 1, 999) }))}
-            />
+            <input className="input" type="number" min={1} step={1} value={build.unlockedStage} onChange={(e) => setBuild((s) => ({ ...s, unlockedStage: clampInt(Number(e.target.value), 1, 999) }))} />
+          </div>
+
+          <div className="archSetupCell" style={{ background: "var(--tier3)" }}>
+            <div className="label">
+              <span>
+                Arch level
+                <Tooltip content={{ title: "Arch level", lines: ["Total skill points available to distribute (and used by the MC optimizers)."] }} />
+              </span>
+              <span className="mono">{build.archLevel}</span>
+            </div>
+            <input className="input" type="number" min={0} step={1} value={build.archLevel} onChange={(e) => setArchLevel(Number(e.target.value))} />
+            <div className="small" style={{ marginTop: 6 }}>
+              Points used: <span className="mono">{totalSkillPoints}</span> / <span className="mono">{build.archLevel}</span>
+            </div>
           </div>
         </div>
 
-        <div className="btnRow">
-          <button className="btn btnSecondary" type="button" onClick={() => setBuild(defaultBuild())}>
+        <div className="btnRow" style={{ marginTop: 10 }}>
+          <button className="btn btnSecondary" type="button" onClick={() => setBuild(defaultBuild())} disabled={mcRunning}>
             Reset all
           </button>
-          <button className="btn" type="button" onClick={() => addMcLogEntry(`Stage ${build.goalStage} snapshot`)}>
-            Save run
-          </button>
-          <div className="small">
-            Total skill points: <span className="mono">{totalSkillPoints}</span>
-          </div>
-        </div>
-
-        <div className="sectionTitle" style={{ marginTop: 12 }}>
-          MC Optimizers (multi-core)
-        </div>
-        <div className="small" style={{ marginBottom: 8 }}>
-          Uses a worker pool (parallel) and runs unbiased from <span className="mono">Stage 1</span>, like the desktop MC tools.
-        </div>
-
-        <div className="row2">
-          <div className="row">
-            <div className="label">
-              <span>
-                Planner points
-                <Tooltip content={{ title: "Planner points", lines: ["Total skill points to allocate for the MC search (starts from 0)."] }} />
-              </span>
-              <span className="mono">{mcSettings.plannerPoints}</span>
-            </div>
-            <input
-              className="input"
-              type="number"
-              min={1}
-              step={1}
-              value={mcSettings.plannerPoints}
-              disabled={mcRunning}
-              onChange={(e) => setMcSettings((s) => ({ ...s, plannerPoints: clampInt(Number(e.target.value), 1, 999) }))}
-            />
-          </div>
-          <div className="row">
-            <div className="label">
-              <span>
-                Workers
-                <Tooltip content={{ title: "Workers", lines: ["How many parallel threads (web workers) to use."] }} />
-              </span>
-              <span className="mono">{mcSettings.workerCount}</span>
-            </div>
-            <input
-              className="input"
-              type="number"
-              min={1}
-              step={1}
-              value={mcSettings.workerCount}
-              disabled={mcRunning}
-              onChange={(e) => setMcSettings((s) => ({ ...s, workerCount: clampInt(Number(e.target.value), 1, 8) }))}
-            />
-          </div>
-        </div>
-
-        <div className="row2">
-          <div className="row">
-            <div className="label">
-              <span>Screening N</span>
-              <span className="mono">{mcSettings.screeningSims}</span>
-            </div>
-            <input
-              className="input"
-              type="number"
-              min={1}
-              step={1}
-              value={mcSettings.screeningSims}
-              disabled={mcRunning}
-              onChange={(e) => setMcSettings((s) => ({ ...s, screeningSims: clampInt(Number(e.target.value), 1, 500) }))}
-            />
-          </div>
-          <div className="row">
-            <div className="label">
-              <span>Refinement N</span>
-              <span className="mono">{mcSettings.refinementSims}</span>
-            </div>
-            <input
-              className="input"
-              type="number"
-              min={1}
-              step={1}
-              value={mcSettings.refinementSims}
-              disabled={mcRunning}
-              onChange={(e) => setMcSettings((s) => ({ ...s, refinementSims: clampInt(Number(e.target.value), 1, 2000) }))}
-            />
-          </div>
-        </div>
-
-        <div className="row">
-          <div className="label">
-            <span>
-              Target fragment (Fragment Farmer)
-              <Tooltip content={{ title: "Target fragment", lines: ["Objective for MC Fragment Farmer: maximize target fragments/hour."] }} />
-            </span>
-            <span className="mono">{mcSettings.targetFrag.toUpperCase()}</span>
-          </div>
-          <select
-            className="input"
+          <button
+            className="btn btnSecondary"
+            type="button"
+            onClick={() => {
+              setMcLog([]);
+              setActiveLogId(null);
+            }}
             disabled={mcRunning}
-            value={mcSettings.targetFrag}
-            onChange={(e) => setMcSettings((s) => ({ ...s, targetFrag: e.target.value as BlockType }))}
           >
-            {(["common", "rare", "epic", "legendary", "mythic"] as const).map((t) => (
-              <option key={t} value={t}>
-                {t.toUpperCase()}
-              </option>
-            ))}
-          </select>
+            Reset MC log
+          </button>
         </div>
-
-        <div className="btnRow" style={{ marginTop: 8 }}>
-          <button className="btn" type="button" disabled={mcRunning} onClick={() => runMcOptimizer("stage")}>
-            MC Stage Push Optimizer
-          </button>
-          <button className="btn" type="button" disabled={mcRunning} onClick={() => runMcOptimizer("XP")}>
-            MC XP Optimizer
-          </button>
-          <button className="btn" type="button" disabled={mcRunning} onClick={() => runMcOptimizer("frag")}>
-            MC Fragment Farmer
-          </button>
-          {mcRunning ? (
-            <button className="btn btnSecondary" type="button" onClick={cancelMc}>
-              Cancel
-            </button>
-          ) : null}
-        </div>
-        {mcProgress ? <div className="small">Status: {mcProgress}</div> : null}
       </div>
 
       <div className="archGrid">
         {/* Column 1: stats (collapsible) */}
         <div style={{ display: "grid", gap: 12 }}>
-          <Collapsible id="arch-player-stats" title="Player stats" defaultExpanded={true}>
+          <Collapsible
+            id="arch-player-stats"
+            title="Player stats"
+            defaultExpanded={true}
+            headerRight={
+              <span className="mono">
+                {totalSkillPoints}/{build.archLevel}
+              </span>
+            }
+          >
             <div className="kv" style={{ background: "var(--tier1)" }}>
               <kbd>XP gain</kbd>
               <div className="mono">{stats.xp_gain_total.toFixed(3)}x</div>
@@ -907,11 +910,49 @@ export function ArchSim() {
               <div className="mono">{stats.crit_damage.toFixed(3)}x</div>
               <kbd>Super crit</kbd>
               <div className="mono">{formatPct(stats.super_crit_chance, 2)}</div>
+              <kbd>Super crit mult</kbd>
+              <div className="mono">{stats.super_crit_dmg_mult.toFixed(3)}x</div>
               <kbd>Ultra crit</kbd>
               <div className="mono">{formatPct(stats.ultra_crit_chance, 2)}</div>
+              <kbd>Ultra crit mult</kbd>
+              <div className="mono">{stats.ultra_crit_dmg_mult.toFixed(3)}x</div>
               <kbd>One-hit</kbd>
               <div className="mono">{formatPct(stats.one_hit_chance, 3)}</div>
             </div>
+
+            <div className="sectionTitle">Stats</div>
+            <div className="small" style={{ marginBottom: 8 }}>
+              Spend your <span className="mono">Arch level</span> points here.
+            </div>
+            {(["strength", "agility", "perception", "intellect", "luck"] as const).map((skill) => {
+              const cap = getSkillPointCap(build, skill);
+              const v = build.skillPoints[skill];
+              const short = skill === "strength" ? "STR" : skill === "agility" ? "AGI" : skill === "perception" ? "PER" : skill === "intellect" ? "INT" : "LCK";
+              return (
+                <div key={skill} className="row" style={{ marginBottom: 8 }}>
+                  <div className="label">
+                    <span className="mono">{short}</span>
+                    <span className="mono">
+                      {v} / {cap}
+                    </span>
+                  </div>
+                  <div className="btnRow" style={{ marginTop: 0 }}>
+                    <button className="btn btnSecondary" type="button" onClick={() => setSkill(skill, -1)} disabled={v <= 0}>
+                      −
+                    </button>
+                    <button className="btn" type="button" onClick={() => setSkill(skill, +1)} disabled={v >= cap || totalSkillPoints >= build.archLevel}>
+                      +
+                    </button>
+                    <button className="btn btnSecondary" type="button" onClick={() => setSkill(skill, +5)} disabled={v >= cap || totalSkillPoints >= build.archLevel}>
+                      +5
+                    </button>
+                    <button className="btn btnSecondary" type="button" onClick={() => setSkill(skill, -5)} disabled={v <= 0}>
+                      −5
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
 
             <div className="sectionTitle">Abilities</div>
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
@@ -941,48 +982,78 @@ export function ArchSim() {
 
         {/* Column 2: skills/upgrades/cards */}
         <div style={{ display: "grid", gap: 12 }}>
-          <div className="panel" style={{ background: "var(--tier2)" }}>
+          <div className="panel fragmentUpgradesPanel" style={{ background: "var(--tier2)" }}>
             <div className="panelHeader">
-              <h2 className="panelTitle">Skills</h2>
-              <p className="panelHint">
-                Points: <span className="mono">{totalSkillPoints}</span>
-              </p>
+              <h2 className="panelTitle">Fragment upgrades</h2>
+              <p className="panelHint">Grouped by fragment type.</p>
             </div>
 
-            {(["strength", "agility", "perception", "intellect", "luck"] as const).map((skill) => {
-              const cap = getSkillPointCap(build, skill);
-              const v = build.skillPoints[skill];
+            <div className="small" style={{ marginBottom: 10 }}>
+              Unlock gating uses <span className="mono">unlockedStage</span>.
+            </div>
+
+            {(["common", "rare", "epic", "legendary", "mythic"] as const).map((ct) => {
+              const entries = fragmentGroups[ct] ?? [];
+              const color = BLOCK_COLORS[ct];
+              const icon = `sprites/archaeology/block_${ct}_t1.png`;
+              if (!entries.length) return null;
               return (
-                <div key={skill} className="row" style={{ marginBottom: 8 }}>
-                  <div className="label">
-                    <span style={{ textTransform: "capitalize" }}>{skill}</span>
-                    <span className="mono">
-                      {v} / {cap}
-                    </span>
+                <div key={ct} className="fragmentGroup" style={{ borderColor: `rgba(15,23,42,0.12)` }}>
+                  <div className="fragmentGroupHeader">
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <Sprite path={icon} alt={`${ct} icon`} className="iconSmall" />
+                      <div className="mono" style={{ fontWeight: 900, color }}>
+                        {ct.toUpperCase()}
+                      </div>
+                    </div>
                   </div>
-                  <div className="btnRow" style={{ marginTop: 0 }}>
-                    <button className="btn btnSecondary" type="button" onClick={() => setSkill(skill, -1)} disabled={v <= 0}>
-                      −
-                    </button>
-                    <button className="btn" type="button" onClick={() => setSkill(skill, +1)} disabled={v >= cap}>
-                      +
-                    </button>
-                    <button className="btn btnSecondary" type="button" onClick={() => setSkill(skill, +5)} disabled={v >= cap}>
-                      +5
-                    </button>
-                    <button className="btn btnSecondary" type="button" onClick={() => setSkill(skill, -5)} disabled={v <= 0}>
-                      −5
-                    </button>
+
+                  <div style={{ display: "grid", gap: 8 }}>
+                    {entries.map(([key, info]) => {
+                      const lvl = clampInt(Number(build.fragmentUpgradeLevels[key] ?? 0), 0, clampInt(Number(info.max_level ?? 0), 0, 999));
+                      const stageUnlock = clampInt(Number(info.stage_unlock ?? 0), 0, 999);
+                      const locked = build.unlockedStage < stageUnlock;
+                      const nextCost = getUpgradeCost(key, lvl);
+                      return (
+                        <div key={key} className="fragmentUpgradeRow">
+                          <div className="label">
+                            <span className="mono">{info.display_name}</span>
+                            <span className="mono">
+                              {lvl}/{info.max_level}
+                            </span>
+                          </div>
+                          <div className="small">
+                            next cost: <span className="mono">{nextCost == null ? "—" : String(nextCost)}</span>
+                            {locked ? (
+                              <>
+                                {" "}
+                                • <span className="pillLocked">LOCKED</span> <span className="lockedText">until stage {stageUnlock}</span>
+                              </>
+                            ) : null}
+                          </div>
+                          <div className="btnRow" style={{ marginTop: 8 }}>
+                            <button className="btn btnSecondary" type="button" onClick={() => setFragmentUpgrade(key, -1)} disabled={lvl <= 0 || mcRunning}>
+                              −
+                            </button>
+                            <button className="btn" type="button" onClick={() => setFragmentUpgrade(key, +1)} disabled={locked || lvl >= info.max_level || mcRunning}>
+                              +
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               );
             })}
           </div>
 
-          <div className="panel" style={{ background: "var(--tier2)" }}>
+          <div className="panel gemPanel" style={{ background: "var(--tier1)" }}>
             <div className="panelHeader">
-              <h2 className="panelTitle">Gem upgrades</h2>
-              <p className="panelHint">Matches desktop values/caps.</p>
+              <h2 className="panelTitle" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <Sprite path="sprites/common/gem.png" alt="Gem" className="iconSmall" /> Gem upgrades
+              </h2>
+              <p className="panelHint">Permanent. Matches desktop values/caps.</p>
             </div>
 
             {(["stamina", "xp", "fragment", "arch_xp"] as const).map((k) => {
@@ -990,8 +1061,9 @@ export function ArchSim() {
               const max = GEM_UPGRADE_BONUSES[k].max_level;
               const nextCost = GEM_COSTS[k][lvl] ?? null;
               const locked = build.unlockedStage < (GEM_UPGRADE_BONUSES[k].stage_unlock ?? 0);
+              const maxed = lvl >= max;
               return (
-                <div key={k} style={{ border: "1px solid rgba(15,23,42,0.10)", borderRadius: 10, padding: 10, marginBottom: 10, background: "#fff" }}>
+                <div key={k} className={`gemUpgradeRow ${maxed ? "gemUpgradeMaxed" : ""}`}>
                   <div className="label">
                     <span className="mono">{k}</span>
                     <span className="mono">
@@ -1008,10 +1080,10 @@ export function ArchSim() {
                     ) : null}
                   </div>
                   <div className="btnRow" style={{ marginTop: 8 }}>
-                    <button className="btn btnSecondary" type="button" onClick={() => setGemUpgrade(k, -1)} disabled={lvl <= 0}>
+                    <button className="btn btnSecondary" type="button" onClick={() => setGemUpgrade(k, -1)} disabled={lvl <= 0 || mcRunning}>
                       −
                     </button>
-                    <button className="btn" type="button" onClick={() => setGemUpgrade(k, +1)} disabled={locked || lvl >= max}>
+                    <button className="btn" type="button" onClick={() => setGemUpgrade(k, +1)} disabled={locked || lvl >= max || mcRunning}>
                       +
                     </button>
                   </div>
@@ -1089,121 +1161,103 @@ export function ArchSim() {
             </div>
           </Collapsible>
 
-          <div className="panel" style={{ background: "var(--tier2)" }}>
-            <div className="panelHeader">
-              <h2 className="panelTitle">Fragment upgrades</h2>
-              <p className="panelHint">Costs and unlocks match desktop tables.</p>
-            </div>
-
-            <div className="small" style={{ marginBottom: 10 }}>
-              Tip: unlock gating uses <span className="mono">unlockedStage</span> (not goal stage).
-            </div>
-
-            <div style={{ display: "grid", gap: 8 }}>
-              {sortedFragmentUpgrades.map(([key, info]) => {
-                const lvl = clampInt(Number(build.fragmentUpgradeLevels[key] ?? 0), 0, clampInt(Number(info.max_level ?? 0), 0, 999));
-                const stageUnlock = clampInt(Number(info.stage_unlock ?? 0), 0, 999);
-                const locked = build.unlockedStage < stageUnlock;
-                const nextCost = getUpgradeCost(key, lvl);
-                return (
-                  <div key={key} style={{ border: "1px solid rgba(15,23,42,0.10)", borderRadius: 10, padding: 10, background: "#fff" }}>
-                    <div className="label">
-                      <span>
-                        <span className="mono">{info.display_name}</span>{" "}
-                        <span className="small">
-                          ({info.cost_type})
-                        </span>
-                      </span>
-                      <span className="mono">
-                        {lvl}/{info.max_level}
-                      </span>
-                    </div>
-                    <div className="small">
-                      next cost: <span className="mono">{nextCost == null ? "—" : String(nextCost)}</span>
-                      {locked ? (
-                        <>
-                          {" "}
-                          • <span className="pillLocked">LOCKED</span> <span className="lockedText">until stage {stageUnlock}</span>
-                        </>
-                      ) : null}
-                    </div>
-                    <div className="btnRow" style={{ marginTop: 8 }}>
-                      <button className="btn btnSecondary" type="button" onClick={() => setFragmentUpgrade(key, -1)} disabled={lvl <= 0}>
-                        −
-                      </button>
-                      <button className="btn" type="button" onClick={() => setFragmentUpgrade(key, +1)} disabled={locked || lvl >= info.max_level}>
-                        +
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
         </div>
 
-        {/* Column 3: results */}
+        {/* Column 3: MC + log */}
         <div style={{ display: "grid", gap: 12 }}>
-          <div className="panel panelResults">
+          <div className="panel mcPanel" style={{ background: "var(--tier3)" }}>
             <div className="panelHeader">
-              <h2 className="panelTitle">Results</h2>
-              <p className="panelHint">Updates live.</p>
+              <h2 className="panelTitle">Monte Carlo</h2>
+              <p className="panelHint">
+                Multi-core • unbiased from <span className="mono">Stage 1</span>
+              </p>
             </div>
 
-            <div className="kv">
-              <kbd>Floors/run</kbd>
-              <div className="mono">{summary.floorsPerRun.toFixed(3)}</div>
-              <kbd>XP/run</kbd>
-              <div className="mono">{summary.xpPerRun.toFixed(3)}</div>
-              <kbd>Duration</kbd>
-              <div className="mono">{summary.durationSeconds.toFixed(1)}s</div>
-              <kbd>Fragments/run</kbd>
-              <div className="mono">
-                {Object.values(summary.fragmentsPerRun)
-                  .reduce((a, b) => a + b, 0)
-                  .toFixed(3)}
+            <label className="toggle">
+              <input
+                type="checkbox"
+                checked={mcSettings.useScreening}
+                disabled={mcRunning}
+                onChange={(e) => setMcSettings((s) => ({ ...s, useScreening: e.target.checked }))}
+              />
+              Screening phase (fast)
+            </label>
+            <label className="toggle" style={{ marginTop: 6 }}>
+              <input
+                type="checkbox"
+                checked={mcSettings.useRefinement}
+                disabled={mcRunning}
+                onChange={(e) => setMcSettings((s) => ({ ...s, useRefinement: e.target.checked }))}
+              />
+              Refinement phase (accurate)
+            </label>
+
+            <div className="mcCards">
+              <div className="mcCard mcCardStage">
+                <div className="mcCardTitle">Stage Push Optimizer</div>
+                <div className="small">Objective: maximize average max stage.</div>
+                <div className="btnRow" style={{ marginTop: 10 }}>
+                  <button className="btn" type="button" disabled={mcRunning} onClick={() => runMcOptimizer("stage")}>
+                    Run MC
+                  </button>
+                  {mcRunning ? (
+                    <button className="btn btnSecondary" type="button" onClick={cancelMc}>
+                      Cancel
+                    </button>
+                  ) : null}
+                </div>
               </div>
-              <kbd>Fragments/hour</kbd>
-              <div className="mono">{summary.fragmentsPerHour.toFixed(3)}</div>
+
+              <div className="mcCard mcCardXp">
+                <div className="mcCardTitle">XP Optimizer</div>
+                <div className="small">Objective: maximize XP/hour.</div>
+                <div className="btnRow" style={{ marginTop: 10 }}>
+                  <button className="btn" type="button" disabled={mcRunning} onClick={() => runMcOptimizer("XP")}>
+                    Run MC
+                  </button>
+                  {mcRunning ? (
+                    <button className="btn btnSecondary" type="button" onClick={cancelMc}>
+                      Cancel
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+
+              <div className="mcCard mcCardFrag">
+                <div className="mcCardTitle">Fragment Farmer</div>
+                <div className="small">Objective: maximize target fragments/hour.</div>
+                <div className="row" style={{ marginTop: 8 }}>
+                  <div className="label">
+                    <span>Target fragment</span>
+                    <span className="mono">{mcSettings.targetFrag.toUpperCase()}</span>
+                  </div>
+                  <select
+                    className="input"
+                    disabled={mcRunning}
+                    value={mcSettings.targetFrag}
+                    onChange={(e) => setMcSettings((s) => ({ ...s, targetFrag: e.target.value as BlockType }))}
+                  >
+                    {(["common", "rare", "epic", "legendary", "mythic"] as const).map((t) => (
+                      <option key={t} value={t}>
+                        {t.toUpperCase()}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="btnRow" style={{ marginTop: 10 }}>
+                  <button className="btn" type="button" disabled={mcRunning} onClick={() => runMcOptimizer("frag")}>
+                    Run MC
+                  </button>
+                  {mcRunning ? (
+                    <button className="btn btnSecondary" type="button" onClick={cancelMc}>
+                      Cancel
+                    </button>
+                  ) : null}
+                </div>
+              </div>
             </div>
 
-            <div className="sectionTitle">Fragments breakdown</div>
-            <ul className="list">
-              {(["common", "rare", "epic", "legendary", "mythic"] as const).map((k) => (
-                <li key={k}>
-                  <span className="mono">{k}</span>: <span className="mono">{summary.fragmentsPerRun[k].toFixed(3)}</span>
-                </li>
-              ))}
-            </ul>
-
-            <div className="sectionTitle">Best next investments</div>
-            <div className="small">
-              Skill point:{" "}
-              {bestNextSkillPoint ? (
-                <>
-                  <span className="mono">{bestNextSkillPoint.skill}</span> → floors/run{" "}
-                  <span className="mono">{bestNextSkillPoint.newFloors.toFixed(3)}</span>{" "}
-                  (<span className="mono">+{bestNextSkillPoint.delta.toFixed(3)}</span>)
-                </>
-              ) : (
-                <>— (all skills capped)</>
-              )}
-            </div>
-            <div className="small" style={{ marginTop: 6 }}>
-              Fragment upgrades (top by floors/cost):
-            </div>
-            <ul className="list">
-              {bestNextFragmentUpgrades.length ? (
-                bestNextFragmentUpgrades.map((u) => (
-                  <li key={u.key}>
-                    {u.name}: <span className="mono">+{u.deltaFloors.toFixed(3)}</span> floors/run @{" "}
-                    <span className="mono">{u.cost}</span> cost (eff <span className="mono">{u.eff.toFixed(4)}</span>)
-                  </li>
-                ))
-              ) : (
-                <li>—</li>
-              )}
-            </ul>
+            {mcProgress ? <div className="small" style={{ marginTop: 10 }}>Status: {mcProgress}</div> : null}
           </div>
 
           <div className="mcLogPanel">
@@ -1224,13 +1278,13 @@ export function ArchSim() {
               </div>
             </div>
             <div className="mcLogList">
-              {mcLog.length === 0 ? (
+              {visibleMcLog.length === 0 ? (
                 <div className="small" style={{ textAlign: "center", padding: 14 }}>
-                  No saved runs yet. Click <span className="mono">Save run</span> to store a snapshot and open it later.
+                  No saved MC runs yet. Run one of the optimizers to create entries you can reopen later.
                 </div>
               ) : (
                 <>
-                  {mcLog.map((e) => {
+                  {visibleMcLog.map((e) => {
                     const active = e.id === activeLogId;
                     return (
                       <div key={e.id} className={`mcLogEntry ${active ? "mcLogEntryActive" : ""}`}>

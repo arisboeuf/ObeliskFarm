@@ -10,6 +10,9 @@ export type ArchBuild = {
   goalStage: number;
   unlockedStage: number;
 
+  // Archaeology level (TOTAL skill points available to distribute).
+  archLevel: number;
+
   skillPoints: Record<Skill, number>;
   gemUpgrades: Record<ArchGemUpgradeKey, number>;
   fragmentUpgradeLevels: Record<string, number>;

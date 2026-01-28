@@ -150,6 +150,122 @@ body {
   align-items: start;
 }
 
+.archSetupGrid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+
+@media (min-width: 880px) {
+  .archSetupGrid {
+    grid-template-columns: 1fr 1fr 1fr;
+  }
+}
+
+.archSetupCell {
+  border: 1px solid rgba(15, 23, 42, 0.10);
+  border-radius: 12px;
+  padding: 10px;
+}
+
+.fragmentUpgradesPanel {
+  border: 1px solid rgba(15, 23, 42, 0.10);
+}
+
+.fragmentGroup {
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  border-radius: 12px;
+  padding: 10px;
+  background: #ffffff;
+  margin-bottom: 10px;
+}
+
+.fragmentGroupHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.fragmentUpgradeRow {
+  border: 1px solid rgba(15, 23, 42, 0.10);
+  border-radius: 10px;
+  padding: 10px;
+  background: #ffffff;
+}
+
+.gemPanel {
+  border: 1px solid rgba(25, 118, 210, 0.22);
+  box-shadow: 0 0 0 3px rgba(25, 118, 210, 0.08);
+}
+
+.gemUpgradeRow {
+  border: 1px solid rgba(15, 23, 42, 0.10);
+  border-radius: 10px;
+  padding: 10px;
+  margin-bottom: 10px;
+  background: rgba(255, 255, 255, 0.92);
+}
+
+.gemUpgradeMaxed {
+  border-color: rgba(236, 72, 153, 0.35);
+  box-shadow: 0 0 0 3px rgba(236, 72, 153, 0.12);
+  background: rgba(252, 231, 243, 0.85);
+}
+
+.mcPanel {
+  border: 1px solid rgba(255, 152, 0, 0.28);
+}
+
+.mcCards {
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.mcCard {
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  border-radius: 12px;
+  padding: 10px;
+  background: rgba(255, 255, 255, 0.94);
+}
+
+.mcCardTitle {
+  font-weight: 900;
+  font-size: 13px;
+  margin-bottom: 6px;
+}
+
+.mcCardStage {
+  background: repeating-linear-gradient(
+      45deg,
+      rgba(46, 125, 50, 0.14),
+      rgba(46, 125, 50, 0.14) 7px,
+      rgba(255, 255, 255, 0.94) 7px,
+      rgba(255, 255, 255, 0.94) 14px
+    );
+}
+
+.mcCardXp {
+  background: repeating-linear-gradient(
+      135deg,
+      rgba(103, 58, 183, 0.14),
+      rgba(103, 58, 183, 0.14) 7px,
+      rgba(255, 255, 255, 0.94) 7px,
+      rgba(255, 255, 255, 0.94) 14px
+    );
+}
+
+.mcCardFrag {
+  background: repeating-linear-gradient(
+      45deg,
+      rgba(245, 124, 0, 0.14),
+      rgba(245, 124, 0, 0.14) 7px,
+      rgba(255, 255, 255, 0.94) 7px,
+      rgba(255, 255, 255, 0.94) 14px
+    );
+}
+
 @media (min-width: 980px) {
   .archGrid {
     grid-template-columns: 340px 420px 1fr;
