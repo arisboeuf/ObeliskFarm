@@ -32,5 +32,10 @@ ObeliskGemEV/save/
 REDDIT_POST.md
 UPDATE_REDDIT_POST.md
 
+# Web (Vite/React)
+web/node_modules/
+web/dist/
+web/.vite/
+
 # OneDrive
 ~$*
