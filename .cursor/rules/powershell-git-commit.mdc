@@ -1,0 +1,26 @@
+---
+description: Use PowerShell-safe git commit messages (here-string)
+alwaysApply: true
+---
+
+# PowerShell-safe Git commits
+
+When creating git commits in this repo on Windows/PowerShell:
+
+- Use `required_permissions: ['all']` for git commands to avoid `.git/index.lock` permission issues.
+- Do **not** use bash heredocs or bash-style redirections (they fail in PowerShell).
+- Prefer a PowerShell here-string + `git commit -m <title> -m <body>` format.
+
+Example:
+
+```powershell
+$title = '[TAG] component: short description'
+$body = @'
+WHY: Explain why this change was made.
+
+Optional details if needed.
+'@
+
+git commit -m $title -m $body
+```
+
