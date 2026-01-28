@@ -37,6 +37,171 @@ body {
   color: var(--text);
 }
 
+.appShell {
+  min-height: 100vh;
+}
+
+.topNav {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  background: rgba(246, 247, 251, 0.92);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+}
+
+.topNavBrand {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 12px 18px 10px;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.topNavTitle {
+  font-weight: 900;
+  letter-spacing: 0.2px;
+}
+
+.topNavSubtitle {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.topNavButtons {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 0 18px 12px;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+
+@media (min-width: 740px) {
+  .topNavButtons {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.navTile {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(25, 118, 210, 0.35);
+  background: rgba(227, 242, 253, 0.85); /* match desktop menu tile bg */
+  box-shadow: 0 1px 0 rgba(15, 23, 42, 0.03);
+  cursor: pointer;
+  font-weight: 800;
+  color: var(--text);
+}
+
+.navTile:hover {
+  background: rgba(187, 222, 251, 0.95);
+}
+
+.navTileActive {
+  border-color: rgba(25, 118, 210, 0.65);
+  box-shadow:
+    0 10px 26px rgba(25, 118, 210, 0.10),
+    0 0 0 3px rgba(25, 118, 210, 0.08);
+}
+
+.collapseWrap {
+  border: 1px solid rgba(15, 23, 42, 0.14);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.92);
+}
+
+.collapseHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+}
+
+.collapseToggle {
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  border: 1px solid rgba(25, 118, 210, 0.28);
+  background: rgba(25, 118, 210, 0.10);
+  cursor: pointer;
+  font-weight: 900;
+}
+
+.collapseTitle {
+  font-weight: 900;
+  font-size: 13px;
+}
+
+.collapseBody {
+  padding: 10px 12px 12px;
+}
+
+.archGrid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 14px;
+  margin-top: 14px;
+  align-items: start;
+}
+
+@media (min-width: 980px) {
+  .archGrid {
+    grid-template-columns: 340px 420px 1fr;
+  }
+}
+
+@media (min-width: 1280px) {
+  .archGrid {
+    grid-template-columns: 380px 460px 1fr;
+  }
+}
+
+.mcLogPanel {
+  border: 1px solid rgba(92, 107, 192, 0.55);
+  border-radius: 12px;
+  overflow: hidden;
+  background: #e8eaf6;
+}
+
+.mcLogHeader {
+  background: #5c6bc0;
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+}
+
+.mcLogTitle {
+  font-weight: 900;
+  font-size: 13px;
+}
+
+.mcLogList {
+  background: #ffffff;
+  max-height: 360px;
+  overflow: auto;
+  padding: 10px;
+}
+
+.mcLogEntry {
+  border: 1px solid rgba(15, 23, 42, 0.10);
+  border-radius: 10px;
+  padding: 10px;
+  margin-bottom: 10px;
+}
+
+.mcLogEntryActive {
+  border-color: rgba(92, 107, 192, 0.75);
+  box-shadow: 0 0 0 3px rgba(92, 107, 192, 0.15);
+}
+
 a {
   color: var(--accent);
   text-decoration: none;

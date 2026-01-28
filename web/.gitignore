@@ -2,3 +2,13 @@ node_modules/
 dist/
 .vite/
 
+# TypeScript build artifacts
+*.tsbuildinfo
+
+# Generated from vite.config.ts (do not commit)
+vite.config.js
+vite.config.d.ts
+
+# Copied at build-time via scripts/copy-assets.mjs
+public/sprites/archaeology/
+

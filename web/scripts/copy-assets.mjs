@@ -28,9 +28,10 @@ function copyDir(srcDir, dstDir) {
 const srcSprites = path.join(repoRoot, "ObeliskGemEV", "sprites");
 const dstSprites = path.join(webRoot, "public", "sprites");
 
-// Only what we currently need for the event budget UI.
+// Only what we currently need for the web UI modules.
 copyDir(path.join(srcSprites, "event"), path.join(dstSprites, "event"));
 copyDir(path.join(srcSprites, "common"), path.join(dstSprites, "common"));
+copyDir(path.join(srcSprites, "archaeology"), path.join(dstSprites, "archaeology"));
 
 console.log("Copied sprites to web/public/sprites/");
 
