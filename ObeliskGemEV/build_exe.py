@@ -18,11 +18,11 @@ import shutil
 from pathlib import Path
 
 # Project paths
-PROJECT_ROOT = Path(__file__).parent
-OBELISK_DIR = PROJECT_ROOT / 'ObeliskGemEV'
+PROJECT_ROOT = Path(__file__).parent.parent
+OBELISK_DIR = Path(__file__).parent
 DIST_DIR = PROJECT_ROOT / 'dist'
 BUILD_DIR = PROJECT_ROOT / 'build'
-SPEC_FILE = PROJECT_ROOT / 'ObeliskGemEV.spec'
+SPEC_FILE = OBELISK_DIR / 'ObeliskGemEV.spec'
 
 
 def get_version():

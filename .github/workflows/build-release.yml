@@ -75,7 +75,7 @@ jobs:
           PY
       
       - name: Build executable
-        run: python -m PyInstaller ObeliskGemEV.spec --clean
+        run: python -m PyInstaller ObeliskGemEV/ObeliskGemEV.spec --clean
 
       - name: Rename executable to match tag
         shell: bash

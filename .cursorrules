@@ -7,12 +7,12 @@
 Before making ANY changes to this project, you MUST:
 
 1. **Read `PROJECT_GUIDELINES.md`** - Central guidelines document
-2. **Read `DESIGN_GUIDELINES.md`** - Design standards and principles
-3. **Read `COMMIT_GUIDELINES.md`** - Commit message format requirements
+2. **Read `ObeliskGemEV/docs/DESIGN_GUIDELINES.md`** - Design standards and principles
+3. **Read `ObeliskGemEV/docs/COMMIT_GUIDELINES.md`** - Commit message format requirements
 
 ## Quick Guidelines Summary
 
-### Design Standards (from DESIGN_GUIDELINES.md)
+### Design Standards (from ObeliskGemEV/docs/DESIGN_GUIDELINES.md)
 
 **Language:**
 - ✅ English for all user-facing text
@@ -41,7 +41,7 @@ Before making ANY changes to this project, you MUST:
 - Resize with `Image.Resampling.LANCZOS`
 - Use white background + border for better visibility
 
-### Commit Standards (from COMMIT_GUIDELINES.md)
+### Commit Standards (from ObeliskGemEV/docs/COMMIT_GUIDELINES.md)
 
 **Format (MANDATORY):**
 ```
@@ -85,7 +85,7 @@ References: #123, task-456
 
 ```
 [ ] Read PROJECT_GUIDELINES.md
-[ ] Read DESIGN_GUIDELINES.md (for GUI changes)
+[ ] Read ObeliskGemEV/docs/DESIGN_GUIDELINES.md (for GUI changes)
 [ ] Understand WHY this change is needed
 [ ] Verify compliance with design standards
 ```
@@ -140,14 +140,13 @@ WHAT: Implemented Text widget for tooltips with bold headers,
 color-coded percentages, and white background. All tooltips now
 support structured content with clear visual hierarchy.
 
-Impact: Tooltips now follow DESIGN_GUIDELINES.md standards.
+Impact: Tooltips now follow ObeliskGemEV/docs/DESIGN_GUIDELINES.md standards.
 ```
 
 ## AI Assistant Behavior Rules
 
 1. **Always Start Sessions With:**
-   - Read PROJECT_GUIDELINES.md
-   - Read relevant specific guidelines (DESIGN or COMMIT)
+   - Read ObeliskGemEV/docs/DESIGN_GUIDELINES.md and ObeliskGemEV/docs/COMMIT_GUIDELINES.md
    - Acknowledge guidelines have been read
 
 2. **For Every Code Change:**

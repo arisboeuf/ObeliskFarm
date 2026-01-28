@@ -9,8 +9,9 @@ import re
 from pathlib import Path
 
 # Get the absolute path to the project root
-PROJECT_ROOT = Path(SPECPATH)
-OBELISK_DIR = PROJECT_ROOT / 'ObeliskGemEV'
+# SPECPATH points to this spec file, which is now in ObeliskGemEV/
+PROJECT_ROOT = Path(SPECPATH).parent.parent
+OBELISK_DIR = Path(SPECPATH).parent
 
 # Version from __init__.py (parse only; avoid imports during spec execution)
 _init_text = (OBELISK_DIR / '__init__.py').read_text(encoding='utf-8')

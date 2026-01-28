@@ -79,7 +79,7 @@ export function applyUpgrades(
   // Prestige & gem multipliers (match Python behavior)
   p.atk = roundNumber(p.atk * (1 + p.prestigeBonusScale * prestiges) * (1 + 0.1 * gemUps[0]));
   p.health = roundNumber(p.health * (1 + p.prestigeBonusScale * prestiges) * (1 + 0.1 * gemUps[1]));
-  p.gameSpeed = p.gameSpeed + gemUps[2];
+  p.gameSpeed = p.gameSpeed + 1.25 * gemUps[2]; // +125% per level (was +1.25 additive)
   p.x2Money = p.x2Money + gemUps[3];
 
   return { player: p, enemy: e };

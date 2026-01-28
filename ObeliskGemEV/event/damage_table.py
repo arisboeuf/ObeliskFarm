@@ -74,11 +74,16 @@ def print_damage_table(max_wave: int = 50):
     print()
 
 
-def save_damage_table_to_excel(max_wave: int = 50, filename: str = "enemy_damage_table.xlsx"):
+def save_damage_table_to_excel(max_wave: int = 50, filename: str = None):
     """Save the damage table to an Excel file"""
     if not OPENPYXL_AVAILABLE:
         print("Fehler: openpyxl ist nicht installiert. Bitte installiere es mit: pip install openpyxl")
         return False
+    
+    if filename is None:
+        # Default to same directory as this file
+        from pathlib import Path
+        filename = str(Path(__file__).parent / "enemy_damage_table.xlsx")
     
     enemy = EnemyStats()
     wb = Workbook()
@@ -136,9 +141,8 @@ def save_damage_table_to_excel(max_wave: int = 50, filename: str = "enemy_damage
     info_ws.column_dimensions['B'].width = 25
     
     # Save file
-    filepath = os.path.join(os.path.dirname(__file__), "..", "..", filename)
-    wb.save(filepath)
-    print(f"\nTabelle gespeichert als: {os.path.abspath(filepath)}")
+    wb.save(filename)
+    print(f"\nTabelle gespeichert als: {os.path.abspath(filename)}")
     return True
 
 
