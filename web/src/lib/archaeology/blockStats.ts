@@ -24,19 +24,19 @@ export const BLOCK_DATA: BlockData[] = [
 
   // Tier 2
   { tier: 2, block_type: "dirt", health: 300, xp: 0.15, armor: 0, fragment: 0.0, floor_min: 12, floor_max: 23 },
-  { tier: 2, block_type: "common", health: 600, xp: 0.45, armor: 9, fragment: 0.02, floor_min: 18, floor_max: 28 },
-  { tier: 2, block_type: "rare", health: 1650, xp: 1.05, armor: 21, fragment: 0.02, floor_min: 26, floor_max: 35 },
-  { tier: 2, block_type: "epic", health: 3450, xp: 3.0, armor: 44, fragment: 0.02, floor_min: 30, floor_max: 41 },
-  { tier: 2, block_type: "legendary", health: 5850, xp: 10.5, armor: 88, fragment: 0.02, floor_min: 32, floor_max: 44 },
-  { tier: 2, block_type: "mythic", health: 10500, xp: 22.5, armor: 262, fragment: 0.02, floor_min: 36, floor_max: 49 },
+  { tier: 2, block_type: "common", health: 750, xp: 0.45, armor: 8.25, fragment: 0.02, floor_min: 18, floor_max: 29 },
+  { tier: 2, block_type: "rare", health: 1650, xp: 1.05, armor: 19.8, fragment: 0.02, floor_min: 26, floor_max: 35 },
+  { tier: 2, block_type: "epic", health: 3450, xp: 3.0, armor: 41.25, fragment: 0.02, floor_min: 30, floor_max: 41 },
+  { tier: 2, block_type: "legendary", health: 5850, xp: 10.5, armor: 82.5, fragment: 0.02, floor_min: 32, floor_max: 44 },
+  { tier: 2, block_type: "mythic", health: 10500, xp: 22.5, armor: 247.5, fragment: 0.02, floor_min: 35, floor_max: 49 },
 
   // Tier 3
   { tier: 3, block_type: "dirt", health: 900, xp: 0.45, armor: 0, fragment: 0, floor_min: 24, floor_max: Number.POSITIVE_INFINITY },
-  { tier: 3, block_type: "common", health: 2250, xp: 1.35, armor: 15, fragment: 0.04, floor_min: 30, floor_max: Number.POSITIVE_INFINITY },
-  { tier: 3, block_type: "rare", health: 4950, xp: 3.15, armor: 37, fragment: 0.04, floor_min: 36, floor_max: Number.POSITIVE_INFINITY },
-  { tier: 3, block_type: "epic", health: 10350, xp: 9.0, armor: 77, fragment: 0.04, floor_min: 42, floor_max: Number.POSITIVE_INFINITY },
-  { tier: 3, block_type: "legendary", health: 17500, xp: 31.5, armor: 153, fragment: 0.04, floor_min: 45, floor_max: Number.POSITIVE_INFINITY },
-  { tier: 3, block_type: "mythic", health: 31500, xp: 67.5, armor: 459, fragment: 0.04, floor_min: 50, floor_max: Number.POSITIVE_INFINITY },
+  { tier: 3, block_type: "common", health: 2250, xp: 1.35, armor: 13.61, fragment: 0.04, floor_min: 30, floor_max: Number.POSITIVE_INFINITY },
+  { tier: 3, block_type: "rare", health: 4950, xp: 3.15, armor: 32.67, fragment: 0.04, floor_min: 36, floor_max: Number.POSITIVE_INFINITY },
+  { tier: 3, block_type: "epic", health: 10350, xp: 9.0, armor: 68.06, fragment: 0.04, floor_min: 42, floor_max: Number.POSITIVE_INFINITY },
+  { tier: 3, block_type: "legendary", health: 17500, xp: 31.5, armor: 136.12, fragment: 0.04, floor_min: 45, floor_max: Number.POSITIVE_INFINITY },
+  { tier: 3, block_type: "mythic", health: 31500, xp: 67.5, armor: 408.37, fragment: 0.04, floor_min: 50, floor_max: Number.POSITIVE_INFINITY },
 ];
 
 function key(tier: number, bt: string) {
