@@ -211,7 +211,7 @@ export function computeFishingStatsFromLevels(
   const droneBase = Math.round(droneBaseRaw);
   const droneMultiUpgrade = 1 + 0.06 * u("drone_multiplier");
   const droneMultiEnhance = 1 + 0.08 * e("enhance_drone_multiplier");
-  const legendary = Math.max(0, Math.min(6, options?.legendaryFishFound ?? 0));
+  const legendary = Math.max(0, Math.min(11, options?.legendaryFishFound ?? 0));
   const droneMultFwf = 1 + 0.1 * skill("fishing_with_friends");
   const droneMultCompletionist = 1 + (0.02 * skill("completionist_gatekeeper")) * legendary;
   const workshopDroneMultiWorld3 = 1 + 0.02 * Math.max(0, Math.floor(options?.fishingDroneBasePowerWorld3 ?? 0));

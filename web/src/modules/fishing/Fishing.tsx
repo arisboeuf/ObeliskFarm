@@ -4208,7 +4208,7 @@ export function Fishing() {
                                     `Upgrade (1 + 0.06×lvl): ×${stats.drone_power_multiplier_breakdown.upgrade.toFixed(2)}`,
                                     `Enhance (1 + 0.08×lvl): ×${stats.drone_power_multiplier_breakdown.enhance.toFixed(2)}`,
                                     `FWF (1 + 0.1×lvl): ×${stats.drone_power_multiplier_breakdown.fwf.toFixed(2)}`,
-                                    `Completionist (1 + 0.02×lvl×leg): ×${stats.drone_power_multiplier_breakdown.completionist.toFixed(2)}`,
+                                    `Completionist (1 + (0.02×lvl)×leg): ×${stats.drone_power_multiplier_breakdown.completionist.toFixed(2)}`,
                                     `Workshop World 3 (1 + 0.02×lvl): ×${stats.drone_power_multiplier_breakdown.workshop.toFixed(2)}`,
                                     `Tethys Idol (1 + 0.05%×lvl): ×${stats.drone_power_multiplier_breakdown.tethys.toFixed(4)}`,
                                     `Total: ×${stats.drone_power_multiplier.toFixed(2)}`,
@@ -5613,14 +5613,14 @@ export function Fishing() {
           <div className="fishingSkillOptions">
             <div className="fishingSkillOptionRow">
               <img src={SKILL_POINT_ICON_URL} alt="" style={{ width: 20, height: 20, objectFit: "contain", flexShrink: 0 }} />
-              <span>Legendary Fish Found (0–6)</span>
+              <span>Legendary Fish Found (0–11)</span>
               <div className="fishingSkillOptionStepper">
                 <span className="fishingUpgradeLevelLabel">
-                  <span className="mono">{state.legendaryFishFound}</span> / 6
+                  <span className="mono">{state.legendaryFishFound}</span> / 11
                 </span>
                 <div className="btnRow fishingUpgradeButtons">
                   <button type="button" className="btn btnSecondary" onClick={() => setState((p) => ({ ...p, legendaryFishFound: Math.max(0, p.legendaryFishFound - 1) }))} disabled={state.legendaryFishFound <= 0} aria-label="Decrease">−</button>
-                  <button type="button" className="btn" onClick={() => setState((p) => ({ ...p, legendaryFishFound: Math.min(6, p.legendaryFishFound + 1) }))} disabled={state.legendaryFishFound >= 6} aria-label="Increase">+</button>
+                  <button type="button" className="btn" onClick={() => setState((p) => ({ ...p, legendaryFishFound: Math.min(11, p.legendaryFishFound + 1) }))} disabled={state.legendaryFishFound >= 11} aria-label="Increase">+</button>
                 </div>
               </div>
             </div>
