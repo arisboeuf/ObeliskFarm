@@ -241,7 +241,7 @@ export function computeFishingStatsFromLevels(
     3 * e("enhance_fishing_drone_3") +
     5 * skill("fishing_with_friends") +
     5 * skill("motley_school");
-  const fishing_drone_cap = capFromUpgradesAndEnhancements * Math.pow(1.05, u("drone_cloner"));
+  const fishing_drone_cap = capFromUpgradesAndEnhancements * Math.pow(0.05, u("drone_cloner"));
 
   // Token Gain Multiplier: only from enhancement +0.05x per level.
   const token_gain_multi = 1 + 0.05 * e("enhance_token_multiplier");
@@ -335,7 +335,6 @@ export function computeFishingStatsFromLevels(
 
   // Poly card gain multi: applies to fish card gains (Card 1.5×, Gilded 2×). Polychrome Potency Bundle fish poly ×1.15 in UI.
   const poly_card_gain_multi =
-    1 +
     0.08 * u("poly_card_multi") +
     0.1 * e("enhance_poly_card_multi");
 
