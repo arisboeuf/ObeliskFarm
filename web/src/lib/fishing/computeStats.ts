@@ -131,8 +131,6 @@ export interface SkillTreeOptions {
   fishersBundle?: boolean;
   /** Store: Angler's Bundle. +6% Tiny Notice Chance (flat). */
   anglerBundle?: boolean;
-  /** Store: Half Way Bundle! Fishing Rod Power ×1.10 (own mult). */
-  halfWayBundle?: boolean;
   /** Divine Challenge Coin: each level gives Shiny Fish Multiplier +10% (own mult). */
   divineChallengeCoinLevel?: number;
   /** Construct: Statue Craftmanship. At most one. Gilded = Fish Income ×1.25, Platinized = Fish Income ×1.40 (own mult each). */
@@ -170,8 +168,7 @@ export function computeFishingStatsFromLevels(
   const rodMultiUpgrade = 1 + 0.04 * u("rod_multiplier");
   const rodMultiEnhance = 1 + 0.05 * e("enhance_rod_multiplier");
   const rodMultiMotleySchool = 1 + 0.1 * skill("motley_school");
-  const halfWayBundleMult = options?.halfWayBundle ? 1.1 : 1;
-  const fishing_rod_power = rodBase * rodMultiUpgrade * rodMultiEnhance * rodMultiMotleySchool * halfWayBundleMult;
+  const fishing_rod_power = rodBase * rodMultiUpgrade * rodMultiEnhance * rodMultiMotleySchool;
 
   // Fish Income Multiplier: upgrade and enhancement are separate factors; the two skills (Fishing With Friends, With This Fish) add together into one factor (additive, not multiplicative).
   // (1 + 0.03×upgrade) × (1 + 0.05×enhance) × (1 + 0.03×Fishing With Friends + 0.01×With This Fish×cards).
@@ -281,17 +278,18 @@ export function computeFishingStatsFromLevels(
   const tinyNoticeFromMrNibblesCard = mrNibblesCardTier === 1 ? 1 : mrNibblesCardTier === 2 ? 2 : mrNibblesCardTier === 3 ? 4 : 0;
   const tiny_notice_chance_pct = 0.5 * e("enhance_tiny_notice_chance") + (options?.anglerBundle ? 6 : 0) + tinyNoticeFromMrNibblesCard;
 
-  // Tier 2 Dock Power: fishing upgrades + enhance add in one factor; skill tree (Completionist) is a separate factor × store × pets × cards × archaeology × stargazing (wiki: separate menus multiply).
-  const tier2FishingMenuFactor = 1 + 0.05 * u("tier2_dock_power") + 0.05 * e("enhance_tier2_dock_power");
-  const tier2SkillTreeFactor = 1 + 0.03 * skill("completionist_gatekeeper") * legendary;
+  // Tier 2 Dock Power: multiplier on power on T2 docks only; +0.05x (upgrade), +0.05x (enhance). Skill: Completionist Gatekeeper +3% per level per legendary. Tethys Idol +0.05% per level (T2 docks only).
+  const tier2DockBase = 1 +
+    0.05 * u("tier2_dock_power") +
+    0.05 * e("enhance_tier2_dock_power") +
+    0.03 * skill("completionist_gatekeeper") * legendary;
   const mrNibblesQuestUnlocked = Boolean(options?.mrNibblesQuestUnlocked);
   const mrNibblesQuestRank = Math.max(0, Math.floor(options?.mrNibblesQuestRank ?? 0));
   const mrNibblesQuestMult = mrNibblesQuestUnlocked ? 1 + 0.05 * (mrNibblesQuestRank + 1) : 1;
   const infernalAnglerPct = Math.max(0, Number(options?.infernalAnglerDronePct ?? 0));
   const infernalAnglerLvl = Math.max(0, Math.floor(options?.infernalAnglerDroneLevel ?? 0));
   const tier2_dock_power_mult =
-    tier2FishingMenuFactor *
-    tier2SkillTreeFactor *
+    tier2DockBase *
     (1 + 0.0005 * tethysIdol) *
     (options?.legendaryHaulerBundle ? 1.1 : 1) *
     mrNibblesQuestMult *

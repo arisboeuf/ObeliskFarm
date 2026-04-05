@@ -14,22 +14,8 @@ import { Items } from "./modules/items/Items";
 import { Bombs } from "./modules/bombs/Bombs";
 import { OvernightGains } from "./modules/overnight/OvernightGains";
 import { Veins } from "./modules/veins/Veins";
-import { Transmuter } from "./modules/transmuter/Transmuter";
 import "./modules/overnight/overnight.css";
-type ModuleId =
-  | "event"
-  | "arch"
-  | "gemev"
-  | "bombs"
-  | "stargazing"
-  | "fishing"
-  | "drone"
-  | "lootbug"
-  | "veins"
-  | "items"
-  | "transmuter"
-  | "overnight"
-  | "about";
+type ModuleId = "event" | "arch" | "gemev" | "bombs" | "stargazing" | "fishing" | "drone" | "lootbug" | "veins" | "items" | "overnight" | "about";
 const SUPPORT_URL = "https://buymeacoffee.com/arisboeuf";
 const EVENT_EASTER_ICON = "https://static.wikitide.net/shminerwiki/c/cd/Event_Button_Easter.png";
 /** Obelisk level for “tested up to” in About and README. Update README when this changes. */
@@ -141,11 +127,6 @@ export function App() {
         { id: "lootbug" as const, label: "Lootbug", icon: "https://static.wikitide.net/shminerwiki/8/86/Lootbug_Default.png" },
         { id: "veins" as const, label: "Veins", icon: "https://static.wikitide.net/shminerwiki/0/04/Stone_Vein.png" },
         { id: "items" as const, label: "Items / Chests", icon: "https://static.wikitide.net/shminerwiki/a/a8/Item_Chest.png" },
-        {
-          id: "transmuter" as const,
-          label: "Ore / Bars",
-          icon: "https://static.wikitide.net/shminerwiki/c/c4/Tin_Ore.png",
-        },
         { id: "overnight" as const, label: "Overnight Gains", icon: "" },
       ] as const,
     [],
@@ -333,8 +314,6 @@ export function App() {
         <Veins />
       ) : active === "items" ? (
         <Items />
-      ) : active === "transmuter" ? (
-        <Transmuter />
       ) : active === "fishing" ? (
         <Fishing />
       ) : active === "overnight" ? (
@@ -345,4 +324,3 @@ export function App() {
     </div>
   );
 }
-

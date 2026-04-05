@@ -84,10 +84,8 @@ type SavedState = {
   divineRelic5xPoints?: number;
   /** Variance (MC) simulation: hours to simulate. Default 8. */
   mcHours?: number;
-  /** Variance (MC) simulation: number of runs (dock fill MC). Default 1000. */
+  /** Variance (MC) simulation: number of runs. Default 1000. */
   mcRuns?: number;
-  /** Sushi variance MC: how many Sushi openings to simulate. Default 1000. */
-  sushiMcSushis?: number;
   /** Pets: Mr Nibbles level. */
   mrNibblesLevel?: number;
   /** Pets: Mr Nibbles Quest unlocked (rank 0 = +5% T2 Dock Power). */
@@ -105,8 +103,6 @@ type SavedState = {
   fishersBundle?: boolean;
   /** Store: Angler's Bundle. +6% Tiny Notice Chance (flat). */
   anglerBundle?: boolean;
-  /** Store: Half Way Bundle! Fishing Rod Power ×1.10. */
-  halfWayBundle?: boolean;
   /** Divine Challenge Coin: each level gives Shiny Fish Multiplier +10%. */
   divineChallengeCoinLevel?: number;
   /** Construct: Statue Craftmanship. At most one: gilded (×1.25) or platinized (×1.40) fish income. */
@@ -154,10 +150,8 @@ type FishingState = {
   divineRelic5xPoints: number;
   /** Variance (MC) simulation: hours to simulate. Default 8. */
   mcHours: number;
-  /** Variance (MC) simulation: number of runs (dock fill MC). Default 1000. */
+  /** Variance (MC) simulation: number of runs. Default 1000. */
   mcRuns: number;
-  /** Sushi variance MC: simulated Sushi count. Default 1000. */
-  sushiMcSushis: number;
   /** Pets: Mr Nibbles level. +0.03× Shiny Multi per level (own mult), +1% Triple Tick Chance per level (flat). */
   mrNibblesLevel: number;
   /** Pets: Mr Nibbles Quest unlocked. When true, rank 0 = +5% T2 Dock Power (own mult). */
@@ -184,8 +178,6 @@ type FishingState = {
   fishersBundle: boolean;
   /** Store: Angler's Bundle. +6% Tiny Notice Chance (flat). */
   anglerBundle: boolean;
-  /** Store: Half Way Bundle! Fishing Rod Power ×1.10. */
-  halfWayBundle: boolean;
   /** Divine Challenge Coin: each level gives Shiny Fish Multiplier +10%. */
   divineChallengeCoinLevel: number;
   /** Construct: Statue Craftmanship. At most one: gilded (×1.25 fish income) or platinized (×1.40). */
@@ -206,10 +198,6 @@ type FishingState = {
 
 const STORAGE_KEY = "obeliskfarm:web:fishing_save.json:v1";
 const FISHING_EXTERNAL_KEY = "obeliskfarm:web:fishing_external.json";
-
-/** Sushi MC: min/max simulated openings (each = one Poisson draw for fish per Sushi). */
-const SUSHI_MC_SUSHIS_MIN = 100;
-const SUSHI_MC_SUSHIS_MAX = 100_000;
 
 function getDefaultFishingState(): FishingState {
   const upgradeLevels: Partial<Record<FishingUpgradeId, number>> = {};
@@ -238,7 +226,6 @@ function getDefaultFishingState(): FishingState {
     divineRelic5xPoints: 0,
     mcHours: 8,
     mcRuns: 1000,
-    sushiMcSushis: 1000,
     mrNibblesLevel: 0,
     mrNibblesQuestUnlocked: false,
     mrNibblesQuestRank: 0,
@@ -252,7 +239,6 @@ function getDefaultFishingState(): FishingState {
     legendaryHaulerBundle: false,
     fishersBundle: false,
     anglerBundle: false,
-    halfWayBundle: false,
     divineChallengeCoinLevel: 0,
     constructStatue: "none",
     cetusLevel: 0,
@@ -619,7 +605,6 @@ type TotalFishOptions = {
   legendaryHaulerBundle?: boolean;
   fishersBundle?: boolean;
   anglerBundle?: boolean;
-  halfWayBundle?: boolean;
   divineChallengeCoinLevel?: number;
   infernalMrNibblesPct?: number;
   infernalMrNibblesLevel?: number;
@@ -1213,11 +1198,6 @@ export function Fishing() {
     const divineRelic5xPoints = Math.max(0, Math.trunc(Number(saved?.divineRelic5xPoints ?? 0)));
     const mcHours = clamp(Number(saved?.mcHours ?? 8), 0.1, 720);
     const mcRuns = clamp(Math.trunc(Number(saved?.mcRuns ?? 1000)), 1000, 100000);
-    const sushiMcSushis = clamp(
-      Math.trunc(Number(saved?.sushiMcSushis ?? 1000)),
-      SUSHI_MC_SUSHIS_MIN,
-      SUSHI_MC_SUSHIS_MAX,
-    );
     const rawMrLvl = Number(saved?.mrNibblesLevel ?? 0);
     const mrNibblesLevel = Number.isFinite(rawMrLvl) ? Math.max(0, Math.trunc(rawMrLvl)) : 0;
     const rawMrQuest = Number(saved?.mrNibblesQuestRank ?? 0);
@@ -1232,7 +1212,6 @@ export function Fishing() {
     const legendaryHaulerBundle = Boolean(saved?.legendaryHaulerBundle ?? false);
     const fishersBundle = Boolean(saved?.fishersBundle ?? false);
     const anglerBundle = Boolean(saved?.anglerBundle ?? false);
-    const halfWayBundle = Boolean(saved?.halfWayBundle ?? false);
     const divineChallengeCoinLevel = Math.max(0, Math.trunc(Number(saved?.divineChallengeCoinLevel ?? 0)));
     const constructStatueRaw = saved?.constructStatue;
     const constructStatue =
@@ -1244,7 +1223,7 @@ export function Fishing() {
     const infernalMrNibblesLevel = Math.max(0, Math.trunc(Number(saved?.infernalMrNibblesLevel ?? 0)));
     const infernalAnglerDronePct = Math.max(0, Number(saved?.infernalAnglerDronePct ?? 0));
     const infernalAnglerDroneLevel = Math.max(0, Math.trunc(Number(saved?.infernalAnglerDroneLevel ?? 0)));
-    return { dronesPerDock, showDisabledFishGrayed, showPolyShardDroprate, useGemIncomeForCostEffic, activeDockId, upgradeLevels, enhanceLevels, fishCardTier, sushiCardTier, fishingRodCardTier, mrNibblesCardTier, valuePackPotencyPoly, skillTreeLevels, legendaryFishFound, abyssLegendaryCaught, divineRelic5xPoints, mcHours, mcRuns, sushiMcSushis, mrNibblesLevel, mrNibblesQuestUnlocked, mrNibblesQuestRank, mrNibblesSkin, poseidonIdolLevel, tethysIdolLevel, astraeusIdolLevel, droneBasePowerWorld3Upgrade, fishingDroneBasePowerWorld3, workshopSushiTicksWorld3, legendaryHaulerBundle, fishersBundle, anglerBundle, halfWayBundle, divineChallengeCoinLevel, constructStatue, cetusLevel, blackHoleBonus, infernalMrNibblesPct, infernalMrNibblesLevel, infernalAnglerDronePct, infernalAnglerDroneLevel };
+    return { dronesPerDock, showDisabledFishGrayed, showPolyShardDroprate, useGemIncomeForCostEffic, activeDockId, upgradeLevels, enhanceLevels, fishCardTier, sushiCardTier, fishingRodCardTier, mrNibblesCardTier, valuePackPotencyPoly, skillTreeLevels, legendaryFishFound, abyssLegendaryCaught, divineRelic5xPoints, mcHours, mcRuns, mrNibblesLevel, mrNibblesQuestUnlocked, mrNibblesQuestRank, mrNibblesSkin, poseidonIdolLevel, tethysIdolLevel, astraeusIdolLevel, droneBasePowerWorld3Upgrade, fishingDroneBasePowerWorld3, workshopSushiTicksWorld3, legendaryHaulerBundle, fishersBundle, anglerBundle, divineChallengeCoinLevel, constructStatue, cetusLevel, blackHoleBonus, infernalMrNibblesPct, infernalMrNibblesLevel, infernalAnglerDronePct, infernalAnglerDroneLevel };
   });
 
   useEffect(() => {
@@ -1295,7 +1274,6 @@ export function Fishing() {
     legendaryHaulerBundle: state.legendaryHaulerBundle,
     fishersBundle: state.fishersBundle,
     anglerBundle: state.anglerBundle,
-    halfWayBundle: state.halfWayBundle,
     divineChallengeCoinLevel: state.divineChallengeCoinLevel,
     constructStatue: state.constructStatue,
     cetusLevel: state.cetusLevel,
@@ -1823,7 +1801,6 @@ export function Fishing() {
       legendaryHaulerBundle: state.legendaryHaulerBundle,
       fishersBundle: state.fishersBundle,
       anglerBundle: state.anglerBundle,
-      halfWayBundle: state.halfWayBundle,
       divineChallengeCoinLevel: state.divineChallengeCoinLevel,
       infernalMrNibblesPct: state.infernalMrNibblesPct,
       infernalMrNibblesLevel: state.infernalMrNibblesLevel,
@@ -1896,7 +1873,6 @@ export function Fishing() {
     state.legendaryHaulerBundle,
     state.fishersBundle,
     state.anglerBundle,
-    state.halfWayBundle,
     state.divineChallengeCoinLevel,
     state.infernalMrNibblesPct,
     state.infernalMrNibblesLevel,
@@ -2201,7 +2177,7 @@ export function Fishing() {
       const probsNorm = sumEv > 0 ? fishPerSushiEvPerFish.map((f) => f.fishPerSushiEv / sumEv) : fishPerSushiEvPerFish.map(() => 0);
       const samplesPerFish: Record<string, number[]> = {};
       for (const id of fishIds) samplesPerFish[id] = [];
-      for (let i = 0; i < state.sushiMcSushis; i++) {
+      for (let i = 0; i < state.mcRuns; i++) {
         const totalFish = samplePoisson(rng, meanFishPerSushi);
         const runPerFish: Record<string, number> = {};
         for (const id of fishIds) runPerFish[id] = 0;
@@ -2318,7 +2294,6 @@ export function Fishing() {
       legendaryHaulerBundle: state.legendaryHaulerBundle,
       fishersBundle: state.fishersBundle,
       anglerBundle: state.anglerBundle,
-      halfWayBundle: state.halfWayBundle,
       divineChallengeCoinLevel: state.divineChallengeCoinLevel,
       infernalMrNibblesPct: state.infernalMrNibblesPct,
       infernalMrNibblesLevel: state.infernalMrNibblesLevel,
@@ -2457,7 +2432,6 @@ export function Fishing() {
       legendaryHaulerBundle: state.legendaryHaulerBundle,
       fishersBundle: state.fishersBundle,
       anglerBundle: state.anglerBundle,
-      halfWayBundle: state.halfWayBundle,
       divineChallengeCoinLevel: state.divineChallengeCoinLevel,
       infernalMrNibblesPct: state.infernalMrNibblesPct,
       infernalMrNibblesLevel: state.infernalMrNibblesLevel,
@@ -2557,7 +2531,6 @@ export function Fishing() {
       legendaryHaulerBundle: state.legendaryHaulerBundle,
       fishersBundle: state.fishersBundle,
       anglerBundle: state.anglerBundle,
-      halfWayBundle: state.halfWayBundle,
       divineChallengeCoinLevel: state.divineChallengeCoinLevel,
       infernalMrNibblesPct: state.infernalMrNibblesPct,
       infernalMrNibblesLevel: state.infernalMrNibblesLevel,
@@ -2610,7 +2583,6 @@ export function Fishing() {
     state.legendaryHaulerBundle,
     state.fishersBundle,
     state.anglerBundle,
-    state.halfWayBundle,
     state.divineChallengeCoinLevel,
     state.infernalMrNibblesPct,
     state.infernalMrNibblesLevel,
@@ -2644,7 +2616,6 @@ export function Fishing() {
       legendaryHaulerBundle: state.legendaryHaulerBundle,
       fishersBundle: state.fishersBundle,
       anglerBundle: state.anglerBundle,
-      halfWayBundle: state.halfWayBundle,
       divineChallengeCoinLevel: state.divineChallengeCoinLevel,
       infernalMrNibblesPct: state.infernalMrNibblesPct,
       infernalMrNibblesLevel: state.infernalMrNibblesLevel,
@@ -2695,7 +2666,6 @@ export function Fishing() {
     state.legendaryHaulerBundle,
     state.fishersBundle,
     state.anglerBundle,
-    state.halfWayBundle,
     state.divineChallengeCoinLevel,
     state.infernalMrNibblesPct,
     state.infernalMrNibblesLevel,
@@ -2728,7 +2698,6 @@ export function Fishing() {
       legendaryHaulerBundle: state.legendaryHaulerBundle,
       fishersBundle: state.fishersBundle,
       anglerBundle: state.anglerBundle,
-      halfWayBundle: state.halfWayBundle,
       divineChallengeCoinLevel: state.divineChallengeCoinLevel,
       infernalMrNibblesPct: state.infernalMrNibblesPct,
       infernalMrNibblesLevel: state.infernalMrNibblesLevel,
@@ -2780,7 +2749,6 @@ export function Fishing() {
     state.legendaryHaulerBundle,
     state.fishersBundle,
     state.anglerBundle,
-    state.halfWayBundle,
     state.divineChallengeCoinLevel,
     state.infernalMrNibblesPct,
     state.infernalMrNibblesLevel,
@@ -2815,7 +2783,6 @@ export function Fishing() {
       legendaryHaulerBundle: state.legendaryHaulerBundle,
       fishersBundle: state.fishersBundle,
       anglerBundle: state.anglerBundle,
-      halfWayBundle: state.halfWayBundle,
       divineChallengeCoinLevel: state.divineChallengeCoinLevel,
       infernalMrNibblesPct: state.infernalMrNibblesPct,
       infernalMrNibblesLevel: state.infernalMrNibblesLevel,
@@ -2864,15 +2831,6 @@ export function Fishing() {
             return ((newTotal - currentTotal) / currentTotal) * 100;
           })()
         : null;
-    const halfWayBundlePct: number | null = state.halfWayBundle
-      ? null
-      : currentTotal > 0
-        ? (() => {
-            const g = getGreedyDockAssignment(upgradeLevels, enhanceLevels, { ...skillOpts, halfWayBundle: true }, elixir3xFishingExternal, extraTicksPerHour);
-            const newTotal = computeTotalFishPerHour(upgradeLevels, enhanceLevels, g.dronesPerDock, g.activeDockId, elixir3xFishingExternal, { ...skillOpts, halfWayBundle: true }, extraTicksPerHour);
-            return ((newTotal - currentTotal) / currentTotal) * 100;
-          })()
-        : null;
     // Angler's Bundle: +6% Tiny Notice (flat). Same effective assumed gain as Tiny Notice enhancement: expected mult = 1 + tinyPct/100×9 (Tiny = 10×).
     const angler: number | null = (() => {
       if (state.anglerBundle) return null;
@@ -2911,7 +2869,7 @@ export function Fishing() {
             return ((newTotal - currentTotal) / currentTotal) * 100;
           })()
         : null;
-    return { polychrome, legendaryHauler, fishers, halfWayBundlePct, angler, constructGilded, constructPlatinized, blackHoleBonusPct };
+    return { polychrome, legendaryHauler, fishers, angler, constructGilded, constructPlatinized, blackHoleBonusPct };
   }, [
     upgradeLevels,
     enhanceLevels,
@@ -2922,7 +2880,6 @@ export function Fishing() {
     state.mrNibblesCardTier,
     state.legendaryHaulerBundle,
     state.fishersBundle,
-    state.halfWayBundle,
     state.anglerBundle,
     state.valuePackPotencyPoly,
     state.divineRelic5xPoints,
@@ -3076,7 +3033,6 @@ export function Fishing() {
       legendaryHaulerBundle: state.legendaryHaulerBundle,
       fishersBundle: state.fishersBundle,
       anglerBundle: state.anglerBundle,
-      halfWayBundle: state.halfWayBundle,
       divineChallengeCoinLevel: state.divineChallengeCoinLevel,
       infernalMrNibblesPct: state.infernalMrNibblesPct,
       infernalMrNibblesLevel: state.infernalMrNibblesLevel,
@@ -3254,7 +3210,6 @@ export function Fishing() {
     state.mrNibblesLevel,
     state.mrNibblesQuestUnlocked,
     state.mrNibblesQuestRank,
-    state.halfWayBundle,
     effectiveRodPower,
     elixir3xFishingExternal,
     extraTicksPerHour,
@@ -3274,7 +3229,7 @@ export function Fishing() {
     let rodCostEffic: number | null = null;
     let rodCostEfficGemAbs: number | null = null;
     const cardToGildedRatio = 2 / 1.5; // Card 1.5× → Gilded 2×
-    const skillOptsBase = { skillTreeLevels: state.skillTreeLevels ?? {}, legendaryFishFound: state.legendaryFishFound, relic5xPoints: state.divineRelic5xPoints, mrNibblesLevel: state.mrNibblesLevel, mrNibblesQuestUnlocked: state.mrNibblesQuestUnlocked, mrNibblesQuestRank: state.mrNibblesQuestRank, mrNibblesSkin: state.mrNibblesSkin, poseidonIdolLevel: state.poseidonIdolLevel, tethysIdolLevel: state.tethysIdolLevel, astraeusIdolLevel: state.astraeusIdolLevel, droneBasePowerWorld3Upgrade: state.droneBasePowerWorld3Upgrade, fishingDroneBasePowerWorld3: state.fishingDroneBasePowerWorld3, mrNibblesCardTier: state.mrNibblesCardTier, legendaryHaulerBundle: state.legendaryHaulerBundle, fishersBundle: state.fishersBundle, anglerBundle: state.anglerBundle, halfWayBundle: state.halfWayBundle, divineChallengeCoinLevel: state.divineChallengeCoinLevel, infernalMrNibblesPct: state.infernalMrNibblesPct, infernalMrNibblesLevel: state.infernalMrNibblesLevel, infernalAnglerDronePct: state.infernalAnglerDronePct, infernalAnglerDroneLevel: state.infernalAnglerDroneLevel, constructStatue: state.constructStatue, cetusLevel: state.cetusLevel, blackHoleBonus: state.blackHoleBonus };
+    const skillOptsBase = { skillTreeLevels: state.skillTreeLevels ?? {}, legendaryFishFound: state.legendaryFishFound, relic5xPoints: state.divineRelic5xPoints, mrNibblesLevel: state.mrNibblesLevel, mrNibblesQuestUnlocked: state.mrNibblesQuestUnlocked, mrNibblesQuestRank: state.mrNibblesQuestRank, mrNibblesSkin: state.mrNibblesSkin, poseidonIdolLevel: state.poseidonIdolLevel, tethysIdolLevel: state.tethysIdolLevel, astraeusIdolLevel: state.astraeusIdolLevel, droneBasePowerWorld3Upgrade: state.droneBasePowerWorld3Upgrade, fishingDroneBasePowerWorld3: state.fishingDroneBasePowerWorld3, mrNibblesCardTier: state.mrNibblesCardTier, legendaryHaulerBundle: state.legendaryHaulerBundle, fishersBundle: state.fishersBundle, anglerBundle: state.anglerBundle, divineChallengeCoinLevel: state.divineChallengeCoinLevel, infernalMrNibblesPct: state.infernalMrNibblesPct, infernalMrNibblesLevel: state.infernalMrNibblesLevel, infernalAnglerDronePct: state.infernalAnglerDronePct, infernalAnglerDroneLevel: state.infernalAnglerDroneLevel, constructStatue: state.constructStatue, cetusLevel: state.cetusLevel, blackHoleBonus: state.blackHoleBonus };
     const legFishIds = new Set(LEGENDARY_FISH.map((leg) => leg.id));
     const dockIdsAvailable = new Set(availableDocks.map((d) => d.id));
     const droneCap = Math.floor(stats.fishing_drone_cap);
@@ -3367,7 +3322,7 @@ export function Fishing() {
       costEfficHeatMinFishCardGemAbs: efficValsGemAbs.length ? Math.min(...efficValsGemAbs) : 0,
       costEfficHeatMaxFishCardGemAbs: efficValsGemAbs.length ? Math.max(...efficValsGemAbs) : 1,
     };
-  }, [visibleGainsRows, state.fishCardTier, state.fishingRodCardTier, state.skillTreeLevels, state.legendaryFishFound, state.halfWayBundle, state.divineRelic5xPoints, state.infernalMrNibblesPct, state.infernalMrNibblesLevel, state.infernalAnglerDronePct, state.infernalAnglerDroneLevel, upgradeLevels, enhanceLevels, stats.fish_income_multi, stats.shiny_multiplier, stats.super_shiny_multiplier, stats.super_shiny_chance_pct, stats.drone_base_power, stats.tier2_dock_power_mult, stats.double_tick_chance_pct, stats.triple_tick_chance_pct, stats.five_tick_chance_pct, stats.fishing_drone_cap, expectedShinyMulti, greedyDisplayedTotals, gemEvGemsPerHour, availableDocks, effectiveTicksByDock, effectiveTickSec, extraTicksPerHour, effectiveRodPower, getCardMulti]);
+  }, [visibleGainsRows, state.fishCardTier, state.fishingRodCardTier, state.skillTreeLevels, state.legendaryFishFound, state.divineRelic5xPoints, state.infernalMrNibblesPct, state.infernalMrNibblesLevel, state.infernalAnglerDronePct, state.infernalAnglerDroneLevel, upgradeLevels, enhanceLevels, stats.fish_income_multi, stats.shiny_multiplier, stats.super_shiny_multiplier, stats.super_shiny_chance_pct, stats.drone_base_power, stats.tier2_dock_power_mult, stats.double_tick_chance_pct, stats.triple_tick_chance_pct, stats.five_tick_chance_pct, stats.fishing_drone_cap, expectedShinyMulti, greedyDisplayedTotals, gemEvGemsPerHour, availableDocks, effectiveTicksByDock, effectiveTickSec, extraTicksPerHour, effectiveRodPower, getCardMulti]);
 
   /** Mr Nibbles Card: effective assumed +% gain for next tier (Tiny Notice, same formula as Angler). Excluded from heatmap. */
   const mrNibblesCardNextMarginalPct = useMemo(() => {
@@ -3379,186 +3334,6 @@ export function Fishing() {
     const multWith = 1 + ((currentTinyPct + delta) / 100) * 9;
     return ((multWith - multWithout) / multWithout) * 100;
   }, [state.mrNibblesCardTier, stats.tiny_notice_chance_pct]);
-
-  /** Mr Nibbles pet +1 level: marginal % total fish/h (greedy dock, same basis as skill / upgrade +% column). */
-  const mrNibblesPetNextLevelFishMarginalPct = useMemo(() => {
-    if (state.mrNibblesLevel >= 999) return null;
-    const skillOpts = {
-      skillTreeLevels: state.skillTreeLevels,
-      fishCardTier: state.fishCardTier,
-      legendaryFishFound: state.legendaryFishFound,
-      abyssLegendaryCaught: state.abyssLegendaryCaught,
-      fishingRodCardTier: state.fishingRodCardTier,
-      mrNibblesCardTier: state.mrNibblesCardTier,
-      relic5xPoints: state.divineRelic5xPoints,
-      mrNibblesLevel: state.mrNibblesLevel,
-      mrNibblesQuestUnlocked: state.mrNibblesQuestUnlocked,
-      mrNibblesQuestRank: state.mrNibblesQuestRank,
-      mrNibblesSkin: state.mrNibblesSkin,
-      poseidonIdolLevel: state.poseidonIdolLevel,
-      tethysIdolLevel: state.tethysIdolLevel,
-      astraeusIdolLevel: state.astraeusIdolLevel,
-      droneBasePowerWorld3Upgrade: state.droneBasePowerWorld3Upgrade,
-      fishingDroneBasePowerWorld3: state.fishingDroneBasePowerWorld3,
-      legendaryHaulerBundle: state.legendaryHaulerBundle,
-      fishersBundle: state.fishersBundle,
-      anglerBundle: state.anglerBundle,
-      halfWayBundle: state.halfWayBundle,
-      divineChallengeCoinLevel: state.divineChallengeCoinLevel,
-      infernalMrNibblesPct: state.infernalMrNibblesPct,
-      infernalMrNibblesLevel: state.infernalMrNibblesLevel,
-      infernalAnglerDronePct: state.infernalAnglerDronePct,
-      infernalAnglerDroneLevel: state.infernalAnglerDroneLevel,
-      constructStatue: state.constructStatue,
-      cetusLevel: state.cetusLevel,
-      blackHoleBonus: state.blackHoleBonus,
-    };
-    const greedy = getGreedyDockAssignment(upgradeLevels, enhanceLevels, skillOpts, elixir3xFishingExternal, extraTicksPerHour);
-    const currentTotal = computeTotalFishPerHour(
-      upgradeLevels,
-      enhanceLevels,
-      greedy.dronesPerDock,
-      greedy.activeDockId,
-      elixir3xFishingExternal,
-      skillOpts,
-      extraTicksPerHour,
-    );
-    if (!(currentTotal > 0)) return null;
-    const nextOpts = { ...skillOpts, mrNibblesLevel: state.mrNibblesLevel + 1 };
-    const nextTotal = computeTotalFishPerHour(
-      upgradeLevels,
-      enhanceLevels,
-      greedy.dronesPerDock,
-      greedy.activeDockId,
-      elixir3xFishingExternal,
-      nextOpts,
-      extraTicksPerHour,
-    );
-    return ((nextTotal - currentTotal) / currentTotal) * 100;
-  }, [
-    upgradeLevels,
-    enhanceLevels,
-    state.skillTreeLevels,
-    state.fishCardTier,
-    state.legendaryFishFound,
-    state.abyssLegendaryCaught,
-    state.fishingRodCardTier,
-    state.mrNibblesCardTier,
-    state.divineRelic5xPoints,
-    state.mrNibblesLevel,
-    state.mrNibblesQuestUnlocked,
-    state.mrNibblesQuestRank,
-    state.mrNibblesSkin,
-    state.poseidonIdolLevel,
-    state.tethysIdolLevel,
-    state.astraeusIdolLevel,
-    state.droneBasePowerWorld3Upgrade,
-    state.fishingDroneBasePowerWorld3,
-    state.legendaryHaulerBundle,
-    state.fishersBundle,
-    state.anglerBundle,
-    state.halfWayBundle,
-    state.divineChallengeCoinLevel,
-    state.infernalMrNibblesPct,
-    state.infernalMrNibblesLevel,
-    state.infernalAnglerDronePct,
-    state.infernalAnglerDroneLevel,
-    state.constructStatue,
-    state.cetusLevel,
-    state.blackHoleBonus,
-    elixir3xFishingExternal,
-    extraTicksPerHour,
-  ]);
-
-  /** Mr Nibbles Quest +1 rank (when unlocked): marginal % total fish/h (greedy dock, T2 dock power only on T2). */
-  const mrNibblesQuestNextRankFishMarginalPct = useMemo(() => {
-    if (!state.mrNibblesQuestUnlocked || state.mrNibblesQuestRank >= 999) return null;
-    const skillOpts = {
-      skillTreeLevels: state.skillTreeLevels,
-      fishCardTier: state.fishCardTier,
-      legendaryFishFound: state.legendaryFishFound,
-      abyssLegendaryCaught: state.abyssLegendaryCaught,
-      fishingRodCardTier: state.fishingRodCardTier,
-      mrNibblesCardTier: state.mrNibblesCardTier,
-      relic5xPoints: state.divineRelic5xPoints,
-      mrNibblesLevel: state.mrNibblesLevel,
-      mrNibblesQuestUnlocked: state.mrNibblesQuestUnlocked,
-      mrNibblesQuestRank: state.mrNibblesQuestRank,
-      mrNibblesSkin: state.mrNibblesSkin,
-      poseidonIdolLevel: state.poseidonIdolLevel,
-      tethysIdolLevel: state.tethysIdolLevel,
-      astraeusIdolLevel: state.astraeusIdolLevel,
-      droneBasePowerWorld3Upgrade: state.droneBasePowerWorld3Upgrade,
-      fishingDroneBasePowerWorld3: state.fishingDroneBasePowerWorld3,
-      legendaryHaulerBundle: state.legendaryHaulerBundle,
-      fishersBundle: state.fishersBundle,
-      anglerBundle: state.anglerBundle,
-      halfWayBundle: state.halfWayBundle,
-      divineChallengeCoinLevel: state.divineChallengeCoinLevel,
-      infernalMrNibblesPct: state.infernalMrNibblesPct,
-      infernalMrNibblesLevel: state.infernalMrNibblesLevel,
-      infernalAnglerDronePct: state.infernalAnglerDronePct,
-      infernalAnglerDroneLevel: state.infernalAnglerDroneLevel,
-      constructStatue: state.constructStatue,
-      cetusLevel: state.cetusLevel,
-      blackHoleBonus: state.blackHoleBonus,
-    };
-    const greedy = getGreedyDockAssignment(upgradeLevels, enhanceLevels, skillOpts, elixir3xFishingExternal, extraTicksPerHour);
-    const currentTotal = computeTotalFishPerHour(
-      upgradeLevels,
-      enhanceLevels,
-      greedy.dronesPerDock,
-      greedy.activeDockId,
-      elixir3xFishingExternal,
-      skillOpts,
-      extraTicksPerHour,
-    );
-    if (!(currentTotal > 0)) return null;
-    const nextOpts = { ...skillOpts, mrNibblesQuestRank: state.mrNibblesQuestRank + 1 };
-    const nextTotal = computeTotalFishPerHour(
-      upgradeLevels,
-      enhanceLevels,
-      greedy.dronesPerDock,
-      greedy.activeDockId,
-      elixir3xFishingExternal,
-      nextOpts,
-      extraTicksPerHour,
-    );
-    return ((nextTotal - currentTotal) / currentTotal) * 100;
-  }, [
-    upgradeLevels,
-    enhanceLevels,
-    state.skillTreeLevels,
-    state.fishCardTier,
-    state.legendaryFishFound,
-    state.abyssLegendaryCaught,
-    state.fishingRodCardTier,
-    state.mrNibblesCardTier,
-    state.divineRelic5xPoints,
-    state.mrNibblesLevel,
-    state.mrNibblesQuestUnlocked,
-    state.mrNibblesQuestRank,
-    state.mrNibblesSkin,
-    state.poseidonIdolLevel,
-    state.tethysIdolLevel,
-    state.astraeusIdolLevel,
-    state.droneBasePowerWorld3Upgrade,
-    state.fishingDroneBasePowerWorld3,
-    state.legendaryHaulerBundle,
-    state.fishersBundle,
-    state.anglerBundle,
-    state.halfWayBundle,
-    state.divineChallengeCoinLevel,
-    state.infernalMrNibblesPct,
-    state.infernalMrNibblesLevel,
-    state.infernalAnglerDronePct,
-    state.infernalAnglerDroneLevel,
-    state.constructStatue,
-    state.cetusLevel,
-    state.blackHoleBonus,
-    elixir3xFishingExternal,
-    extraTicksPerHour,
-  ]);
 
   /** Unified cost-efficiency heatmap. Min/max over all sections with data. Highest value gets green (t=1), lowest red (t=0). Empty sections excluded; when only one value, scale so it is green. */
   const { costEfficHeatMinGlobal, costEfficHeatMaxGlobal, costEfficHeatMinGemAbsGlobal, costEfficHeatMaxGemAbsGlobal } = useMemo(() => {
@@ -4129,41 +3904,16 @@ export function Fishing() {
             <Collapsible id="fishing-sushi-mc" title="Variance (MC simulation)" defaultExpanded={false}>
               <div className="fishingSushiMcSection">
                 <p className="small" style={{ marginBottom: 8 }}>
-                  Simulate opening N independent Sushis; each draw uses Poisson(mean fish per Sushi). Histogram: total fish in one opening.
+                  Simulate opening N={state.mcRuns.toLocaleString()} sushis; histogram of total fish per Sushi.
                 </p>
-                <div className="fishingMcInputRow" style={{ marginBottom: 8 }}>
-                  <label className="fishingMcLabel">
-                    {typeof navigator !== "undefined" && navigator.language.toLowerCase().startsWith("de") ? "Sushis" : "Sushis to simulate"}
-                    <input
-                      type="number"
-                      inputMode="numeric"
-                      min={SUSHI_MC_SUSHIS_MIN}
-                      max={SUSHI_MC_SUSHIS_MAX}
-                      step={100}
-                      className="fishingMcInput"
-                      value={state.sushiMcSushis}
-                      onChange={(e) => {
-                        const v = parseInt(e.target.value, 10);
-                        if (Number.isFinite(v)) {
-                          setState((s) => ({
-                            ...s,
-                            sushiMcSushis: Math.max(SUSHI_MC_SUSHIS_MIN, Math.min(SUSHI_MC_SUSHIS_MAX, v)),
-                          }));
-                        }
-                      }}
-                      disabled={sushiMcState.running}
-                      aria-label="Sushi MC: number of Sushis to simulate"
-                    />
-                  </label>
-                  <button
-                    type="button"
-                    className="btn"
-                    onClick={runSushiMc}
-                    disabled={sushiMcState.running || visibleGainsRows.filter((r) => r.hasPower && r.fishPerHour > 0).length === 0}
-                  >
-                    {sushiMcState.running ? "Running…" : "Run simulation"}
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={runSushiMc}
+                  disabled={sushiMcState.running || visibleGainsRows.filter((r) => r.hasPower && r.fishPerHour > 0).length === 0}
+                >
+                  {sushiMcState.running ? "Running…" : "Run simulation"}
+                </button>
                 {sushiMcState.samples && sushiMcState.samples.length > 0 && sushiMcState.samplesPerFish && (() => {
                   const s = sushiMcState.samples;
                   const mean = s.reduce((a, b) => a + b, 0) / s.length;
@@ -4185,9 +3935,6 @@ export function Fishing() {
                   const fishIdsWithSamples = sushiEvAndTotal.fishPerSushiEvPerFish.filter((f) => sushiMcState.samplesPerFish![f.fishId]?.length);
                   return (
                     <>
-                      <div className="small mono" style={{ marginBottom: 6, opacity: 0.9 }}>
-                        N={s.length.toLocaleString()} simulated Sushis
-                      </div>
                       <div className="fishingSushiMcStats">
                         <div className="fishingSushiMcStatRow">
                           <span className="fishingSushiMcStatLabel">Mean (MC)</span>
@@ -6127,11 +5874,6 @@ export function Fishing() {
                 effectText={
                   <>
                     → Shiny ×{(1 + 0.03 * state.mrNibblesLevel).toFixed(2)}; triple tick +{state.mrNibblesLevel}%
-                    {mrNibblesPetNextLevelFishMarginalPct != null ? (
-                      <span className="fishingStepperNextLevelHint">
-                        next level up: +{mrNibblesPetNextLevelFishMarginalPct.toFixed(1)}% fish gains
-                      </span>
-                    ) : null}
                   </>
                 }
                 inputClassName="fishingStepperLevelInputWide"
@@ -6178,14 +5920,7 @@ export function Fishing() {
                   )}
                 </div>
                 {state.mrNibblesQuestUnlocked ? (
-                  <span className="mono fishingStepperEffect">
-                    → T2 Dock Power ×{(1 + 0.05 * (state.mrNibblesQuestRank + 1)).toFixed(2)} (+{(state.mrNibblesQuestRank + 1) * 5}%)
-                    {mrNibblesQuestNextRankFishMarginalPct != null ? (
-                      <span className="fishingStepperNextLevelHint">
-                        next level up: +{mrNibblesQuestNextRankFishMarginalPct.toFixed(1)}% fish gains
-                      </span>
-                    ) : null}
-                  </span>
+                  <span className="mono fishingStepperEffect">→ T2 Dock Power ×{(1 + 0.05 * (state.mrNibblesQuestRank + 1)).toFixed(2)} (+{(state.mrNibblesQuestRank + 1) * 5}%)</span>
                 ) : (
                   <span className="fishingStepperEffect" style={{ opacity: 0.6 }}>—</span>
                 )}
@@ -6356,7 +6091,7 @@ export function Fishing() {
               </div>
               <StepperRow
                 label="Poseidon Idol"
-                iconUrl="https://static.wikitide.net/shminerwiki/6/63/Poseidon_Idol.png"
+                iconUrl={fishIconUrl("Poseidon.png")}
                 value={state.poseidonIdolLevel}
                 min={0}
                 max={999}
@@ -6685,34 +6420,6 @@ export function Fishing() {
                         ],
                       },
                     ],
-                  }}
-                  label="?"
-                />
-              </div>
-              <div className="fishingCheckboxRow">
-                <img
-                  src="https://static.wikitide.net/shminerwiki/thumb/d/d1/Halfway_vp.png/40px-Halfway_vp.png"
-                  alt=""
-                  className="fishingBlockIcon"
-                  aria-hidden
-                />
-                <input
-                  id="fishing-store-half-way-bundle"
-                  type="checkbox"
-                  className="fishingCheckbox"
-                  checked={state.halfWayBundle}
-                  onChange={(e) => setState((prev) => ({ ...prev, halfWayBundle: e.target.checked }))}
-                />
-                <label htmlFor="fishing-store-half-way-bundle" className="fishingBlockLabel">
-                  Half Way Bundle!
-                  {storeBundleMarginalPct.halfWayBundlePct != null && (
-                    <span className="mono" style={{ marginLeft: 6 }}>(+{storeBundleMarginalPct.halfWayBundlePct.toFixed(1)}% gain)</span>
-                  )}
-                </label>
-                <Tooltip
-                  content={{
-                    title: "Half Way Bundle!",
-                    lines: ["Store: Fishing Rod Power ×1.10 (own multiplier, before Fishing Rod card)."],
                   }}
                   label="?"
                 />
