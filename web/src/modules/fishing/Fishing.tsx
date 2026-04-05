@@ -103,6 +103,7 @@ type SavedState = {
   fishersBundle?: boolean;
   /** Store: Angler's Bundle. +6% Tiny Notice Chance (flat). */
   anglerBundle?: boolean;
+  halfWayBundle?: boolean;
   /** Divine Challenge Coin: each level gives Shiny Fish Multiplier +10%. */
   divineChallengeCoinLevel?: number;
   /** Construct: Statue Craftmanship. At most one: gilded (×1.25) or platinized (×1.40) fish income. */
@@ -178,6 +179,8 @@ type FishingState = {
   fishersBundle: boolean;
   /** Store: Angler's Bundle. +6% Tiny Notice Chance (flat). */
   anglerBundle: boolean;
+  /** Store: Half Way Bundle!  +10% Fishing Rod Power. */
+  halfWayBundle: boolean;
   /** Divine Challenge Coin: each level gives Shiny Fish Multiplier +10%. */
   divineChallengeCoinLevel: number;
   /** Construct: Statue Craftmanship. At most one: gilded (×1.25 fish income) or platinized (×1.40). */
@@ -239,6 +242,7 @@ function getDefaultFishingState(): FishingState {
     legendaryHaulerBundle: false,
     fishersBundle: false,
     anglerBundle: false,
+    halfWayBundle: false,
     divineChallengeCoinLevel: 0,
     constructStatue: "none",
     cetusLevel: 0,
@@ -605,6 +609,7 @@ type TotalFishOptions = {
   legendaryHaulerBundle?: boolean;
   fishersBundle?: boolean;
   anglerBundle?: boolean;
+  halfWayBundle?: boolean;
   divineChallengeCoinLevel?: number;
   infernalMrNibblesPct?: number;
   infernalMrNibblesLevel?: number;
@@ -1212,6 +1217,7 @@ export function Fishing() {
     const legendaryHaulerBundle = Boolean(saved?.legendaryHaulerBundle ?? false);
     const fishersBundle = Boolean(saved?.fishersBundle ?? false);
     const anglerBundle = Boolean(saved?.anglerBundle ?? false);
+    const halfWayBundle = Boolean(saved?.halfWayBundle ?? false);
     const divineChallengeCoinLevel = Math.max(0, Math.trunc(Number(saved?.divineChallengeCoinLevel ?? 0)));
     const constructStatueRaw = saved?.constructStatue;
     const constructStatue =
@@ -1223,7 +1229,7 @@ export function Fishing() {
     const infernalMrNibblesLevel = Math.max(0, Math.trunc(Number(saved?.infernalMrNibblesLevel ?? 0)));
     const infernalAnglerDronePct = Math.max(0, Number(saved?.infernalAnglerDronePct ?? 0));
     const infernalAnglerDroneLevel = Math.max(0, Math.trunc(Number(saved?.infernalAnglerDroneLevel ?? 0)));
-    return { dronesPerDock, showDisabledFishGrayed, showPolyShardDroprate, useGemIncomeForCostEffic, activeDockId, upgradeLevels, enhanceLevels, fishCardTier, sushiCardTier, fishingRodCardTier, mrNibblesCardTier, valuePackPotencyPoly, skillTreeLevels, legendaryFishFound, abyssLegendaryCaught, divineRelic5xPoints, mcHours, mcRuns, mrNibblesLevel, mrNibblesQuestUnlocked, mrNibblesQuestRank, mrNibblesSkin, poseidonIdolLevel, tethysIdolLevel, astraeusIdolLevel, droneBasePowerWorld3Upgrade, fishingDroneBasePowerWorld3, workshopSushiTicksWorld3, legendaryHaulerBundle, fishersBundle, anglerBundle, divineChallengeCoinLevel, constructStatue, cetusLevel, blackHoleBonus, infernalMrNibblesPct, infernalMrNibblesLevel, infernalAnglerDronePct, infernalAnglerDroneLevel };
+    return { dronesPerDock, showDisabledFishGrayed, showPolyShardDroprate, useGemIncomeForCostEffic, activeDockId, upgradeLevels, enhanceLevels, fishCardTier, sushiCardTier, fishingRodCardTier, mrNibblesCardTier, valuePackPotencyPoly, skillTreeLevels, legendaryFishFound, abyssLegendaryCaught, divineRelic5xPoints, mcHours, mcRuns, mrNibblesLevel, mrNibblesQuestUnlocked, mrNibblesQuestRank, mrNibblesSkin, poseidonIdolLevel, tethysIdolLevel, astraeusIdolLevel, droneBasePowerWorld3Upgrade, fishingDroneBasePowerWorld3, workshopSushiTicksWorld3, legendaryHaulerBundle, fishersBundle, anglerBundle, halfWayBundle, divineChallengeCoinLevel, constructStatue, cetusLevel, blackHoleBonus, infernalMrNibblesPct, infernalMrNibblesLevel, infernalAnglerDronePct, infernalAnglerDroneLevel };
   });
 
   useEffect(() => {
@@ -1274,6 +1280,7 @@ export function Fishing() {
     legendaryHaulerBundle: state.legendaryHaulerBundle,
     fishersBundle: state.fishersBundle,
     anglerBundle: state.anglerBundle,
+    halfWayBundle: state.halfWayBundle,
     divineChallengeCoinLevel: state.divineChallengeCoinLevel,
     constructStatue: state.constructStatue,
     cetusLevel: state.cetusLevel,
@@ -2869,7 +2876,16 @@ export function Fishing() {
             return ((newTotal - currentTotal) / currentTotal) * 100;
           })()
         : null;
-    return { polychrome, legendaryHauler, fishers, angler, constructGilded, constructPlatinized, blackHoleBonusPct };
+      const halfWayBundlePct: number | null = state.halfWayBundle
+        ? null
+        : currentTotal > 0
+          ? (() => {
+              const g = getGreedyDockAssignment(upgradeLevels, enhanceLevels, { ...skillOpts, halfWayBundle: true }, elixir3xFishingExternal, extraTicksPerHour);
+              const newTotal = computeTotalFishPerHour(upgradeLevels, enhanceLevels, g.dronesPerDock, g.activeDockId, elixir3xFishingExternal, { ...skillOpts, halfWayBundle: true }, extraTicksPerHour);
+              return ((newTotal - currentTotal) / currentTotal) * 100;
+            })()
+          : null;
+      return { polychrome, legendaryHauler, fishers, angler, constructGilded, constructPlatinized, blackHoleBonusPct, halfWayBundlePct };
   }, [
     upgradeLevels,
     enhanceLevels,
@@ -6483,6 +6499,34 @@ export function Fishing() {
                   content={{
                     title: "Angler's Bundle",
                     lines: ["Store: +6% Tiny Notice Chance (flat on top of existing)."],
+                  }}
+                  label="?"
+                />
+              </div>
+            <div className="fishingCheckboxRow">
+                <img
+                  src="https://static.wikitide.net/shminerwiki/thumb/b/bf/Fishingbundle_vp.png/60px-Fishingbundle_vp.png"
+                  alt=""
+                  className="fishingBlockIcon"
+                  aria-hidden
+                />
+                <input
+                  id="fishing-store-half-way"
+                  type="checkbox"
+                  className="fishingCheckbox"
+                  checked={state.halfWayBundle}
+                  onChange={(e) => setState((prev) => ({ ...prev, halfWayBundle: e.target.checked }))}
+                />
+                <label htmlFor="fishing-store-half-way" className="fishingBlockLabel">
+                  Half Way Bundle! — Fishing Rod Multi ×1.10
+                  {storeBundleMarginalPct.halfWayBundlePct != null && (
+                    <span className="mono" style={{ marginLeft: 6 }}>(+{storeBundleMarginalPct.halfWayBundlePct.toFixed(1)}% gain)</span>
+                  )}
+                </label>
+                <Tooltip
+                  content={{
+                    title: "Half Way Bundle!",
+                    lines: ["Store: Fishing Rod Power Multiplier ×1.10 (own multiplier)."],
                   }}
                   label="?"
                 />
