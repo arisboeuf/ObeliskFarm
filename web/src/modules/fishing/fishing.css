@@ -180,6 +180,17 @@
   font-variant-numeric: tabular-nums;
   justify-self: end;
 }
+.fishingStepperNextLevelHint {
+  display: block;
+  margin-top: 3px;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--muted, #64748b);
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.35;
+  text-align: end;
+}
 
 .fishingInfernalRow {
   display: grid;

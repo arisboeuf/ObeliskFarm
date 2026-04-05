@@ -1,0 +1,170 @@
+.transmuterModule {
+  max-width: 42em;
+  margin: 0 auto;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.transmuterTitle {
+  text-align: center;
+  margin: 0 0 4px;
+  font-size: 1.15rem;
+}
+
+.transmuterIntro {
+  margin: 0;
+  font-size: 0.95rem;
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+.transmuterCredits {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.transmuterCredits a {
+  color: var(--accent);
+  word-break: break-all;
+}
+
+.transmuterForm {
+  display: grid;
+  grid-template-columns: 1fr minmax(5.5em, auto);
+  gap: 6px 10px;
+  align-items: center;
+  padding: 6px 8px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+}
+
+.transmuterLabel {
+  justify-self: end;
+  text-align: end;
+  font-size: 0.9rem;
+  line-height: 1.2;
+}
+
+.transmuterField {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  justify-self: start;
+}
+
+.transmuterField input {
+  font-size: 0.9rem;
+  width: 5em;
+  text-align: end;
+  padding: 4px 6px;
+  border: 1px solid var(--border);
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.transmuterSuffix {
+  font-size: 0.85rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.transmuterOutput {
+  grid-column: 1 / -1;
+  text-align: center;
+  line-height: 1.65;
+  padding: 8px 6px;
+  margin: 4px 0 0;
+  border-top: 1px solid var(--border);
+}
+
+.transmuterOutputLine {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.transmuterOreBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+  justify-content: center;
+  vertical-align: middle;
+}
+
+.transmuterOreBadge .mono {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.transmuterOrePic {
+  width: 22px;
+  height: 22px;
+  vertical-align: middle;
+  image-rendering: pixelated;
+}
+
+.transmuterBreakpoint {
+  display: inline-block;
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--text);
+  color: var(--panel);
+}
+
+.transmuterSpoon {
+  grid-column: 1 / -1;
+  text-align: center;
+  font-size: 0.88rem;
+  color: var(--muted);
+  margin: 0;
+  padding-top: 4px;
+}
+
+.transmuterNotes {
+  margin-top: 4px;
+}
+
+.transmuterNotes summary {
+  cursor: pointer;
+  font-size: 0.9rem;
+  color: var(--muted);
+  padding: 4px 0;
+}
+
+.transmuterNotesBody {
+  margin: 6px 0 0;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  font-size: 0.88rem;
+  line-height: 1.45;
+  color: var(--text);
+}
+
+.transmuterNotesBody p {
+  margin: 0 0 8px;
+}
+
+.transmuterNotesBody p:last-child {
+  margin-bottom: 0;
+}
+
+.transmuterNotesBody code {
+  font-family: var(--mono);
+  font-size: 0.85em;
+}
+
+.transmuterLabelWithTip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  flex-wrap: wrap;
+}

@@ -198,9 +198,9 @@ export function EventSim() {
       mcRunsPerCombo: 500,
       waveBandStep: 0,
       useRewardMilestones: true,
-      targetWaveOverride: saved?.targetWaveOverride ?? saved?.targetPrestigeOverride ?? false,
+      targetWaveOverride: saved?.targetWaveOverride ?? saved?.targetPrestigeOverride ?? true,
       targetWave: (() => {
-        const raw = saved?.targetWave ?? (saved?.targetPrestige != null ? getPrestigeWaveRequirement(saved.targetPrestige) : 200);
+        const raw = saved?.targetWave ?? (saved?.targetPrestige != null ? getPrestigeWaveRequirement(saved.targetPrestige) : 250);
         const w = clampInt(raw, 0, 99999);
         return clampToTargetWaveOption(w);
       })(),
@@ -980,6 +980,7 @@ export function EventSim() {
                       lines: [
                         "When enabled, the optimizer suggests upgrades to get you closer to the target wave (you don't have to reach it).",
                         "If your current attack already one-shots enemies at the target wave, damage-only upgrades (pure atk, crit) are skipped; HP, speed, and atk+HP upgrades are still suggested.",
+                        "Wave 250 is the last reward milestone in Event Results, so it is the recommended default goal.",
                       ],
                     },
                   ],
@@ -2455,3 +2456,4 @@ export function EventSim() {
     </div>
   );
 }
+
