@@ -213,7 +213,7 @@ export function computeFishingStatsFromLevels(
   const droneMultiEnhance = 1 + 0.08 * e("enhance_drone_multiplier");
   const legendary = Math.max(0, Math.min(6, options?.legendaryFishFound ?? 0));
   const droneMultFwf = 1 + 0.1 * skill("fishing_with_friends");
-  const droneMultCompletionist = 1 + 0.02 * skill("completionist_gatekeeper") * legendary;
+  const droneMultCompletionist = 1 + (0.02 * skill("completionist_gatekeeper")) * legendary;
   const workshopDroneMultiWorld3 = 1 + 0.02 * Math.max(0, Math.floor(options?.fishingDroneBasePowerWorld3 ?? 0));
   const tethysIdol = Math.max(0, Math.floor(options?.tethysIdolLevel ?? 0));
   const tethysDroneMult = 1 + 0.0005 * tethysIdol; // +0.05% per level; applies to all docks
