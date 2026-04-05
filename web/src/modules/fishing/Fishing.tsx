@@ -454,8 +454,8 @@ function formatUpgradeNextEffect(
     }
     case "drone_cloner": {
       const lvl = Math.floor(Number(upgradeLevels?.drone_cloner ?? 0));
-      const curFactor = Math.pow(1.05, lvl);
-      const nextFactor = Math.pow(1.05, lvl + 1);
+      const curFactor = 1 + 0.05 * lvl;
+      const nextFactor = 1 + 0.05 * (lvl + 1);
       return `${curFactor.toFixed(2)}×→${nextFactor.toFixed(2)}×`;
     }
     case "shiny_multiplier": {

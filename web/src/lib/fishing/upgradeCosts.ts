@@ -164,7 +164,9 @@ const super_shiny_chance: UpgradeCostEntry[] = [
 const poly_card_multi: UpgradeCostEntry[] = [
   cost(1, "625k", "lanternfish_comet"), cost(2, "750k", "lanternfish_comet"), cost(3, "900k", "ufo"), cost(4, "1.08m", "ufo"), cost(5, "1.30m", "sub_solar_squid"),
   cost(6, "1.56m", "sub_solar_squid"), cost(7, "1.87m", "planetary_jellyfish"), cost(8, "2.24m", "planetary_jellyfish"), cost(9, "2.69m", "molten_archerfish"), cost(10, "3.22m", "molten_archerfish"),
-  cost(11, "3.87m", "lava_snail"), cost(12, "4.64m", "lava_snail"), cost(13, "5.57m", "obsidian_tooth_barracuda"),
+  cost(11, "3.87m", "lava_snail"), cost(12, "4.64m", "lava_snail"), cost(13, "5.57m", "obsidian_tooth_barracuda"), cost(14, "6.69m", "obsidian_tooth_barracuda"), cost(15, "8.02m", "basalturtle"),
+  cost(16, "9.63m", "basalturtle"), cost(17, "11.6m", "planetary_jellyfish"), cost(18, "13.9m", "planetary_jellyfish"), cost(19, "16.6m", "heliocentric_clam"), cost(20, "20.0m", "heliocentric_clam"),
+  cost(21, "24.0m", "gamma_rayburst_shrimp"), cost(22, "28.8m", "gamma_rayburst_shrimp"), cost(23, "34.5m", "galaxia_whale"), cost(24, "41.4m", "galaxia_whale"), cost(25, "49.7m", "dark_matter_blackdragon")
 ];
 
 const drone_cloner: UpgradeCostEntry[] = [
