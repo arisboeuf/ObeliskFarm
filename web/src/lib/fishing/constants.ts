@@ -17,6 +17,11 @@ export function upgradeIconUrl(iconFile: string): string {
   return fishIconUrl(iconFile);
 }
 
+/** URL for notice fish requirement icon (same wiki File: namespace). */
+export function fishReqIconUrl(iconFile: string): string {
+  return fishIconUrl(iconFile);
+}
+
 /** URL for enhancement icon (same wiki File: namespace). */
 export function enhanceIconUrl(iconFile: string): string {
   return fishIconUrl(iconFile);

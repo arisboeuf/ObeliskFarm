@@ -198,6 +198,8 @@ export interface FishingSkillDef {
   name: string;
   /** Wiki icon filename (e.g. "Fishing_With_Friends.png"). */
   iconFile: string;
+  /** Optional wiki icon filename for a stat related to the skill (e.g. "Notice_Fish_Requirement.png"). */
+  statIconFile?: string;
   /** Obelisk level required to unlock. */
   obeliskLevel: number;
   /** Short effect lines for tooltip/display. */

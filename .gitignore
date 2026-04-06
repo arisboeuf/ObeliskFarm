@@ -35,3 +35,5 @@ UPDATE_REDDIT_POST.md
 
 # OneDrive
 ~$*
+.claude/settings.local.json
+web/package-lock.json

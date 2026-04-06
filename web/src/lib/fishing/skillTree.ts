@@ -22,6 +22,7 @@ export const FISHING_SKILL_TREE: FishingSkillDef[] = [
     id: "friendship_ended_tier1",
     name: "Friendship Ended With Tier 1 Items",
     iconFile: "Friendship_Ended_With_Tier_1_Items.png",
+    statIconFile: "Notice_Fish_Requirement.png",
     obeliskLevel: 37,
     effectLines: [
       "Tier 2 Items From Expert Notices +2",
@@ -73,7 +74,7 @@ export const FISHING_SKILL_TREE: FishingSkillDef[] = [
     iconFile: "Completionist_Gatekeeper.png",
     obeliskLevel: 50,
     effectLines: [
-      "Per Legendary Fish Found (1-6):",
+      "Per Legendary Fish Found (1-11):",
       "Tier 2 Dock Power +3%",
       "Fishing Drone Power +2%",
       "Super Shiny Fish Chance +1%",

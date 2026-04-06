@@ -43,6 +43,7 @@ export {
   fishIconUrl,
   dockIconUrl,
   upgradeIconUrl,
+  fishReqIconUrl,
   enhanceIconUrl,
   getDock,
   getFishById,
