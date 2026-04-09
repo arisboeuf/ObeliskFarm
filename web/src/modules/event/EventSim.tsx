@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react"
 import { createPortal } from "react-dom";
 import { formatInt, formatTime } from "../../lib/format";
 import { loadJson, saveJson } from "../../lib/storage";
-import { COSTS, GEM_UPGRADE_NAMES, getPrestigeWaveRequirement, getRewardMilestoneDisplayLabel, getNextRewardMilestoneAfterPrestige, PRESTIGE_UNLOCKED, UPGRADE_SHORT_NAMES, TARGET_WAVE_OPTIONS, clampToTargetWaveOption, type TargetWaveOption } from "../../lib/event/constants";
+import { COSTS, GEM_UPGRADE_NAMES, getPrestigeWaveRequirement, getRewardMilestoneDisplayLabel, getNextRewardMilestoneAfterPrestige, PRESTIGE_UNLOCKED, UPGRADE_SHORT_NAMES, TARGET_WAVE_MIN, TARGET_WAVE_MAX } from "../../lib/event/constants";
 import {
   canAllocateUpgrade,
   copyState,
@@ -204,9 +204,8 @@ export function EventSim() {
       useRewardMilestones: true,
       targetWaveOverride: saved?.targetWaveOverride ?? saved?.targetPrestigeOverride ?? true,
       targetWave: (() => {
-        const raw = saved?.targetWave ?? (saved?.targetPrestige != null ? getPrestigeWaveRequirement(saved.targetPrestige) : 250);
-        const w = clampInt(raw, 0, 99999);
-        return clampToTargetWaveOption(w);
+        const raw = saved?.targetWave ?? (saved?.targetPrestige != null ? getPrestigeWaveRequirement(saved.targetPrestige) : TARGET_WAVE_MAX);
+        return clampInt(raw, TARGET_WAVE_MIN, TARGET_WAVE_MAX);
       })(),
       devOnlyMcTuning: false,
       comparisonMethods: ["default", "multiStart3"],
@@ -956,18 +955,20 @@ export function EventSim() {
                 <div style={{ marginTop: 6, display: "flex", flexDirection: "column", gap: 6 }}>
                   <div className="kv kvCompact">
                     <kbd>Target Wave</kbd>
-                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                      {TARGET_WAVE_OPTIONS.map((w) => (
-                        <button
-                          key={w}
-                          type="button"
-                          className={ui.targetWave === w ? "eventTargetWaveActive" : ""}
-                          onClick={() => setUi((s) => ({ ...s, targetWave: w as TargetWaveOption }))}
-                        >
-                          Wave {w}
-                        </button>
-                      ))}
-                    </div>
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      min={TARGET_WAVE_MIN}
+                      max={TARGET_WAVE_MAX}
+                      value={ui.targetWave}
+                      onChange={(e) => {
+                        const n = Number.parseInt(e.target.value, 10);
+                        if (!Number.isFinite(n)) return;
+                        setUi((s) => ({ ...s, targetWave: Math.max(TARGET_WAVE_MIN, Math.min(TARGET_WAVE_MAX, n)) }));
+                      }}
+                      className="mono"
+                      style={{ width: 72, color: "var(--text)" }}
+                    />
                   </div>
                   <div className="kv kvCompact">
                     <span>Enemy HP at wave {ui.targetWave}</span>
@@ -984,7 +985,7 @@ export function EventSim() {
                       lines: [
                         "When enabled, the optimizer suggests upgrades to get you closer to the target wave (you don't have to reach it).",
                         "If your current attack already one-shots enemies at the target wave, damage-only upgrades (pure atk, crit) are skipped; HP, speed, and atk+HP upgrades are still suggested.",
-                        "Wave 250 is the last reward milestone in Event Results, so it is the recommended default goal.",
+                        "Wave 250 is the last reward milestone in Event Results. You can target any wave from 1 to 250.",
                       ],
                     },
                   ],

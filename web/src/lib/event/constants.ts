@@ -75,16 +75,9 @@ export function getPrestigeWaveRequirement(prestige: number): number {
   return (prestige + 1) * 5;
 }
 
-/** Target wave options for min-max mode (150, 200, 250). User picks one; sim uses it for enemy HP threshold. */
-export const TARGET_WAVE_OPTIONS = [150, 200, 250] as const;
-export type TargetWaveOption = (typeof TARGET_WAVE_OPTIONS)[number];
-
-/** Clamp wave to nearest allowed target (150, 200, 250). */
-export function clampToTargetWaveOption(wave: number): TargetWaveOption {
-  if (wave <= 175) return 150;
-  if (wave <= 225) return 200;
-  return 250;
-}
+/** Min/max bounds for user-specified target wave. */
+export const TARGET_WAVE_MIN = 1;
+export const TARGET_WAVE_MAX = 250;
 
 /** Multiplier for required atk in target-wave mode (enemy HP at wave × this = requiredAtk). Slightly above 1 so MC runs reliably reach the target wave. */
 export const TARGET_WAVE_ATK_BUFFER = 1.05;
