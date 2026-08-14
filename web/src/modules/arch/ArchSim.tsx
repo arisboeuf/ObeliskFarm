@@ -248,6 +248,49 @@ function formatDurationMinSec(sec: number): string {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
+function NumberField(props: {
+  value: number;
+  min: number;
+  max: number;
+  step?: number;
+  emptyValue?: number;
+  onCommit: (n: number) => void;
+  disabled?: boolean;
+  className?: string;
+  style?: CSSProperties;
+}) {
+  const { value, min, max, step, emptyValue, onCommit, disabled, className, style } = props;
+  const [draft, setDraft] = useState<string | null>(null);
+
+  return (
+    <input
+      className={className ?? "input"}
+      type="number"
+      inputMode="numeric"
+      min={min}
+      max={max}
+      step={step ?? 1}
+      disabled={disabled}
+      style={style}
+      value={draft ?? String(value)}
+      onChange={(e) => {
+        const raw = e.target.value;
+        setDraft(raw);
+        if (raw.trim() === "") return;
+        const n = Number(raw);
+        if (Number.isFinite(n)) onCommit(clampInt(n, min, max));
+      }}
+      onBlur={() => {
+        if (draft != null) {
+          const n = Number(draft);
+          onCommit(draft.trim() === "" || !Number.isFinite(n) ? clampInt(emptyValue ?? min, min, max) : clampInt(n, min, max));
+        }
+        setDraft(null);
+      }}
+    />
+  );
+}
+
 function SkillToggleState({ on }: { on: boolean }) {
   return (
     <span className="mono" style={on ? undefined : { color: "#c62828", fontWeight: 700 }}>
@@ -3389,7 +3432,12 @@ export function ArchSim() {
               </span>
               <span className="mono">{build.unlockedStage}</span>
             </div>
-            <input className="input" type="number" min={1} step={1} value={build.unlockedStage} onChange={(e) => setBuild((s) => ({ ...s, unlockedStage: clampInt(Number(e.target.value), 1, 999) }))} />
+            <NumberField
+              value={build.unlockedStage}
+              min={1}
+              max={999}
+              onCommit={(n) => setBuild((s) => ({ ...s, unlockedStage: n }))}
+            />
           </div>
 
           <div className="archSetupCell" style={{ background: "var(--tier3)" }}>
@@ -3400,7 +3448,7 @@ export function ArchSim() {
               </span>
               <span className="mono">{build.archLevel}</span>
             </div>
-            <input className="input" type="number" min={0} step={1} value={build.archLevel} onChange={(e) => setArchLevel(Number(e.target.value))} />
+            <NumberField value={build.archLevel} min={0} max={999} onCommit={setArchLevel} />
             <div className="small" style={{ marginTop: 6 }}>
               Stats used: <span className="mono">{totalSkillPoints}</span> / <span className="mono">{skillPointBudget}</span>
               {getBonusSkillPoints(build) > 0 ? (
@@ -3585,14 +3633,12 @@ export function ArchSim() {
             <div className="row" style={{ marginBottom: 8, flexWrap: "wrap", gap: 8, alignItems: "center" }}>
               <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
                 <span className="mono">N</span>
-                <input
-                  type="number"
-                  inputMode="numeric"
+                <NumberField
                   min={100}
                   max={500000}
                   step={500}
                   value={buildMcN}
-                  onChange={(e) => setBuildMcN(clampInt(Number(e.target.value) || 5000, 100, 500000))}
+                  onCommit={setBuildMcN}
                   className="mono"
                   style={{ width: 88, padding: "4px 6px" }}
                   disabled={buildMcRunning}
@@ -3747,14 +3793,12 @@ export function ArchSim() {
                 {build.axolotlQuestOwned ? (
                   <>
                     <span className="small mono">Rank:</span>
-                    <input
+                    <NumberField
                       className="input mono"
-                      type="number"
                       min={0}
                       max={20}
-                      step={1}
                       value={build.axolotlQuestRank ?? 0}
-                      onChange={(e) => setBuild((s) => ({ ...s, axolotlQuestRank: clampInt(Number(e.target.value), 0, 20) }))}
+                      onCommit={(n) => setBuild((s) => ({ ...s, axolotlQuestRank: n }))}
                       style={{ width: 56 }}
                     />
                   </>
@@ -3786,14 +3830,12 @@ export function ArchSim() {
                 {build.level1TributeEnabled ? (
                   <>
                     <span className="small mono">Mythic chests:</span>
-                    <input
+                    <NumberField
                       className="input mono"
-                      type="number"
                       min={0}
                       max={999}
-                      step={1}
                       value={build.mythicChestsOwned ?? 0}
-                      onChange={(e) => setBuild((s) => ({ ...s, mythicChestsOwned: clampInt(Number(e.target.value), 0, 999) }))}
+                      onCommit={(n) => setBuild((s) => ({ ...s, mythicChestsOwned: n }))}
                       style={{ width: 88 }}
                     />
                   </>
@@ -4781,14 +4823,14 @@ export function ArchSim() {
                                 <span>Screening N</span>
                                 <span className="mono">{mcSettings.screeningSims}</span>
                               </div>
-                              <input
-                                className="input"
-                                type="number"
+                              <NumberField
                                 min={0}
+                                max={999999}
                                 step={10}
+                                emptyValue={defaultScreening}
                                 disabled={!mcSettings.devTuning || mcRunning}
                                 value={mcSettings.screeningSims}
-                                onChange={(e) => setMcSettings((s) => ({ ...s, screeningSims: clampInt(Number(e.target.value), 0, 999999) }))}
+                                onCommit={(n) => setMcSettings((s) => ({ ...s, screeningSims: n }))}
                               />
                             </div>
                             <div>
@@ -4796,14 +4838,14 @@ export function ArchSim() {
                                 <span>Refinement N</span>
                                 <span className="mono">{mcSettings.refinementSims}</span>
                               </div>
-                              <input
-                                className="input"
-                                type="number"
+                              <NumberField
                                 min={0}
+                                max={999999}
                                 step={10}
+                                emptyValue={defaultRefinement}
                                 disabled={!mcSettings.devTuning || mcRunning}
                                 value={mcSettings.refinementSims}
-                                onChange={(e) => setMcSettings((s) => ({ ...s, refinementSims: clampInt(Number(e.target.value), 0, 999999) }))}
+                                onCommit={(n) => setMcSettings((s) => ({ ...s, refinementSims: n }))}
                               />
                             </div>
                             <div>
@@ -4822,14 +4864,12 @@ export function ArchSim() {
                                 </span>
                                 <span className="mono">×{mcSettings.combosMult}</span>
                               </div>
-                              <input
-                                className="input"
-                                type="number"
+                              <NumberField
                                 min={1}
-                                step={1}
+                                max={50}
                                 disabled={!mcSettings.devTuning || mcRunning}
                                 value={mcSettings.combosMult}
-                                onChange={(e) => setMcSettings((s) => ({ ...s, combosMult: clampInt(Number(e.target.value), 1, 50) }))}
+                                onCommit={(n) => setMcSettings((s) => ({ ...s, combosMult: n }))}
                               />
                             </div>
                           </div>
