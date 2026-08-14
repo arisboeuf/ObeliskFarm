@@ -248,6 +248,47 @@ function formatDurationMinSec(sec: number): string {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
+function NumberField(props: {
+  value: number;
+  min: number;
+  max: number;
+  onCommit: (n: number) => void;
+  disabled?: boolean;
+  className?: string;
+  style?: CSSProperties;
+}) {
+  const { value, min, max, onCommit, disabled, className, style } = props;
+  const [draft, setDraft] = useState<string | null>(null);
+
+  return (
+    <input
+      className={className ?? "input"}
+      type="number"
+      inputMode="numeric"
+      min={min}
+      max={max}
+      step={1}
+      disabled={disabled}
+      style={style}
+      value={draft ?? String(value)}
+      onChange={(e) => {
+        const raw = e.target.value;
+        setDraft(raw);
+        if (raw.trim() === "") return;
+        const n = Number(raw);
+        if (Number.isFinite(n)) onCommit(clampInt(n, min, max));
+      }}
+      onBlur={() => {
+        if (draft != null) {
+          const n = Number(draft);
+          onCommit(draft.trim() === "" || !Number.isFinite(n) ? min : clampInt(n, min, max));
+        }
+        setDraft(null);
+      }}
+    />
+  );
+}
+
 function SkillToggleState({ on }: { on: boolean }) {
   return (
     <span className="mono" style={on ? undefined : { color: "#c62828", fontWeight: 700 }}>
@@ -3389,7 +3430,12 @@ export function ArchSim() {
               </span>
               <span className="mono">{build.unlockedStage}</span>
             </div>
-            <input className="input" type="number" min={1} step={1} value={build.unlockedStage} onChange={(e) => setBuild((s) => ({ ...s, unlockedStage: clampInt(Number(e.target.value), 1, 999) }))} />
+            <NumberField
+              value={build.unlockedStage}
+              min={1}
+              max={999}
+              onCommit={(n) => setBuild((s) => ({ ...s, unlockedStage: n }))}
+            />
           </div>
 
           <div className="archSetupCell" style={{ background: "var(--tier3)" }}>
