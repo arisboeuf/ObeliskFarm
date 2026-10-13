@@ -41,6 +41,12 @@ In simple terms, the Monte Carlo optimizers (Stage Push, XP, Fragments) work lik
 
 **Important:** There is no fixed “3%” or “5%” rule. At each step, **statistical tests** decide who is “the same” or “worse”. More simulation runs (higher N in screening/refinement) give more precise estimates and better significance decisions.
 
+## Archaeology: active play (not modeled)
+
+The simulator counts idle stats and the Enrage, Flurry, and Quake cooldowns. Click interactions are out of scope. Candidates if an active-play mode is added later:
+
+- **Ability Fairy** (Ascension 2 upgrade `ability_fairy_a2`): after unlock, fairies appear at random in the Archaeology window. Clicking one instantly refreshes every other ability and fires them immediately. Loot Mod Gain +0.05x per level is already included. Spawn rate and click timing are not simulated.
+
 ## Notes
 
 - Saves are stored automatically in the browser (`localStorage`).
