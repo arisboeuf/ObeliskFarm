@@ -4217,8 +4217,9 @@ export function ArchSim() {
                         {
                           heading: "What",
                           lines: [
-                            "Evaluates which upgrade gives the most target fragment/run gain: Gem (+1 level), Card (Card→Gilded), or Skill Tree (Avada Keda / Block Bonker).",
-                            "Uses a Fragment MC result as template. Only options you do not yet have are compared: non-maxed gems, cards at Card level (→ Gilded), and skills not yet enabled.",
+                            "Evaluates which upgrade gives the most target fragment/run gain: Gem (+1 level), Card (Card→Gilded), Skill Tree (Avada Keda / Block Bonker), or Fragment upgrade (+1 level).",
+                            "Uses a Fragment MC result as template. Only options you do not yet have are compared: non-maxed gems, cards at Card level (→ Gilded), skills not yet enabled, and unlocked fragment upgrades below max level.",
+                            "Results are grouped by cost class. Fragment upgrades sit under common, rare, epic, legendary, mythic, or divine.",
                           ],
                         },
                         {
@@ -4305,9 +4306,44 @@ export function ArchSim() {
                         const costEfficTitle =
                           "Cost efficiency: (+%) per unit cost × 1000. Colors are normalized within each cost class (gems vs common/rare/epic/legendary/mythic/divine fragments).";
                         let rowNum = 0;
+                        const renderGemFragRow = (r: (typeof rs)[number]) => {
+                          rowNum += 1;
+                          return (
+                            <tr key={`${r.source}-${r.key}`}>
+                              <td style={{ paddingRight: 12 }}>{rowNum}</td>
+                              <td style={{ paddingRight: 12 }}>{r.source === "gem" ? "Gem" : r.source === "card" ? "Card" : r.source === "skill" ? "Skill" : "Fragment"}</td>
+                              <td style={{ paddingRight: 12 }}>{r.displayName}</td>
+                              <td className="num">
+                                <span style={{ ...heatStyleRedGreen(heatPct(r.growthPct, growthByClass[r.costClass].min, growthByClass[r.costClass].max)), padding: "2px 6px", borderRadius: 4, cursor: !r.significant ? "help" : undefined }} title={!r.significant ? "Not statistically significant" : undefined}>
+                                  {!r.significant ? "*" : `${r.growthPct >= 0 ? "+" : ""}${r.growthPct.toFixed(2)}%`}
+                                </span>
+                              </td>
+                              <td className="num">
+                                {r.cost != null && r.cost > 0 ? (
+                                  <span style={{ ...heatStyleRedGreen(heatPct(r.perCost * scale, perCostByClass[r.costClass].min, perCostByClass[r.costClass].max)), padding: "2px 6px", borderRadius: 4 }} title={costEfficTitle}>{!r.significant || r.perCost < 0 ? "*" : (r.perCost * scale).toFixed(3)}</span>
+                                ) : (
+                                  "—"
+                                )}
+                              </td>
+                              <td className="num">
+                                <span style={{ ...heatStyleRedGreen(heatPct(r.allFragmentsGrowthPct, allGrowthByClass[r.costClass].min, allGrowthByClass[r.costClass].max)), padding: "2px 6px", borderRadius: 4, cursor: !r.significant ? "help" : undefined }}>
+                                  {!r.significant ? "*" : `${r.allFragmentsGrowthPct >= 0 ? "+" : ""}${r.allFragmentsGrowthPct.toFixed(2)}%`}
+                                </span>
+                              </td>
+                              <td className="num">
+                                {r.cost != null && r.cost > 0 ? (
+                                  <span style={{ ...heatStyleRedGreen(heatPct(r.perCostAllFragments * scale, perCostAllByClass[r.costClass].min, perCostAllByClass[r.costClass].max)), padding: "2px 6px", borderRadius: 4 }} title={costEfficTitle}>{!r.significant ? "*" : (r.perCostAllFragments * scale).toFixed(3)}</span>
+                                ) : (
+                                  "—"
+                                )}
+                              </td>
+                              <td className="num">{r.cost != null ? r.cost : "—"}</td>
+                            </tr>
+                          );
+                        };
                         return (
                           <div className="small">
-                            <div style={{ fontWeight: 700, marginBottom: 4 }}>Best next upgrade (by {targetFragLabel}/run +% and all fragments/run +%):</div>
+                            <div style={{ fontWeight: 700, marginBottom: 4 }}>Best next upgrade (by fragment type, sorted by {targetFragLabel}/run +%):</div>
                             <div className="small" style={{ marginBottom: 8, display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
                               <span style={{ color: "hsl(120, 75%, 35%)", textShadow: "0 0 8px hsla(120, 75%, 45%, 0.9)", fontWeight: 600 }}>GREEN = GOOD</span>
                               <span title="95% confidence">* = not statistically significant</span>
@@ -4327,39 +4363,25 @@ export function ArchSim() {
                                 </tr>
                               </thead>
                               <tbody>
-                                {rs.map((r) => {
-                                  rowNum += 1;
+                                {classes.map((cls) => {
+                                  const group = byClass(cls).slice().sort((a, b) => b.growthPct - a.growthPct);
+                                  if (group.length === 0) return null;
+                                  const isFrag = (ARCH_FRAGMENT_TYPES as readonly string[]).includes(cls);
+                                  const color = isFrag ? (BLOCK_COLORS[cls as BlockType] ?? "#666") : cls === "gem" ? "#1976D2" : "#6B5200";
+                                  const icon = isFrag ? getFragIconPath(cls as BlockType) : cls === "gem" ? "sprites/common/gem.png" : null;
+                                  const label = cls === "gem" ? "GEMS" : cls === "skill" ? "SKILLS" : cls.toUpperCase();
                                   return (
-                                    <tr key={`${r.source}-${r.key}`}>
-                                      <td style={{ paddingRight: 12 }}>{rowNum}</td>
-                                      <td style={{ paddingRight: 12 }}>{r.source === "gem" ? "Gem" : r.source === "card" ? "Card" : r.source === "skill" ? "Skill" : "Fragment"}</td>
-                                      <td style={{ paddingRight: 12 }}>{r.displayName}</td>
-                                      <td className="num">
-                                        <span style={{ ...heatStyleRedGreen(heatPct(r.growthPct, growthByClass[r.costClass].min, growthByClass[r.costClass].max)), padding: "2px 6px", borderRadius: 4, cursor: !r.significant ? "help" : undefined }} title={!r.significant ? "Not statistically significant" : undefined}>
-                                          {!r.significant ? "*" : `${r.growthPct >= 0 ? "+" : ""}${r.growthPct.toFixed(2)}%`}
-                                        </span>
-                                      </td>
-                                      <td className="num">
-                                        {r.cost != null && r.cost > 0 ? (
-                                          <span style={{ ...heatStyleRedGreen(heatPct(r.perCost * scale, perCostByClass[r.costClass].min, perCostByClass[r.costClass].max)), padding: "2px 6px", borderRadius: 4 }} title={costEfficTitle}>{!r.significant || r.perCost < 0 ? "*" : (r.perCost * scale).toFixed(3)}</span>
-                                        ) : (
-                                          "—"
-                                        )}
-                                      </td>
-                                      <td className="num">
-                                        <span style={{ ...heatStyleRedGreen(heatPct(r.allFragmentsGrowthPct, allGrowthByClass[r.costClass].min, allGrowthByClass[r.costClass].max)), padding: "2px 6px", borderRadius: 4, cursor: !r.significant ? "help" : undefined }}>
-                                          {!r.significant ? "*" : `${r.allFragmentsGrowthPct >= 0 ? "+" : ""}${r.allFragmentsGrowthPct.toFixed(2)}%`}
-                                        </span>
-                                      </td>
-                                      <td className="num">
-                                        {r.cost != null && r.cost > 0 ? (
-                                          <span style={{ ...heatStyleRedGreen(heatPct(r.perCostAllFragments * scale, perCostAllByClass[r.costClass].min, perCostAllByClass[r.costClass].max)), padding: "2px 6px", borderRadius: 4 }} title={costEfficTitle}>{!r.significant ? "*" : (r.perCostAllFragments * scale).toFixed(3)}</span>
-                                        ) : (
-                                          "—"
-                                        )}
-                                      </td>
-                                      <td className="num">{r.cost != null ? r.cost : "—"}</td>
-                                    </tr>
+                                    <Fragment key={cls}>
+                                      <tr style={{ backgroundColor: "rgba(15,23,42,0.06)" }}>
+                                        <td colSpan={8} style={{ padding: "6px 8px", fontWeight: 700, color }}>
+                                          <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                                            {icon ? <Sprite path={icon} alt={label} className="iconSmall" /> : null}
+                                            {label}
+                                          </span>
+                                        </td>
+                                      </tr>
+                                      {group.map((r) => renderGemFragRow(r))}
+                                    </Fragment>
                                   );
                                 })}
                               </tbody>
