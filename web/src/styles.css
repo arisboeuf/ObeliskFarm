@@ -564,6 +564,47 @@ body {
   justify-content: center;
 }
 
+.fragmentUpgradeRow.fragmentUpgradeRowAsc1 {
+  background: #ffebee;
+  border-color: rgba(198, 40, 40, 0.22);
+}
+
+.fragmentUpgradeRow.fragmentUpgradeRowAsc2 {
+  background: #e0f7fa;
+  border-color: rgba(0, 131, 143, 0.22);
+}
+
+.fragmentUpgradeRow.fragmentUpgradeRowMaxedCompact {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: nowrap;
+}
+
+.fragmentUpgradeMaxedControls {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.fragmentUpgradeMaxedBadge {
+  background: hsl(120, 45%, 35%);
+  color: #fff;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-weight: 600;
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.fragmentUpgradeRow.fragmentUpgradeRowMaxedCompact .btn {
+  padding: 4px 8px;
+  font-size: 12px;
+  line-height: 1.2;
+}
+
 .gemPanel {
   border: 1px solid rgba(25, 118, 210, 0.22);
   box-shadow: 0 0 0 3px rgba(25, 118, 210, 0.08);

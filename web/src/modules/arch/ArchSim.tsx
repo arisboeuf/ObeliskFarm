@@ -384,6 +384,7 @@ export function ArchSim() {
   }> | null>(null);
 
   const COLLAPSED_FRAGMENT_GROUPS_KEY = "obeliskfarm:web:arch:collapsedFragmentGroups";
+  const GROUP_FRAGMENT_UPGRADES_BY_TYPE_KEY = "obeliskfarm:web:arch:groupFragmentUpgradesByType";
   type FragmentGroupType = "common" | "rare" | "epic" | "legendary" | "mythic" | "divine";
   const [collapsedFragmentGroups, setCollapsedFragmentGroups] = useState<Set<FragmentGroupType>>(() => {
     try {
@@ -397,6 +398,14 @@ export function ArchSim() {
     }
     return new Set();
   });
+  /** When false (default): list in unlock order by stage. When true: group by fragment cost type. */
+  const [groupFragmentUpgradesByType, setGroupFragmentUpgradesByType] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(GROUP_FRAGMENT_UPGRADES_BY_TYPE_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
   useEffect(() => {
     try {
       localStorage.setItem(COLLAPSED_FRAGMENT_GROUPS_KEY, JSON.stringify([...collapsedFragmentGroups]));
@@ -404,6 +413,13 @@ export function ArchSim() {
       // ignore
     }
   }, [collapsedFragmentGroups]);
+  useEffect(() => {
+    try {
+      localStorage.setItem(GROUP_FRAGMENT_UPGRADES_BY_TYPE_KEY, groupFragmentUpgradesByType ? "1" : "0");
+    } catch {
+      // ignore
+    }
+  }, [groupFragmentUpgradesByType]);
   function toggleCollapsedFragmentGroup(ct: FragmentGroupType) {
     setCollapsedFragmentGroups((prev) => {
       const next = new Set(prev);
@@ -759,6 +775,7 @@ export function ArchSim() {
   }, [build.fragmentUpgradeLevels]);
 
   const sortedFragmentUpgrades = useMemo(() => {
+    const costTypeOrder = new Map(ARCH_FRAGMENT_TYPES.map((t, i) => [t, i]));
     const entries = Object.entries(FRAGMENT_UPGRADES);
     entries.sort((a, b) => {
       const ai = a[1];
@@ -766,26 +783,31 @@ export function ArchSim() {
       const sa = Number(ai.stage_unlock ?? 0);
       const sb = Number(bi.stage_unlock ?? 0);
       if (sa !== sb) return sa - sb;
-      const ca = String(ai.cost_type ?? "");
-      const cb = String(bi.cost_type ?? "");
-      if (ca !== cb) return ca.localeCompare(cb);
+      const ca = costTypeOrder.get(String(ai.cost_type ?? "") as (typeof ARCH_FRAGMENT_TYPES)[number]) ?? 999;
+      const cb = costTypeOrder.get(String(bi.cost_type ?? "") as (typeof ARCH_FRAGMENT_TYPES)[number]) ?? 999;
+      if (ca !== cb) return ca - cb;
       return String(ai.display_name ?? a[0]).localeCompare(String(bi.display_name ?? b[0]));
     });
     return entries;
   }, []);
 
-  const fragmentGroups = useMemo(() => {
+  const visibleFragmentUpgrades = useMemo(() => {
     const asc = build.ascensionLevel ?? 0;
-    const groups: Record<string, Array<[string, any]>> = {};
-    for (const [k, info] of sortedFragmentUpgrades) {
+    return sortedFragmentUpgrades.filter(([, info]) => {
       const tier = Number((info as { ascension_tier?: number }).ascension_tier ?? 0);
-      if (tier > asc) continue;
+      return tier <= asc;
+    });
+  }, [sortedFragmentUpgrades, build.ascensionLevel]);
+
+  const fragmentGroups = useMemo(() => {
+    const groups: Record<string, Array<[string, any]>> = {};
+    for (const [k, info] of visibleFragmentUpgrades) {
       const ct = String((info as any)?.cost_type ?? "misc");
       if (!groups[ct]) groups[ct] = [];
       groups[ct]!.push([k, info]);
     }
     return groups;
-  }, [sortedFragmentUpgrades, build.ascensionLevel]);
+  }, [visibleFragmentUpgrades]);
 
   // Deterministic recommendation panels removed (MC-only UI).
 
@@ -3093,6 +3115,108 @@ export function ArchSim() {
               : "sprites/archaeology/fragmentdivine.png";
   }
 
+  function renderFragmentUpgradeRow(key: string, info: (typeof FRAGMENT_UPGRADES)[string], opts?: { showCostTypeIcon?: boolean }) {
+    const lvl = clampInt(Number(build.fragmentUpgradeLevels[key] ?? 0), 0, clampInt(Number(info.max_level ?? 0), 0, 999));
+    const maxLvl = clampInt(Number(info.max_level ?? 0), 0, 999);
+    const stageUnlock = clampInt(Number(info.stage_unlock ?? 0), 0, 999);
+    const ascTier = Number((info as { ascension_tier?: number }).ascension_tier ?? 0);
+    const ascLocked = ascTier > (build.ascensionLevel ?? 0);
+    const locked = ascLocked || build.unlockedStage < stageUnlock;
+    const nextCost = getUpgradeCost(key, lvl, build.ascensionLevel ?? 0);
+    const isMaxed = !locked && lvl >= maxLvl;
+    const costType = String((info as { cost_type?: string }).cost_type ?? "");
+    const showIcon = Boolean(opts?.showCostTypeIcon) && FRAG_TYPE_SET.has(costType);
+    const ascBgClass = ascTier === 1 ? "fragmentUpgradeRowAsc1" : ascTier === 2 ? "fragmentUpgradeRowAsc2" : "";
+    const useAscBg = ascTier === 1 || ascTier === 2;
+    const nameEl = (
+      <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+        {showIcon ? <Sprite path={getFragIconPath(costType as BlockType)} alt={`${costType} fragment`} className="iconSmall" /> : null}
+        <div className="mono" style={{ fontWeight: 900, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {info.display_name}
+        </div>
+      </div>
+    );
+    if (isMaxed) {
+      return (
+        <div
+          key={key}
+          className={`fragmentUpgradeRow fragmentUpgradeRowMaxed fragmentUpgradeRowMaxedCompact ${ascBgClass}`.trim()}
+          style={{ ...(useAscBg ? undefined : heatStyle(lvl, maxLvl)), color: "#888" }}
+        >
+          {nameEl}
+          <div className="fragmentUpgradeMaxedControls">
+            <span className="fragmentUpgradeMaxedBadge">Maxed</span>
+            <button className="btn btnSecondary" type="button" onClick={() => setFragmentUpgrade(key, -5)} disabled={mcRunning}>
+              −5
+            </button>
+            <button className="btn btnSecondary" type="button" onClick={() => setFragmentUpgrade(key, -1)} disabled={mcRunning}>
+              −
+            </button>
+            <span className="fragmentUpgradeRight upgradeLevel" style={{ color: "#888" }}>
+              <span className="small">lvl</span>{" "}
+              <span className="heatNum mono" style={{ color: "#888" }}>
+                {lvl}
+              </span>{" "}
+              <span className="small">/</span> <span className="mono">{maxLvl}</span>
+            </span>
+          </div>
+        </div>
+      );
+    }
+    return (
+      <div
+        key={key}
+        className={`fragmentUpgradeRow ${locked ? "fragmentUpgradeRowLocked" : ""} ${ascBgClass}`.trim()}
+        style={locked || useAscBg ? undefined : heatStyle(lvl, maxLvl)}
+      >
+        <div className="fragmentUpgradeTop">
+          {nameEl}
+          <div className="fragmentUpgradeRight upgradeLevel">
+            {locked ? (
+              <span className="small">
+                <span className="pillLocked">LOCKED</span>{" "}
+                <span className="lockedText">
+                  {ascLocked ? `requires ${ascensionLabel(ascTier as AscensionLevel)}` : `until stage ${stageUnlock}`}
+                </span>
+              </span>
+            ) : (
+              <>
+                <span className="small">lvl</span>{" "}
+                <span className="heatNum mono" style={heatStyle(lvl, maxLvl)}>
+                  {lvl}
+                </span>{" "}
+                <span className="small">/</span> <span className="mono">{maxLvl}</span>
+              </>
+            )}
+          </div>
+        </div>
+        {!locked ? (
+          <>
+            <div className="small">
+              next cost: <span className="mono">{nextCost == null ? "—" : String(nextCost)}</span>
+            </div>
+            <div style={{ marginTop: 8, display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8 }}>
+              <div className="btnRow fragmentUpgradeButtons">
+                <button className="btn btnSecondary" type="button" onClick={() => setFragmentUpgrade(key, -5)} disabled={lvl <= 0 || mcRunning}>
+                  −5
+                </button>
+                <button className="btn btnSecondary" type="button" onClick={() => setFragmentUpgrade(key, -1)} disabled={lvl <= 0 || mcRunning}>
+                  −
+                </button>
+                <button className="btn" type="button" onClick={() => setFragmentUpgrade(key, +1)} disabled={mcRunning}>
+                  +
+                </button>
+                <button className="btn btnSecondary" type="button" onClick={() => setFragmentUpgrade(key, +5)} disabled={mcRunning}>
+                  +5
+                </button>
+              </div>
+            </div>
+          </>
+        ) : null}
+      </div>
+    );
+  }
+
   function renderTieBreakBars(tb: NonNullable<TieBreakReport>): ReactNode {
     if (!tb?.top3?.length) return null;
     // Match desktop visual: grouped horizontal bars with legend outside plot.
@@ -4400,135 +4524,70 @@ export function ArchSim() {
             id="arch-fragment-upgrades"
             title="Fragment upgrades"
             defaultExpanded={false}
+            headerRight={
+              <label
+                className="small"
+                style={{ display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer", userSelect: "none" }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <input
+                  type="checkbox"
+                  checked={groupFragmentUpgradesByType}
+                  onChange={(e) => setGroupFragmentUpgradesByType(e.target.checked)}
+                  aria-label="Sort and group by Fragment type"
+                />
+                Sort & Group by Fragment type
+              </label>
+            }
           >
             <div className="panel fragmentUpgradesPanel" style={{ background: "var(--tier2)" }}>
-              {ARCH_FRAGMENT_TYPES.map((ct) => {
-              const entries = fragmentGroups[ct] ?? [];
-              const color = BLOCK_COLORS[ct];
-              const icon = getFragIconPath(ct);
-              if (!entries.length) return null;
-              const groupCollapsed = collapsedFragmentGroups.has(ct);
-              return (
-                <div key={ct} className="fragmentGroup" style={{ borderColor: `rgba(15,23,42,0.12)` }}>
-                  <div
-                    className="fragmentGroupHeader fragmentGroupHeaderCollapsible"
-                    role="button"
-                    tabIndex={0}
-                    aria-expanded={!groupCollapsed}
-                    aria-label={groupCollapsed ? `Expand ${ct} upgrades` : `Collapse ${ct} upgrades`}
-                    onClick={() => toggleCollapsedFragmentGroup(ct)}
-                    onKeyDown={(e: React.KeyboardEvent) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        toggleCollapsedFragmentGroup(ct);
-                      }
-                    }}
-                  >
-                    <span className="fragmentGroupChevron" aria-hidden>
-                      {groupCollapsed ? "▶" : "▼"}
-                    </span>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <Sprite path={icon} alt={`${ct} icon`} className="iconSmall" />
-                      <div className="mono" style={{ fontWeight: 900, color }}>
-                        {ct.toUpperCase()}
-                      </div>
-                    </div>
-                  </div>
-
-                  {!groupCollapsed ? (
-                    <div style={{ display: "grid", gap: 8 }}>
-                      {entries.map(([key, info]) => {
-                        const lvl = clampInt(Number(build.fragmentUpgradeLevels[key] ?? 0), 0, clampInt(Number(info.max_level ?? 0), 0, 999));
-                        const maxLvl = clampInt(Number(info.max_level ?? 0), 0, 999);
-                        const stageUnlock = clampInt(Number(info.stage_unlock ?? 0), 0, 999);
-                        const ascTier = Number((info as { ascension_tier?: number }).ascension_tier ?? 0);
-                        const ascLocked = ascTier > (build.ascensionLevel ?? 0);
-                        const locked = ascLocked || build.unlockedStage < stageUnlock;
-                        const nextCost = getUpgradeCost(key, lvl, build.ascensionLevel ?? 0);
-                        const isMaxed = !locked && lvl >= maxLvl;
-                        return (
-                          <div
-                            key={key}
-                            className={`fragmentUpgradeRow ${locked ? "fragmentUpgradeRowLocked" : ""} ${isMaxed ? "fragmentUpgradeRowMaxed" : ""}`}
-                            style={{
-                              ...(locked ? undefined : heatStyle(lvl, maxLvl)),
-                              ...(isMaxed ? { color: "#888" } : undefined),
-                            }}
-                          >
-                            <div className="fragmentUpgradeTop">
-                              <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
-                                <div className="mono" style={{ fontWeight: 900 }}>
-                                  {info.display_name}
-                                </div>
-                              </div>
-                              <div className="fragmentUpgradeRight upgradeLevel" style={isMaxed ? { color: "#888" } : undefined}>
-                                {locked ? (
-                                  <span className="small">
-                                    <span className="pillLocked">LOCKED</span>{" "}
-                                    <span className="lockedText">
-                                      {ascLocked ? `requires ${ascensionLabel(ascTier as AscensionLevel)}` : `until stage ${stageUnlock}`}
-                                    </span>
-                                  </span>
-                                ) : (
-                                  <>
-                                    <span className="small">lvl</span>{" "}
-                                    <span className="heatNum mono" style={isMaxed ? { color: "#888" } : heatStyle(lvl, maxLvl)}>
-                                      {lvl}
-                                    </span>{" "}
-                                    <span className="small">/</span> <span className="mono">{maxLvl}</span>
-                                  </>
-                                )}
-                              </div>
-                            </div>
-                            {!locked ? (
-                              <>
-                                <div className="small">
-                                  next cost: <span className="mono">{nextCost == null ? "—" : String(nextCost)}</span>
-                                </div>
-                                <div style={{ marginTop: 8, display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8 }}>
-                                  {lvl >= maxLvl ? (
-                                    <span
-                                      className="fragmentUpgradeMaxed"
-                                      style={{
-                                        background: "hsl(120, 45%, 35%)",
-                                        color: "#fff",
-                                        padding: "6px 12px",
-                                        borderRadius: 6,
-                                        fontWeight: 600,
-                                      }}
-                                    >
-                                      Maxed
-                                    </span>
-                                  ) : null}
-                                  <div className="btnRow fragmentUpgradeButtons">
-                                    <button className="btn btnSecondary" type="button" onClick={() => setFragmentUpgrade(key, -5)} disabled={lvl <= 0 || mcRunning}>
-                                      −5
-                                    </button>
-                                    <button className="btn btnSecondary" type="button" onClick={() => setFragmentUpgrade(key, -1)} disabled={lvl <= 0 || mcRunning}>
-                                      −
-                                    </button>
-                                    {lvl < maxLvl ? (
-                                      <>
-                                        <button className="btn" type="button" onClick={() => setFragmentUpgrade(key, +1)} disabled={mcRunning}>
-                                          +
-                                        </button>
-                                        <button className="btn btnSecondary" type="button" onClick={() => setFragmentUpgrade(key, +5)} disabled={mcRunning}>
-                                          +5
-                                        </button>
-                                      </>
-                                    ) : null}
-                                  </div>
-                                </div>
-                              </>
-                            ) : null}
+              {groupFragmentUpgradesByType ? (
+                ARCH_FRAGMENT_TYPES.map((ct) => {
+                  const entries = fragmentGroups[ct] ?? [];
+                  const color = BLOCK_COLORS[ct];
+                  const icon = getFragIconPath(ct);
+                  if (!entries.length) return null;
+                  const groupCollapsed = collapsedFragmentGroups.has(ct);
+                  return (
+                    <div key={ct} className="fragmentGroup" style={{ borderColor: `rgba(15,23,42,0.12)` }}>
+                      <div
+                        className="fragmentGroupHeader fragmentGroupHeaderCollapsible"
+                        role="button"
+                        tabIndex={0}
+                        aria-expanded={!groupCollapsed}
+                        aria-label={groupCollapsed ? `Expand ${ct} upgrades` : `Collapse ${ct} upgrades`}
+                        onClick={() => toggleCollapsedFragmentGroup(ct)}
+                        onKeyDown={(e: React.KeyboardEvent) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            toggleCollapsedFragmentGroup(ct);
+                          }
+                        }}
+                      >
+                        <span className="fragmentGroupChevron" aria-hidden>
+                          {groupCollapsed ? "▶" : "▼"}
+                        </span>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <Sprite path={icon} alt={`${ct} icon`} className="iconSmall" />
+                          <div className="mono" style={{ fontWeight: 900, color }}>
+                            {ct.toUpperCase()}
                           </div>
-                        );
-                      })}
+                        </div>
+                      </div>
+
+                      {!groupCollapsed ? (
+                        <div style={{ display: "grid", gap: 8 }}>
+                          {entries.map(([key, info]) => renderFragmentUpgradeRow(key, info))}
+                        </div>
+                      ) : null}
                     </div>
-                  ) : null}
+                  );
+                })
+              ) : (
+                <div style={{ display: "grid", gap: 8 }}>
+                  {visibleFragmentUpgrades.map(([key, info]) => renderFragmentUpgradeRow(key, info, { showCostTypeIcon: true }))}
                 </div>
-              );
-            })}
+              )}
             </div>
           </Collapsible>
 
