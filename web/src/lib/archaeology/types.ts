@@ -84,6 +84,11 @@ export type ArchStats = {
   xp_gain_total: number;
   fragment_mult: number;
 
+  /** Chance per floor for Gleaming Floor (Ascension 2). */
+  gleaming_floor_chance: number;
+  /** Fragment multi applied to all blocks on a gleaming floor (base 3× × upgrade). */
+  gleaming_floor_mult: number;
+
   exp_mod_chance: number;
   loot_mod_chance: number;
   speed_mod_chance: number;

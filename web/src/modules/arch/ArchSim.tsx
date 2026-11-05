@@ -3115,6 +3115,12 @@ export function ArchSim() {
               : "sprites/archaeology/fragmentdivine.png";
   }
 
+  /** Accent for MC fragment toggles. Divine block tint is near-white, so selection chrome needs a stronger lavender. */
+  function getFragToggleAccent(t: BlockType): string {
+    if (t === "divine") return "#9B8CFF";
+    return BLOCK_COLORS[t];
+  }
+
   function renderFragmentUpgradeRow(key: string, info: (typeof FRAGMENT_UPGRADES)[string], opts?: { showCostTypeIcon?: boolean }) {
     const lvl = clampInt(Number(build.fragmentUpgradeLevels[key] ?? 0), 0, clampInt(Number(info.max_level ?? 0), 0, 999));
     const maxLvl = clampInt(Number(info.max_level ?? 0), 0, 999);
@@ -3803,6 +3809,42 @@ export function ArchSim() {
               <div className="mono">{stats.xp_gain_total.toFixed(3)}x</div>
               <kbd>Fragment Gain</kbd>
               <div className="mono">{stats.fragment_mult.toFixed(3)}x</div>
+              <kbd>
+                Gleaming Floor Chance
+                <Tooltip
+                  content={{
+                    title: "Gleaming Floor Chance",
+                    sections: [
+                      {
+                        heading: "Per floor",
+                        lines: [
+                          "Chance for a floor to become gleaming.",
+                          "On a gleaming floor, all block fragments are multiplied by Gleaming Floor Multi.",
+                        ],
+                      },
+                    ],
+                  }}
+                />
+              </kbd>
+              <div className="mono">{formatPct(stats.gleaming_floor_chance, 2)}</div>
+              <kbd>
+                Gleaming Floor Multi
+                <Tooltip
+                  content={{
+                    title: "Gleaming Floor Multi",
+                    sections: [
+                      {
+                        heading: "When gleaming",
+                        lines: [
+                          "Base 3× fragment multi on gleaming floors.",
+                          "The Ascension 2 upgrade adds +3% per level on top of the base (multiplicative).",
+                        ],
+                      },
+                    ],
+                  }}
+                />
+              </kbd>
+              <div className="mono">{stats.gleaming_floor_mult.toFixed(2)}x</div>
             </div>
 
             <div className="sectionTitle">Mods</div>
@@ -5107,7 +5149,7 @@ export function ArchSim() {
                           {ARCH_FRAGMENT_TYPES.map((t) => {
                             const icon = getFragIconPath(t);
                             const active = mcSettings.targetFrag === t;
-                            const tierColor = BLOCK_COLORS[t];
+                            const tierColor = getFragToggleAccent(t);
                             return (
                               <button
                                 key={t}

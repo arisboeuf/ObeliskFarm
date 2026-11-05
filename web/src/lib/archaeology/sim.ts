@@ -8,6 +8,7 @@ import {
   FLURRY_STAMINA_BONUS,
   FRAGMENT_UPGRADES,
   GEM_UPGRADE_BONUSES,
+  GLEAMING_FLOOR_MULTI_BASE,
   MOD_EXP_MULTIPLIER_AVG,
   MOD_LOOT_MULTIPLIER_AVG,
   MOD_SPEED_ATTACKS_BASE,
@@ -204,6 +205,10 @@ export function getTotalStats(build: ArchBuild): ArchStats {
   if (axolotlQuestOwned) fragment_mult *= 1 + (axolotlQuestRank + 1) * 0.03;
   if (build.archBundleEnabled) fragment_mult *= 1.25;
 
+  // Gleaming Floor (Asc 2): chance per floor; multi = base × (1 + upgrade bonus).
+  const gleaming_floor_chance = clamp01(frag.gleaming_floor_chance ?? 0);
+  const gleaming_floor_mult = GLEAMING_FLOOR_MULTI_BASE * (1 + (frag.gleaming_floor_mult ?? 0));
+
   const all_mod_bonus = luckPts * (SKILL_BONUSES.luck.all_mod_chance ?? 0) + (frag.all_mod_chance ?? 0);
   // Skill-buff "Mod Ch." adds per stat point × buff level (e.g. 10 AGI × 5 lvl × 0.02% = +1% for Agility Skill Buff).
   const agiSkillBuffLvl = Math.trunc(Number(build.fragmentUpgradeLevels["agi_skill_buff"] ?? 0));
@@ -249,6 +254,8 @@ export function getTotalStats(build: ArchBuild): ArchStats {
     xp_mult,
     xp_gain_total: xp_mult * arch_xp_mult,
     fragment_mult,
+    gleaming_floor_chance,
+    gleaming_floor_mult,
     exp_mod_chance: clamp01(exp_mod_chance),
     loot_mod_chance: clamp01(loot_mod_chance),
     speed_mod_chance: clamp01(speed_mod_chance),
@@ -439,6 +446,9 @@ export function calculateFragmentsPerRun(build: ArchBuild, stats: ArchStats, sta
   const lootModChance = stats.loot_mod_chance ?? 0;
   const lootModMultiplier = stats.loot_mod_multiplier ?? MOD_LOOT_MULTIPLIER_AVG;
   const lootModFactor = 1 + lootModChance * (lootModMultiplier - 1);
+  const gleamingChance = stats.gleaming_floor_chance ?? 0;
+  const gleamingMult = stats.gleaming_floor_mult ?? GLEAMING_FLOOR_MULTI_BASE;
+  const gleamingFactor = 1 + gleamingChance * (gleamingMult - 1);
 
   let currentFloor = startingFloor;
   const floorsToProcess = Math.trunc(floors);
@@ -460,7 +470,7 @@ export function calculateFragmentsPerRun(build: ArchBuild, stats: ArchStats, sta
       const blockData = (blockMix as any)[blockType] as { fragment: number } | undefined;
       if (!blockData) continue;
       const baseFrag = blockData.fragment;
-      const fragGain = expectedBlocks * spawnChance * baseFrag * fragmentMult * lootModFactor * floorMult;
+      const fragGain = expectedBlocks * spawnChance * baseFrag * fragmentMult * lootModFactor * gleamingFactor * floorMult;
       out[blockType] += fragGain;
     }
 

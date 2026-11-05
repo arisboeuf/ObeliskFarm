@@ -13,12 +13,12 @@ const dstDir = path.join(webRoot, "public", "sprites", "archaeology");
  * Committed copies live in public/sprites/archaeology/; prepare-assets re-downloads to keep them current.
  */
 const WIKI_SPRITES = [
-  ["fragmentcommon.png", "https://static.wikitide.net/shminerwiki/9/9a/Common_Fragment.png"],
-  ["fragmentrare.png", "https://static.wikitide.net/shminerwiki/7/7d/Rare_Fragment.png"],
-  ["fragmentepic.png", "https://static.wikitide.net/shminerwiki/5/54/Epic_Fragment.png"],
-  ["fragmentlegendary.png", "https://static.wikitide.net/shminerwiki/0/04/Legendary_Fragment.png"],
-  ["fragmentmythic.png", "https://static.wikitide.net/shminerwiki/d/d9/Mythic_Fragment.png"],
-  ["fragmentdivine.png", "https://static.wikitide.net/shminerwiki/d/d4/Divine_Fragment.png"],
+  ["fragmentcommon.png", "https://static.wikitide.net/shminerwiki/d/d5/Arch_Fragment_Common.png"],
+  ["fragmentrare.png", "https://static.wikitide.net/shminerwiki/a/a5/Arch_Fragment_Rare.png"],
+  ["fragmentepic.png", "https://static.wikitide.net/shminerwiki/5/50/Arch_Fragment_Epic.png"],
+  ["fragmentlegendary.png", "https://static.wikitide.net/shminerwiki/1/13/Arch_Fragment_Legendary.png"],
+  ["fragmentmythic.png", "https://static.wikitide.net/shminerwiki/0/04/Arch_Fragment_Mythic.png"],
+  ["fragmentdivine.png", "https://static.wikitide.net/shminerwiki/6/6c/Arch_Fragment_Divine.png"],
   ["Archaeology_Strength.png", "https://static.wikitide.net/shminerwiki/a/a4/Archaeology_Strength.png"],
   ["Archaeology_Agility.png", "https://static.wikitide.net/shminerwiki/5/57/Archaeology_Agility.png"],
   ["Archaeology_Perception.png", "https://static.wikitide.net/shminerwiki/5/52/Archaeology_Perception.png"],

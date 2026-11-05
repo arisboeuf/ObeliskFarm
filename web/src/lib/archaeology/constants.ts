@@ -66,6 +66,9 @@ export const MOD_LOOT_MULTIPLIER_AVG = 2.0;
 export const MOD_SPEED_ATTACKS_BASE = 10.0;
 export const MOD_STAMINA_BONUS_AVG = 3.0;
 
+/** Ascension 2 Gleaming Floor: base fragment multi when a floor procs; upgrade adds +% on top (multiplicative). */
+export const GLEAMING_FLOOR_MULTI_BASE = 3.0;
+
 export const GEM_UPGRADE_BONUSES: Record<
   ArchGemUpgradeKey,
   { max_level: number; stage_unlock: number } & Record<string, number>

@@ -262,6 +262,8 @@ export class MonteCarloArchaeologySimulator {
     const fragment_mult = Number(stats.fragment_mult ?? 1.0);
     const loot_mod_chance = Number(stats.loot_mod_chance ?? 0);
     const loot_mod_multiplier = Number(stats.loot_mod_multiplier ?? 3.5);
+    const gleaming_floor_chance = Number(stats.gleaming_floor_chance ?? 0);
+    const gleaming_floor_mult = Number(stats.gleaming_floor_mult ?? 3.0);
 
     let total_xp = 0;
     const xp_mult = Number(stats.xp_mult ?? 1.0);
@@ -330,6 +332,10 @@ export class MonteCarloArchaeologySimulator {
       let blocks_killed = 0;
       const floor_hits_by_type: Record<string, number> = {};
       const floor_blocks_by_type: Record<string, number> = {};
+
+      // Gleaming Floor: one roll per floor; multiplies fragments from all blocks on that floor.
+      const floor_gleam_mult =
+        gleaming_floor_chance > 0 && this.rng() < gleaming_floor_chance ? gleaming_floor_mult : 1.0;
 
       // For Quake: track all blocks on the floor and their HP
       const floor_blocks: Array<{ block_type: BlockType; tier: BlockTier; armor: number; xp: number; fragment: number; hp: number }> = [];
@@ -433,7 +439,8 @@ export class MonteCarloArchaeologySimulator {
         if (b.block_type !== "dirt") {
           const loot_mod_active = this.rng() < loot_mod_chance;
           const loot_mult = loot_mod_active ? loot_mod_multiplier : 1.0;
-          fragments_by_type[b.block_type] = (fragments_by_type[b.block_type] ?? 0) + b.fragment * fragment_mult * loot_mult;
+          fragments_by_type[b.block_type] =
+            (fragments_by_type[b.block_type] ?? 0) + b.fragment * fragment_mult * loot_mult * floor_gleam_mult;
         }
 
         // Stamina mod (actual range)
